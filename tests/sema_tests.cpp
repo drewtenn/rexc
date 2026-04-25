@@ -63,3 +63,123 @@ TEST_CASE(sema_rejects_unknown_local)
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("unknown name 'value'") != std::string::npos);
 }
+
+TEST_CASE(sema_rejects_unknown_local_inside_unary)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("fn main() -> i32 { return -missing; }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown name 'missing'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_self_referential_let_initializer)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("fn main() -> i32 { let x: i32 = x; return x; }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown name 'x'") != std::string::npos);
+}
+
+TEST_CASE(sema_keeps_local_visible_after_its_initializer)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("fn main() -> i32 { let x: i32 = 1; return x; }\n", diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_core_primitive_literals)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { let a: i8 = -1; let b: u8 = 255; let c: bool = false; let d: char = 'x'; let e: str = \"ok\"; return 0; }\n",
+		diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_initializer_type_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let ok: bool = 1; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("initializer type mismatch: expected 'bool' but got 'i32'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_arithmetic_on_bool)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: bool = true + false; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("arithmetic requires integer operands") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_mixed_integer_arithmetic)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let a: i16 = 1; let b: i32 = 2; return a + b; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("arithmetic operands must have the same type") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_unsigned_unary_negation)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: u8 = -1; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unary '-' requires a signed integer operand") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_out_of_range_integer_literals)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: u8 = 256; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("integer literal does not fit type 'u8'") != std::string::npos);
+}
+
+TEST_CASE(sema_accepts_u64_max_integer_literal)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: u64 = 18446744073709551615; return 0; }\n", diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_integer_literal_above_u64_max)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: u64 = 18446744073709551616; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("integer literal does not fit type 'u64'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_integer_literal_above_i64_max)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i64 = 9223372036854775808; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("integer literal does not fit type 'i64'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_integer_literal_below_i64_min)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i64 = -9223372036854775809; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("integer literal does not fit type 'i64'") != std::string::npos);
+}
+
+TEST_CASE(sema_accepts_i64_min_integer_literal)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i64 = -9223372036854775808; return 0; }\n", diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}

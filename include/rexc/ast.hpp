@@ -2,6 +2,7 @@
 
 #include "rexc/source.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,7 +21,7 @@ struct Parameter {
 };
 
 struct Expr {
-	enum class Kind { Integer, Name, Binary, Call };
+	enum class Kind { Integer, Bool, Char, String, Name, Unary, Binary, Call };
 
 	Expr(Kind kind, SourceLocation location);
 	virtual ~Expr() = default;
@@ -30,9 +31,28 @@ struct Expr {
 };
 
 struct IntegerExpr final : Expr {
-	IntegerExpr(SourceLocation location, int value);
+	IntegerExpr(SourceLocation location, std::int64_t value, std::string literal);
 
-	int value;
+	std::int64_t value;
+	std::string literal;
+};
+
+struct BoolExpr final : Expr {
+	BoolExpr(SourceLocation location, bool value);
+
+	bool value;
+};
+
+struct CharExpr final : Expr {
+	CharExpr(SourceLocation location, char32_t value);
+
+	char32_t value;
+};
+
+struct StringExpr final : Expr {
+	StringExpr(SourceLocation location, std::string value);
+
+	std::string value;
 };
 
 struct NameExpr final : Expr {
@@ -48,6 +68,13 @@ struct BinaryExpr final : Expr {
 	std::string op;
 	std::unique_ptr<Expr> lhs;
 	std::unique_ptr<Expr> rhs;
+};
+
+struct UnaryExpr final : Expr {
+	UnaryExpr(SourceLocation location, std::string op, std::unique_ptr<Expr> operand);
+
+	std::string op;
+	std::unique_ptr<Expr> operand;
 };
 
 struct CallExpr final : Expr {

@@ -19,6 +19,16 @@ build/rexc examples/add.rx -S -o build/add.s
 The generated assembly is GNU assembler-compatible 32-bit x86 text intended for
 the Drunix userland toolchain.
 
+## Core Primitive Types
+
+Rexc supports signed integers (`i8`, `i16`, `i32`, `i64`), unsigned integers
+(`u8`, `u16`, `u32`, `u64`), `bool`, `char`, and `str`.
+
+The i386 backend emits code for `i8`, `i16`, `i32`, `u8`, `u16`, `u32`,
+`bool`, `char`, and `str`. The `i64` and `u64` types parse and type-check, but
+code generation fails with a backend diagnostic because 64-bit integer emission
+is not implemented for i386 yet.
+
 ## Build For Drunix Userland
 
 Rexc currently emits assembly. To build a runnable Drunix userland executable,

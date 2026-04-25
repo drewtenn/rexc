@@ -9,8 +9,24 @@ Expr::Expr(Kind kind, SourceLocation location)
 {
 }
 
-IntegerExpr::IntegerExpr(SourceLocation location, int value)
-	: Expr(Kind::Integer, std::move(location)), value(value)
+IntegerExpr::IntegerExpr(SourceLocation location, std::int64_t value, std::string literal)
+	: Expr(Kind::Integer, std::move(location)), value(value),
+	  literal(std::move(literal))
+{
+}
+
+BoolExpr::BoolExpr(SourceLocation location, bool value)
+	: Expr(Kind::Bool, std::move(location)), value(value)
+{
+}
+
+CharExpr::CharExpr(SourceLocation location, char32_t value)
+	: Expr(Kind::Char, std::move(location)), value(value)
+{
+}
+
+StringExpr::StringExpr(SourceLocation location, std::string value)
+	: Expr(Kind::String, std::move(location)), value(std::move(value))
 {
 }
 
@@ -23,6 +39,12 @@ BinaryExpr::BinaryExpr(SourceLocation location, std::string op,
                        std::unique_ptr<Expr> lhs, std::unique_ptr<Expr> rhs)
 	: Expr(Kind::Binary, std::move(location)), op(std::move(op)),
 	  lhs(std::move(lhs)), rhs(std::move(rhs))
+{
+}
+
+UnaryExpr::UnaryExpr(SourceLocation location, std::string op, std::unique_ptr<Expr> operand)
+	: Expr(Kind::Unary, std::move(location)), op(std::move(op)),
+	  operand(std::move(operand))
 {
 }
 

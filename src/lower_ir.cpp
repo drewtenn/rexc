@@ -1,81 +1,180 @@
 #include "rexc/lower_ir.hpp"
+#include "rexc/types.hpp"
 
 #include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace rexc {
 namespace {
 
-ir::Type lower_type(const ast::TypeName &)
+PrimitiveType i32_type()
 {
-	return ir::Type::I32;
+	return PrimitiveType{PrimitiveKind::SignedInteger, 32};
 }
 
-std::unique_ptr<ir::Value> lower_expr(const ast::Expr &expr)
+ir::Type lower_type(const ast::TypeName &type)
 {
-	switch (expr.kind) {
-	case ast::Expr::Kind::Integer: {
-		const auto &integer = static_cast<const ast::IntegerExpr &>(expr);
-		return std::make_unique<ir::IntegerValue>(integer.value);
-	}
-	case ast::Expr::Kind::Name: {
-		const auto &name = static_cast<const ast::NameExpr &>(expr);
-		return std::make_unique<ir::LocalValue>(name.name);
-	}
-	case ast::Expr::Kind::Binary: {
-		const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
-		return std::make_unique<ir::BinaryValue>(binary.op, lower_expr(*binary.lhs),
-		                                         lower_expr(*binary.rhs));
-	}
-	case ast::Expr::Kind::Call: {
-		const auto &call_expr = static_cast<const ast::CallExpr &>(expr);
-		auto call = std::make_unique<ir::CallValue>(call_expr.callee);
-		for (const auto &argument : call_expr.arguments)
-			call->arguments.push_back(lower_expr(*argument));
-		return call;
-	}
-	}
-
-	return std::make_unique<ir::IntegerValue>(0);
+	auto primitive_type = parse_primitive_type(type.name);
+	if (!primitive_type)
+		throw std::runtime_error("unknown primitive type in IR lowering: " + type.name);
+	return *primitive_type;
 }
 
-std::unique_ptr<ir::Statement> lower_statement(const ast::Stmt &statement)
-{
-	if (statement.kind == ast::Stmt::Kind::Let) {
-		const auto &let = static_cast<const ast::LetStmt &>(statement);
-		return std::make_unique<ir::LetStatement>(let.name, lower_expr(*let.initializer));
+struct FunctionInfo {
+	ir::Type return_type = i32_type();
+	std::vector<ir::Type> parameter_types;
+};
+
+class Lowerer {
+public:
+	explicit Lowerer(const ast::Module &module) : module_(module) {}
+
+	ir::Module run()
+	{
+		build_function_table();
+
+		ir::Module lowered;
+		for (const auto &function : module_.functions)
+			lowered.functions.push_back(lower_function(function));
+		return lowered;
 	}
 
-	const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
-	return std::make_unique<ir::ReturnStatement>(lower_expr(*ret.value));
-}
+private:
+	using Locals = std::unordered_map<std::string, ir::Type>;
 
-ir::Function lower_function(const ast::Function &function)
-{
-	ir::Function lowered;
-	lowered.is_extern = function.is_extern;
-	lowered.name = function.name;
-	lowered.return_type = lower_type(function.return_type);
+	void build_function_table()
+	{
+		for (const auto &function : module_.functions) {
+			FunctionInfo info;
+			info.return_type = lower_type(function.return_type);
+			for (const auto &parameter : function.parameters)
+				info.parameter_types.push_back(lower_type(parameter.type));
+			functions_[function.name] = std::move(info);
+		}
+	}
 
-	for (const auto &parameter : function.parameters)
-		lowered.parameters.push_back({parameter.name, lower_type(parameter.type)});
+	std::unique_ptr<ir::Value> lower_expr(
+		const ast::Expr &expr, const Locals &locals,
+		std::optional<ir::Type> expected = std::nullopt)
+	{
+		switch (expr.kind) {
+		case ast::Expr::Kind::Integer: {
+			const auto &integer = static_cast<const ast::IntegerExpr &>(expr);
+			ir::Type type = expected && is_integer(*expected) ? *expected : i32_type();
+			return std::make_unique<ir::IntegerValue>(type, integer.literal, false);
+		}
+		case ast::Expr::Kind::Bool: {
+			const auto &boolean = static_cast<const ast::BoolExpr &>(expr);
+			return std::make_unique<ir::BoolValue>(boolean.value);
+		}
+		case ast::Expr::Kind::Char: {
+			const auto &character = static_cast<const ast::CharExpr &>(expr);
+			return std::make_unique<ir::CharValue>(character.value);
+		}
+		case ast::Expr::Kind::String: {
+			const auto &string = static_cast<const ast::StringExpr &>(expr);
+			return std::make_unique<ir::StringValue>(string.value);
+		}
+		case ast::Expr::Kind::Name: {
+			const auto &name = static_cast<const ast::NameExpr &>(expr);
+			auto it = locals.find(name.name);
+			if (it == locals.end())
+				throw std::runtime_error("unknown local in IR lowering: " + name.name);
+			return std::make_unique<ir::LocalValue>(name.name, it->second);
+		}
+		case ast::Expr::Kind::Binary: {
+			const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
+			auto lhs = lower_expr(*binary.lhs, locals, expected);
+			ir::Type type = lhs->type;
+			auto rhs = lower_expr(*binary.rhs, locals, type);
+			return std::make_unique<ir::BinaryValue>(binary.op, std::move(lhs),
+			                                         std::move(rhs), type);
+		}
+		case ast::Expr::Kind::Unary:
+			return lower_unary(static_cast<const ast::UnaryExpr &>(expr), locals, expected);
+		case ast::Expr::Kind::Call: {
+			const auto &call_expr = static_cast<const ast::CallExpr &>(expr);
+			auto it = functions_.find(call_expr.callee);
+			if (it == functions_.end())
+				throw std::runtime_error("unknown function in IR lowering: " +
+				                         call_expr.callee);
 
-	for (const auto &statement : function.body)
-		lowered.body.push_back(lower_statement(*statement));
+			auto call = std::make_unique<ir::CallValue>(call_expr.callee, it->second.return_type);
+			for (std::size_t i = 0; i < call_expr.arguments.size(); ++i) {
+				std::optional<ir::Type> parameter_type;
+				if (i < it->second.parameter_types.size())
+					parameter_type = it->second.parameter_types[i];
+				call->arguments.push_back(
+					lower_expr(*call_expr.arguments[i], locals, parameter_type));
+			}
+			return call;
+		}
+		}
 
-	return lowered;
-}
+		throw std::runtime_error("unexpected expression in IR lowering");
+	}
+
+	std::unique_ptr<ir::Value> lower_unary(
+		const ast::UnaryExpr &unary, const Locals &locals,
+		std::optional<ir::Type> expected)
+	{
+		auto operand = lower_expr(*unary.operand, locals, expected);
+		ir::Type type = operand->type;
+		return std::make_unique<ir::UnaryValue>(unary.op, std::move(operand), type);
+	}
+
+	std::unique_ptr<ir::Statement> lower_statement(const ast::Stmt &statement,
+	                                               ir::Type function_return_type,
+	                                               Locals &locals)
+	{
+		if (statement.kind == ast::Stmt::Kind::Let) {
+			const auto &let = static_cast<const ast::LetStmt &>(statement);
+			ir::Type let_type = lower_type(let.type);
+			auto initializer = lower_expr(*let.initializer, locals, let_type);
+			locals[let.name] = let_type;
+			return std::make_unique<ir::LetStatement>(let.name, std::move(initializer));
+		}
+
+		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
+		return std::make_unique<ir::ReturnStatement>(
+			lower_expr(*ret.value, locals, function_return_type));
+	}
+
+	ir::Function lower_function(const ast::Function &function)
+	{
+		ir::Function lowered;
+		lowered.is_extern = function.is_extern;
+		lowered.name = function.name;
+		lowered.return_type = lower_type(function.return_type);
+
+		Locals locals;
+		for (const auto &parameter : function.parameters) {
+			ir::Type parameter_type = lower_type(parameter.type);
+			lowered.parameters.push_back({parameter.name, parameter_type});
+			locals[parameter.name] = parameter_type;
+		}
+
+		for (const auto &statement : function.body) {
+			lowered.body.push_back(
+				lower_statement(*statement, lowered.return_type, locals));
+		}
+
+		return lowered;
+	}
+
+	const ast::Module &module_;
+	std::unordered_map<std::string, FunctionInfo> functions_;
+};
 
 } // namespace
 
 ir::Module lower_to_ir(const ast::Module &module)
 {
-	ir::Module lowered;
-
-	for (const auto &function : module.functions)
-		lowered.functions.push_back(lower_function(function));
-
-	return lowered;
+	return Lowerer(module).run();
 }
 
 } // namespace rexc

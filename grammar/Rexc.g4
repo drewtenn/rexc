@@ -26,7 +26,21 @@ parameter
 	;
 
 type
-	: 'i32'
+	: primitiveType
+	;
+
+primitiveType
+	: 'i8'
+	| 'i16'
+	| 'i32'
+	| 'i64'
+	| 'u8'
+	| 'u16'
+	| 'u32'
+	| 'u64'
+	| 'bool'
+	| 'char'
+	| 'str'
 	;
 
 block
@@ -55,11 +69,19 @@ additive
 	;
 
 multiplicative
-	: primary (('*' | '/') primary)*
+	: unary (('*' | '/') unary)*
+	;
+
+unary
+	: '-' unary
+	| primary
 	;
 
 primary
 	: INTEGER
+	| BOOL
+	| CHAR
+	| STRING
 	| callExpression
 	| IDENT
 	| '(' expression ')'
@@ -73,12 +95,29 @@ argumentList
 	: expression (',' expression)*
 	;
 
+BOOL
+	: 'true'
+	| 'false'
+	;
+
 IDENT
 	: [a-zA-Z_][a-zA-Z0-9_]*
 	;
 
 INTEGER
 	: [0-9]+
+	;
+
+CHAR
+	: '\'' (ESCAPE | ~['\\\r\n]) '\''
+	;
+
+STRING
+	: '"' (ESCAPE | ~["\\\r\n])* '"'
+	;
+
+fragment ESCAPE
+	: '\\' [nrt'"\\]
 	;
 
 WS

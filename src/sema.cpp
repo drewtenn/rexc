@@ -1,11 +1,37 @@
 #include "rexc/sema.hpp"
+#include "rexc/types.hpp"
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace rexc {
 namespace {
+
+PrimitiveType i32_type()
+{
+	return PrimitiveType{PrimitiveKind::SignedInteger, 32};
+}
+
+std::optional<std::uint64_t> parse_decimal_magnitude(const std::string &literal)
+{
+	std::uint64_t value = 0;
+	for (char digit : literal) {
+		std::uint64_t next_digit = static_cast<std::uint64_t>(digit - '0');
+		if (value > (UINT64_MAX - next_digit) / 10)
+			return std::nullopt;
+		value = value * 10 + next_digit;
+	}
+	return value;
+}
+
+std::uint64_t max_signed_magnitude(PrimitiveType type)
+{
+	if (type.bits == 64)
+		return 9223372036854775807ULL;
+	return (1ULL << (type.bits - 1)) - 1;
+}
 
 struct FunctionInfo {
 	const ast::Function *function = nullptr;
@@ -44,56 +70,98 @@ private:
 
 	void analyze_function(const ast::Function &function)
 	{
-		std::unordered_set<std::string> locals;
+		std::unordered_map<std::string, PrimitiveType> locals;
 
 		for (const auto &parameter : function.parameters) {
-			if (!locals.insert(parameter.name).second)
+			PrimitiveType parameter_type = check_type(parameter.type);
+			if (!locals.emplace(parameter.name, parameter_type).second)
 				diagnostics_.error(parameter.location, "duplicate local '" + parameter.name + "'");
-			check_type(parameter.type);
 		}
 
-		check_type(function.return_type);
+		PrimitiveType return_type = check_type(function.return_type);
 
 		for (const auto &statement : function.body)
-			analyze_statement(function, locals, *statement);
+			analyze_statement(return_type, locals, *statement);
 	}
 
-	void analyze_statement(const ast::Function &function, std::unordered_set<std::string> &locals,
+	void analyze_statement(PrimitiveType function_return_type,
+	                       std::unordered_map<std::string, PrimitiveType> &locals,
 	                       const ast::Stmt &statement)
 	{
 		if (statement.kind == ast::Stmt::Kind::Let) {
 			const auto &let = static_cast<const ast::LetStmt &>(statement);
-			if (!locals.insert(let.name).second)
+			PrimitiveType let_type = check_type(let.type);
+			bool duplicate = locals.find(let.name) != locals.end();
+			if (duplicate)
 				diagnostics_.error(let.location, "duplicate local '" + let.name + "'");
-			check_type(let.type);
-			check_expr(locals, *let.initializer);
+			auto initializer_type = check_expr(locals, *let.initializer, let_type);
+			if (initializer_type && *initializer_type != let_type) {
+				diagnostics_.error(let.location, "initializer type mismatch: expected '" +
+				                   format_type(let_type) + "' but got '" +
+				                   format_type(*initializer_type) + "'");
+			}
+			if (!duplicate)
+				locals.emplace(let.name, let_type);
 			return;
 		}
 
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
-		std::string value_type = check_expr(locals, *ret.value);
-		if (value_type != function.return_type.name) {
+		auto value_type = check_expr(locals, *ret.value, function_return_type);
+		if (value_type && *value_type != function_return_type) {
 			diagnostics_.error(ret.location, "return type mismatch: expected '" +
-			                   function.return_type.name + "' but got '" + value_type + "'");
+			                   format_type(function_return_type) + "' but got '" +
+			                   format_type(*value_type) + "'");
 		}
 	}
 
-	std::string check_expr(const std::unordered_set<std::string> &locals, const ast::Expr &expr)
+	std::optional<PrimitiveType> check_expr(
+		const std::unordered_map<std::string, PrimitiveType> &locals, const ast::Expr &expr,
+		std::optional<PrimitiveType> expected = std::nullopt)
 	{
 		switch (expr.kind) {
-		case ast::Expr::Kind::Integer:
-			return "i32";
+		case ast::Expr::Kind::Integer: {
+			const auto &integer = static_cast<const ast::IntegerExpr &>(expr);
+			if (expected && is_integer(*expected)) {
+				check_integer_literal(expr.location, *expected, integer.literal, false);
+				return expected;
+			}
+			check_integer_literal(expr.location, i32_type(), integer.literal, false);
+			return i32_type();
+		}
+		case ast::Expr::Kind::Bool:
+			return PrimitiveType{PrimitiveKind::Bool};
+		case ast::Expr::Kind::Char:
+			return PrimitiveType{PrimitiveKind::Char};
+		case ast::Expr::Kind::String:
+			return PrimitiveType{PrimitiveKind::Str};
 		case ast::Expr::Kind::Name: {
 			const auto &name = static_cast<const ast::NameExpr &>(expr);
-			if (locals.find(name.name) == locals.end())
+			auto it = locals.find(name.name);
+			if (it == locals.end()) {
 				diagnostics_.error(name.location, "unknown name '" + name.name + "'");
-			return "i32";
+				return std::nullopt;
+			}
+			return it->second;
 		}
 		case ast::Expr::Kind::Binary: {
 			const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
-			check_expr(locals, *binary.lhs);
-			check_expr(locals, *binary.rhs);
-			return "i32";
+			auto lhs_type = check_expr(locals, *binary.lhs, expected);
+			auto rhs_type = check_expr(locals, *binary.rhs, lhs_type ? lhs_type : expected);
+			if (!lhs_type || !rhs_type)
+				return lhs_type ? lhs_type : rhs_type;
+			if (!is_integer(*lhs_type) || !is_integer(*rhs_type)) {
+				diagnostics_.error(binary.location, "arithmetic requires integer operands");
+				return *lhs_type;
+			}
+			if (*lhs_type != *rhs_type) {
+				diagnostics_.error(binary.location, "arithmetic operands must have the same type");
+				return *lhs_type;
+			}
+			return lhs_type;
+		}
+		case ast::Expr::Kind::Unary: {
+			const auto &unary = static_cast<const ast::UnaryExpr &>(expr);
+			return check_unary_expr(locals, unary, expected);
 		}
 		case ast::Expr::Kind::Call: {
 			const auto &call = static_cast<const ast::CallExpr &>(expr);
@@ -101,26 +169,93 @@ private:
 			if (it == functions_.end()) {
 				diagnostics_.error(call.location, "unknown function '" + call.callee + "'");
 			} else {
-				std::size_t expected = it->second.function->parameters.size();
-				if (expected != call.arguments.size()) {
+				std::size_t expected_count = it->second.function->parameters.size();
+				if (expected_count != call.arguments.size()) {
 					diagnostics_.error(call.location, "function '" + call.callee + "' expected " +
-					                   std::to_string(expected) + " arguments but got " +
+					                   std::to_string(expected_count) + " arguments but got " +
 					                   std::to_string(call.arguments.size()));
 				}
+				for (std::size_t i = 0; i < call.arguments.size(); ++i) {
+					std::optional<PrimitiveType> parameter_type;
+					if (i < expected_count)
+						parameter_type = check_type(it->second.function->parameters[i].type);
+					auto argument_type = check_expr(locals, *call.arguments[i], parameter_type);
+					if (parameter_type && argument_type && *argument_type != *parameter_type) {
+						diagnostics_.error(call.arguments[i]->location,
+						                   "argument type mismatch: expected '" +
+						                   format_type(*parameter_type) + "' but got '" +
+						                   format_type(*argument_type) + "'");
+					}
+				}
+				return check_type(it->second.function->return_type);
 			}
 			for (const auto &argument : call.arguments)
 				check_expr(locals, *argument);
-			return "i32";
+			return i32_type();
 		}
+		default:
+			break;
 		}
 
-		return "i32";
+		return i32_type();
 	}
 
-	void check_type(const ast::TypeName &type)
+	std::optional<PrimitiveType> check_unary_expr(
+		const std::unordered_map<std::string, PrimitiveType> &locals, const ast::UnaryExpr &unary,
+		std::optional<PrimitiveType> expected)
 	{
-		if (type.name != "i32")
+		if (unary.op != "-")
+			return check_expr(locals, *unary.operand, expected);
+
+		std::optional<PrimitiveType> operand_expected = expected;
+		if (expected && !is_signed_integer(*expected)) {
+			diagnostics_.error(unary.location, "unary '-' requires a signed integer operand");
+			operand_expected = std::nullopt;
+		}
+
+		if (unary.operand->kind == ast::Expr::Kind::Integer && operand_expected &&
+		    is_signed_integer(*operand_expected)) {
+			const auto &integer = static_cast<const ast::IntegerExpr &>(*unary.operand);
+			check_integer_literal(unary.location, *operand_expected, integer.literal, true);
+			return operand_expected;
+		}
+
+		auto operand_type = check_expr(locals, *unary.operand, operand_expected);
+		if (!operand_type)
+			return std::nullopt;
+		if (!is_signed_integer(*operand_type)) {
+			diagnostics_.error(unary.location, "unary '-' requires a signed integer operand");
+			return operand_type;
+		}
+		return operand_type;
+	}
+
+	void check_integer_literal(SourceLocation location, PrimitiveType type,
+	                           const std::string &literal, bool is_negative)
+	{
+		bool fits = false;
+		auto magnitude = parse_decimal_magnitude(literal);
+		if (magnitude) {
+			if (is_unsigned_integer(type)) {
+				fits = !is_negative && unsigned_integer_literal_fits(type, *magnitude);
+			} else if (is_signed_integer(type)) {
+				std::uint64_t max = max_signed_magnitude(type);
+				fits = is_negative ? *magnitude <= max + 1 : *magnitude <= max;
+			}
+		}
+
+		if (!fits)
+			diagnostics_.error(location, "integer literal does not fit type '" + format_type(type) + "'");
+	}
+
+	PrimitiveType check_type(const ast::TypeName &type)
+	{
+		auto primitive_type = parse_primitive_type(type.name);
+		if (!primitive_type) {
 			diagnostics_.error(type.location, "unknown type '" + type.name + "'");
+			return i32_type();
+		}
+		return *primitive_type;
 	}
 
 	const ast::Module &module_;

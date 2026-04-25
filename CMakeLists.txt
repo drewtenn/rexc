@@ -16,6 +16,7 @@ add_library(rexc_core
 	src/ir.cpp
 	src/lower_ir.cpp
 	src/codegen_x86.cpp
+	src/types.cpp
 )
 
 target_include_directories(rexc_core PUBLIC include)
@@ -28,6 +29,7 @@ add_executable(rexc_tests
 	tests/sema_tests.cpp
 	tests/ir_tests.cpp
 	tests/codegen_tests.cpp
+	tests/types_tests.cpp
 )
 
 target_include_directories(rexc_tests PRIVATE tests)
