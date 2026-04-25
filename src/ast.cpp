@@ -9,8 +9,9 @@ Expr::Expr(Kind kind, SourceLocation location)
 {
 }
 
-IntegerExpr::IntegerExpr(SourceLocation location, std::int64_t value)
-	: Expr(Kind::Integer, std::move(location)), value(value)
+IntegerExpr::IntegerExpr(SourceLocation location, std::int64_t value, std::string literal)
+	: Expr(Kind::Integer, std::move(location)), value(value),
+	  literal(std::move(literal))
 {
 }
 

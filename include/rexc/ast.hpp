@@ -31,9 +31,10 @@ struct Expr {
 };
 
 struct IntegerExpr final : Expr {
-	IntegerExpr(SourceLocation location, std::int64_t value);
+	IntegerExpr(SourceLocation location, std::int64_t value, std::string literal);
 
 	std::int64_t value;
+	std::string literal;
 };
 
 struct BoolExpr final : Expr {

@@ -485,7 +485,8 @@ private:
 		if (at(TokenKind::Integer)) {
 			Token token = advance();
 			return std::make_unique<ast::IntegerExpr>(source_.location_at(token.offset),
-			                                          std::strtoll(token.text.c_str(), nullptr, 10));
+			                                          std::strtoll(token.text.c_str(), nullptr, 10),
+			                                          token.text);
 		}
 
 		if (at(TokenKind::Bool)) {
@@ -523,7 +524,7 @@ private:
 
 		error_here("expected expression");
 		Token token = advance();
-		return std::make_unique<ast::IntegerExpr>(source_.location_at(token.offset), 0);
+		return std::make_unique<ast::IntegerExpr>(source_.location_at(token.offset), 0, "0");
 	}
 
 	std::unique_ptr<ast::Expr> finish_call(const Token &callee)

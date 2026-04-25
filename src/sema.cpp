@@ -14,6 +14,25 @@ PrimitiveType i32_type()
 	return PrimitiveType{PrimitiveKind::SignedInteger, 32};
 }
 
+std::optional<std::uint64_t> parse_decimal_magnitude(const std::string &literal)
+{
+	std::uint64_t value = 0;
+	for (char digit : literal) {
+		std::uint64_t next_digit = static_cast<std::uint64_t>(digit - '0');
+		if (value > (UINT64_MAX - next_digit) / 10)
+			return std::nullopt;
+		value = value * 10 + next_digit;
+	}
+	return value;
+}
+
+std::uint64_t max_signed_magnitude(PrimitiveType type)
+{
+	if (type.bits == 64)
+		return 9223372036854775807ULL;
+	return (1ULL << (type.bits - 1)) - 1;
+}
+
 struct FunctionInfo {
 	const ast::Function *function = nullptr;
 };
@@ -100,9 +119,10 @@ private:
 		case ast::Expr::Kind::Integer: {
 			const auto &integer = static_cast<const ast::IntegerExpr &>(expr);
 			if (expected && is_integer(*expected)) {
-				check_integer_literal(expr.location, *expected, integer.value);
+				check_integer_literal(expr.location, *expected, integer.literal, false);
 				return expected;
 			}
+			check_integer_literal(expr.location, i32_type(), integer.literal, false);
 			return i32_type();
 		}
 		case ast::Expr::Kind::Bool:
@@ -193,10 +213,7 @@ private:
 		if (unary.operand->kind == ast::Expr::Kind::Integer && operand_expected &&
 		    is_signed_integer(*operand_expected)) {
 			const auto &integer = static_cast<const ast::IntegerExpr &>(*unary.operand);
-			if (integer.value > 0)
-				check_integer_literal(unary.location, *operand_expected, -integer.value);
-			else
-				check_integer_literal(unary.location, *operand_expected, integer.value);
+			check_integer_literal(unary.location, *operand_expected, integer.literal, true);
 			return operand_expected;
 		}
 
@@ -210,13 +227,19 @@ private:
 		return operand_type;
 	}
 
-	void check_integer_literal(SourceLocation location, PrimitiveType type, std::int64_t value)
+	void check_integer_literal(SourceLocation location, PrimitiveType type,
+	                           const std::string &literal, bool is_negative)
 	{
 		bool fits = false;
-		if (is_unsigned_integer(type) && value >= 0)
-			fits = unsigned_integer_literal_fits(type, static_cast<std::uint64_t>(value));
-		else
-			fits = integer_literal_fits(type, value);
+		auto magnitude = parse_decimal_magnitude(literal);
+		if (magnitude) {
+			if (is_unsigned_integer(type)) {
+				fits = !is_negative && unsigned_integer_literal_fits(type, *magnitude);
+			} else if (is_signed_integer(type)) {
+				std::uint64_t max = max_signed_magnitude(type);
+				fits = is_negative ? *magnitude <= max + 1 : *magnitude <= max;
+			}
+		}
 
 		if (!fits)
 			diagnostics_.error(location, "integer literal does not fit type '" + format_type(type) + "'");

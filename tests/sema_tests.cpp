@@ -123,3 +123,43 @@ TEST_CASE(sema_rejects_out_of_range_integer_literals)
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("integer literal does not fit type 'u8'") != std::string::npos);
 }
+
+TEST_CASE(sema_accepts_u64_max_integer_literal)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: u64 = 18446744073709551615; return 0; }\n", diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_integer_literal_above_u64_max)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: u64 = 18446744073709551616; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("integer literal does not fit type 'u64'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_integer_literal_above_i64_max)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i64 = 9223372036854775808; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("integer literal does not fit type 'i64'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_integer_literal_below_i64_min)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i64 = -9223372036854775809; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("integer literal does not fit type 'i64'") != std::string::npos);
+}
+
+TEST_CASE(sema_accepts_i64_min_integer_literal)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i64 = -9223372036854775808; return 0; }\n", diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
