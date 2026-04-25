@@ -34,3 +34,23 @@ target_include_directories(rexc_tests PRIVATE tests)
 target_link_libraries(rexc_tests PRIVATE rexc_core)
 
 add_test(NAME rexc_tests COMMAND rexc_tests)
+
+add_executable(rexc
+	src/main.cpp
+)
+
+target_link_libraries(rexc PRIVATE rexc_core)
+
+add_test(
+	NAME cli_smoke
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_smoke.sh"
+	        "${CMAKE_CURRENT_BINARY_DIR}"
+	        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+add_test(
+	NAME assemble_smoke
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/assemble_smoke.sh"
+	        "${CMAKE_CURRENT_BINARY_DIR}"
+	        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
