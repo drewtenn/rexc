@@ -39,3 +39,11 @@ TEST_CASE(codegen_emits_call_and_caller_stack_cleanup)
 	REQUIRE(assembly.find("addl $8, %esp") != std::string::npos);
 	REQUIRE(assembly.find("-4(%ebp)") != std::string::npos);
 }
+
+TEST_CASE(codegen_lowers_unary_minus_as_subtraction)
+{
+	auto assembly = compile_to_assembly("fn neg(x: i32) -> i32 { return -x; }\n");
+
+	REQUIRE(assembly.find("movl $0, %eax") != std::string::npos);
+	REQUIRE(assembly.find("subl %ecx, %eax") != std::string::npos);
+}

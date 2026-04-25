@@ -29,10 +29,9 @@ std::unique_ptr<ir::Value> lower_expr(const ast::Expr &expr)
 	}
 	case ast::Expr::Kind::Unary: {
 		const auto &unary = static_cast<const ast::UnaryExpr &>(expr);
-		if (unary.op == "-" && unary.operand->kind == ast::Expr::Kind::Integer) {
-			const auto &integer = static_cast<const ast::IntegerExpr &>(*unary.operand);
-			return std::make_unique<ir::IntegerValue>(-integer.value);
-		}
+		if (unary.op == "-")
+			return std::make_unique<ir::BinaryValue>("-", std::make_unique<ir::IntegerValue>(0),
+			                                         lower_expr(*unary.operand));
 		return lower_expr(*unary.operand);
 	}
 	case ast::Expr::Kind::Call: {
