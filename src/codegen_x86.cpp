@@ -96,9 +96,28 @@ private:
 		switch (value.kind) {
 		case ir::Value::Kind::Integer: {
 			const auto &integer = static_cast<const ir::IntegerValue &>(value);
-			out_ << "\tmovl $" << integer.value << ", %eax\n";
+			out_ << "\tmovl $";
+			if (integer.is_negative)
+				out_ << '-';
+			out_ << integer.literal << ", %eax\n";
 			return;
 		}
+		case ir::Value::Kind::Bool: {
+			const auto &boolean = static_cast<const ir::BoolValue &>(value);
+			out_ << "\tmovl $" << (boolean.value ? 1 : 0) << ", %eax\n";
+			return;
+		}
+		case ir::Value::Kind::Char: {
+			const auto &character = static_cast<const ir::CharValue &>(value);
+			out_ << "\tmovl $" << static_cast<unsigned int>(character.value) << ", %eax\n";
+			return;
+		}
+		case ir::Value::Kind::String:
+			out_ << "\tmovl $0, %eax\n";
+			return;
+		case ir::Value::Kind::Unary:
+			emit_unary(static_cast<const ir::UnaryValue &>(value), frame);
+			return;
 		case ir::Value::Kind::Local: {
 			const auto &local = static_cast<const ir::LocalValue &>(value);
 			out_ << "\tmovl " << frame.slots.at(local.name) << "(%ebp), %eax\n";
@@ -111,6 +130,13 @@ private:
 			emit_call(static_cast<const ir::CallValue &>(value), frame);
 			return;
 		}
+	}
+
+	void emit_unary(const ir::UnaryValue &unary, const Frame &frame)
+	{
+		emit_value(*unary.operand, frame);
+		if (unary.op == "-")
+			out_ << "\tnegl %eax\n";
 	}
 
 	void emit_binary(const ir::BinaryValue &binary, const Frame &frame)

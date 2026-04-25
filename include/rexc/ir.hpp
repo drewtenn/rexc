@@ -1,15 +1,18 @@
 #pragma once
 
+#include "rexc/types.hpp"
+
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace rexc::ir {
 
-enum class Type { I32 };
+using Type = PrimitiveType;
 
 struct Value {
-	enum class Kind { Integer, Local, Binary, Call };
+	enum class Kind { Integer, Bool, Char, String, Local, Unary, Binary, Call };
 
 	Value(Kind kind, Type type);
 	virtual ~Value() = default;
@@ -19,19 +22,46 @@ struct Value {
 };
 
 struct IntegerValue final : Value {
-	explicit IntegerValue(int value);
+	IntegerValue(Type type, std::string literal, bool is_negative);
 
-	int value;
+	std::string literal;
+	bool is_negative = false;
+};
+
+struct BoolValue final : Value {
+	explicit BoolValue(bool value);
+
+	bool value = false;
+};
+
+struct CharValue final : Value {
+	explicit CharValue(char32_t value);
+
+	char32_t value = U'\0';
+};
+
+struct StringValue final : Value {
+	explicit StringValue(std::string value);
+
+	std::string value;
 };
 
 struct LocalValue final : Value {
-	explicit LocalValue(std::string name);
+	LocalValue(std::string name, Type type);
 
 	std::string name;
 };
 
+struct UnaryValue final : Value {
+	UnaryValue(std::string op, std::unique_ptr<Value> operand, Type type);
+
+	std::string op;
+	std::unique_ptr<Value> operand;
+};
+
 struct BinaryValue final : Value {
-	BinaryValue(std::string op, std::unique_ptr<Value> lhs, std::unique_ptr<Value> rhs);
+	BinaryValue(std::string op, std::unique_ptr<Value> lhs, std::unique_ptr<Value> rhs,
+	            Type type);
 
 	std::string op;
 	std::unique_ptr<Value> lhs;
@@ -39,7 +69,7 @@ struct BinaryValue final : Value {
 };
 
 struct CallValue final : Value {
-	explicit CallValue(std::string callee);
+	CallValue(std::string callee, Type type);
 
 	std::string callee;
 	std::vector<std::unique_ptr<Value>> arguments;
@@ -69,14 +99,14 @@ struct ReturnStatement final : Statement {
 
 struct Parameter {
 	std::string name;
-	Type type = Type::I32;
+	Type type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
 };
 
 struct Function {
 	bool is_extern = false;
 	std::string name;
 	std::vector<Parameter> parameters;
-	Type return_type = Type::I32;
+	Type return_type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
 	std::vector<std::unique_ptr<Statement>> body;
 };
 
