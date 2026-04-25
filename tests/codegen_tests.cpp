@@ -92,3 +92,14 @@ TEST_CASE(codegen_rejects_string_literals_until_rodata_codegen_exists)
 		        std::string::npos);
 	}
 }
+
+TEST_CASE(codegen_rejects_string_signatures_until_abi_codegen_exists)
+{
+	try {
+		(void)compile_to_assembly("fn f(s: str) -> i32 { return 0; }\n");
+		REQUIRE(false);
+	} catch (const std::runtime_error &err) {
+		REQUIRE(std::string(err.what()).find("string code generation is not implemented") !=
+		        std::string::npos);
+	}
+}

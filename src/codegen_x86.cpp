@@ -155,14 +155,14 @@ private:
 	void guard_supported_value(const ir::Value &value)
 	{
 		guard_supported_type(value.type);
-		if (value.type.kind == PrimitiveKind::Str)
-			throw std::runtime_error("string code generation is not implemented");
 	}
 
 	void guard_supported_type(ir::Type type)
 	{
 		if (is_integer(type) && type.bits == 64)
 			throw std::runtime_error("64-bit integer code generation is not implemented");
+		if (type.kind == PrimitiveKind::Str)
+			throw std::runtime_error("string code generation is not implemented");
 	}
 
 	void emit_unary(const ir::UnaryValue &unary, const Frame &frame)
