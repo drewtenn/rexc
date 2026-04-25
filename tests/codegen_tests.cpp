@@ -230,6 +230,46 @@ TEST_CASE(codegen_i386_emits_comparison_result)
 	REQUIRE(assembly.find("movzbl %al, %eax") != std::string::npos);
 }
 
+TEST_CASE(codegen_i386_emits_unary_not)
+{
+	auto assembly = compile_to_assembly("fn main() -> bool { return !false; }\n");
+
+	REQUIRE(assembly.find("cmpb $0, %al") != std::string::npos);
+	REQUIRE(assembly.find("sete %al") != std::string::npos);
+	REQUIRE(assembly.find("movzbl %al, %eax") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_short_circuit_and)
+{
+	auto assembly = compile_to_assembly(
+	    "extern fn fail() -> bool;\n"
+	    "fn main() -> bool { return false && fail(); }\n");
+
+	auto branch = assembly.find("je .L_logic_false_");
+	auto call = assembly.find("call fail");
+	REQUIRE(branch != std::string::npos);
+	REQUIRE(call != std::string::npos);
+	REQUIRE(branch < call);
+	REQUIRE(assembly.find(".L_logic_false_") != std::string::npos);
+	REQUIRE(assembly.find(".L_logic_end_") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_short_circuit_or)
+{
+	auto assembly = compile_to_assembly(
+	    "extern fn fail() -> bool;\n"
+	    "fn main() -> bool { return true || fail(); }\n",
+	    rexc::CodegenTarget::X86_64);
+
+	auto branch = assembly.find("jne .L_logic_true_");
+	auto call = assembly.find("call fail");
+	REQUIRE(branch != std::string::npos);
+	REQUIRE(call != std::string::npos);
+	REQUIRE(branch < call);
+	REQUIRE(assembly.find(".L_logic_true_") != std::string::npos);
+	REQUIRE(assembly.find(".L_logic_end_") != std::string::npos);
+}
+
 TEST_CASE(codegen_i386_emits_if_else_comparison_branch)
 {
 	auto assembly = compile_to_assembly(

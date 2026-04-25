@@ -209,6 +209,34 @@ TEST_CASE(sema_rejects_mixed_integer_comparisons)
 	        std::string::npos);
 }
 
+TEST_CASE(sema_accepts_boolean_operators)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> bool { return !false && (1 < 2 || false); }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_unary_not_on_non_bool)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> bool { return !1; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unary '!' requires a bool operand") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_logical_operator_on_non_bool)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> bool { return true && 1; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("logical operator requires bool operands") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_accepts_if_else_with_bool_condition)
 {
 	rexc::Diagnostics diagnostics;

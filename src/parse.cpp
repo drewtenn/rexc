@@ -244,7 +244,27 @@ private:
 
 	std::unique_ptr<ast::Expr> build_expression(RexcParser::ExpressionContext *context)
 	{
-		return build_comparison(context->comparison());
+		return build_logical_or(context->logicalOr());
+	}
+
+	std::unique_ptr<ast::Expr> build_logical_or(RexcParser::LogicalOrContext *context)
+	{
+		auto operands = context->logicalAnd();
+		auto lhs = build_logical_and(operands[0]);
+		for (std::size_t i = 1; i < operands.size(); ++i)
+			lhs = build_binary(context, 2 * i - 1, std::move(lhs),
+			                   build_logical_and(operands[i]));
+		return lhs;
+	}
+
+	std::unique_ptr<ast::Expr> build_logical_and(RexcParser::LogicalAndContext *context)
+	{
+		auto operands = context->comparison();
+		auto lhs = build_comparison(operands[0]);
+		for (std::size_t i = 1; i < operands.size(); ++i)
+			lhs = build_binary(context, 2 * i - 1, std::move(lhs),
+			                   build_comparison(operands[i]));
+		return lhs;
 	}
 
 	std::unique_ptr<ast::Expr> build_comparison(RexcParser::ComparisonContext *context)

@@ -212,6 +212,32 @@ TEST_CASE(lowering_lowers_comparison_as_bool_value)
 	REQUIRE_EQ(binary.rhs->type, i32_type);
 }
 
+TEST_CASE(lowering_lowers_boolean_operators_as_bool_values)
+{
+	rexc::SourceFile source(
+	    "test.rx", "fn main() -> bool { return !false || true && false; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Binary);
+	REQUIRE_EQ(ret.value->type, rexc::PrimitiveType{rexc::PrimitiveKind::Bool});
+	const auto &logical_or = static_cast<const rexc::ir::BinaryValue &>(*ret.value);
+	REQUIRE_EQ(logical_or.op, std::string("||"));
+	REQUIRE_EQ(logical_or.lhs->kind, rexc::ir::Value::Kind::Unary);
+	const auto &logical_not = static_cast<const rexc::ir::UnaryValue &>(*logical_or.lhs);
+	REQUIRE_EQ(logical_not.op, std::string("!"));
+	REQUIRE_EQ(logical_not.type, rexc::PrimitiveType{rexc::PrimitiveKind::Bool});
+	REQUIRE_EQ(logical_or.rhs->kind, rexc::ir::Value::Kind::Binary);
+	const auto &logical_and = static_cast<const rexc::ir::BinaryValue &>(*logical_or.rhs);
+	REQUIRE_EQ(logical_and.op, std::string("&&"));
+	REQUIRE_EQ(logical_and.type, rexc::PrimitiveType{rexc::PrimitiveKind::Bool});
+}
+
 TEST_CASE(lowering_lowers_if_else_statement)
 {
 	rexc::SourceFile source(

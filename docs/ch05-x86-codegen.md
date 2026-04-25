@@ -65,6 +65,22 @@ is false. The result is then zero-extended back into the accumulator-sized
 register. Signed comparisons use signed condition codes; unsigned comparisons
 use unsigned ones.
 
+### Boolean Operators and Short-Circuit Jumps
+
+Unary `!` is a small boolean transformation: emit the operand, compare the low
+byte against zero, set `%al` when the value was false, and zero-extend the
+result back into the full accumulator register.
+
+The binary boolean operators are more interesting because `&&` and `||`
+short-circuit. For `&&`, Rexc emits the left operand and jumps directly to the
+false label if it is zero. Only a true left operand lets execution reach the
+right operand. For `||`, the shape is reversed: a true left operand jumps
+directly to the true label. In both cases, the final labels materialize a
+normal `0` or `1` result in the accumulator.
+
+That means a Rexc expression such as `ready && expensive()` preserves the usual
+runtime promise: `expensive` is called only when `ready` is true.
+
 ### Control Flow Becomes Labels and Jumps
 
 An `if/else` statement arrives in IR as a boolean condition plus two statement
@@ -111,10 +127,11 @@ That creates the usual loop shape:
 ### Where the Compiler Is by the End of Chapter 5
 
 Rexc can now emit assembly for typed functions, locals, returns, calls,
-arithmetic, division, comparisons, strings, assignment, `if/else` branches, and
-`while` loops with `break` and `continue`. The i386 target is the default path
-for the current Drunix user runtime. The x86_64 target emits 64-bit
-Linux-compatible assembly using the System V calling convention.
+arithmetic, division, comparisons, boolean operators, strings, assignment,
+`if/else` branches, and `while` loops with `break` and `continue`. The i386
+target is the default path for the current Drunix user runtime. The x86_64
+target emits 64-bit Linux-compatible assembly using the System V calling
+convention.
 
 The compiler still has not produced an executable by itself. Assembly is the
 input to the assembler, and the assembler produces an object file. To become a

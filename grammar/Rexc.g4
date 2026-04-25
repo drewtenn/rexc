@@ -87,7 +87,15 @@ continueStatement
 	;
 
 expression
-	: comparison
+	: logicalOr
+	;
+
+logicalOr
+	: logicalAnd ('||' logicalAnd)*
+	;
+
+logicalAnd
+	: comparison ('&&' comparison)*
 	;
 
 comparison
@@ -104,6 +112,7 @@ multiplicative
 
 unary
 	: '-' unary
+	| '!' unary
 	| primary
 	;
 

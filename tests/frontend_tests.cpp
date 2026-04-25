@@ -111,6 +111,31 @@ TEST_CASE(parser_accepts_comparisons)
 	REQUIRE_EQ(binary.op, std::string("<="));
 }
 
+TEST_CASE(parser_accepts_boolean_operators_with_precedence)
+{
+	rexc::SourceFile source(
+	    "test.rx", "fn main() -> bool { return !true || false && 1 < 2; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &ret =
+	    static_cast<const rexc::ast::ReturnStmt &>(*result.module().functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Binary);
+	const auto &logical_or = static_cast<const rexc::ast::BinaryExpr &>(*ret.value);
+	REQUIRE_EQ(logical_or.op, std::string("||"));
+	REQUIRE_EQ(logical_or.lhs->kind, rexc::ast::Expr::Kind::Unary);
+	const auto &logical_not = static_cast<const rexc::ast::UnaryExpr &>(*logical_or.lhs);
+	REQUIRE_EQ(logical_not.op, std::string("!"));
+	REQUIRE_EQ(logical_or.rhs->kind, rexc::ast::Expr::Kind::Binary);
+	const auto &logical_and = static_cast<const rexc::ast::BinaryExpr &>(*logical_or.rhs);
+	REQUIRE_EQ(logical_and.op, std::string("&&"));
+	REQUIRE_EQ(logical_and.rhs->kind, rexc::ast::Expr::Kind::Binary);
+	const auto &comparison = static_cast<const rexc::ast::BinaryExpr &>(*logical_and.rhs);
+	REQUIRE_EQ(comparison.op, std::string("<"));
+}
+
 TEST_CASE(parser_accepts_if_else_statements)
 {
 	rexc::SourceFile source(

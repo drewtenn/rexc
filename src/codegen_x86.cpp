@@ -59,6 +59,11 @@ bool is_comparison_operator(const std::string &op)
 	       op == ">=";
 }
 
+bool is_logical_operator(const std::string &op)
+{
+	return op == "&&" || op == "||";
+}
+
 std::string canonical_decimal_literal(const std::string &literal)
 {
 	std::size_t first_non_zero = literal.find_first_not_of('0');
@@ -506,12 +511,23 @@ private:
 	void emit_unary(const ir::UnaryValue &unary, const Frame &frame, const SlotMap &slots)
 	{
 		emit_value(*unary.operand, frame, slots);
-		if (unary.op == "-")
+		if (unary.op == "-") {
 			out_ << "\t" << negate_instruction() << " " << accumulator_register() << "\n";
+		} else if (unary.op == "!") {
+			out_ << "\tcmpb $0, %al\n";
+			out_ << "\tsete %al\n";
+			out_ << "\t" << zero_extend_bool_instruction() << " %al, "
+			     << accumulator_register() << "\n";
+		}
 	}
 
 	void emit_binary(const ir::BinaryValue &binary, const Frame &frame, const SlotMap &slots)
 	{
+		if (is_logical_operator(binary.op)) {
+			emit_logical_binary(binary, frame, slots);
+			return;
+		}
+
 		emit_value(*binary.lhs, frame, slots);
 		emit_push_accumulator();
 		emit_value(*binary.rhs, frame, slots);
@@ -546,6 +562,54 @@ private:
 				     << scratch_register() << "\n";
 			}
 		}
+	}
+
+	void emit_logical_binary(const ir::BinaryValue &binary, const Frame &frame,
+	                         const SlotMap &slots)
+	{
+		if (binary.op == "&&") {
+			emit_logical_and(binary, frame, slots);
+			return;
+		}
+		emit_logical_or(binary, frame, slots);
+	}
+
+	void emit_logical_and(const ir::BinaryValue &binary, const Frame &frame,
+	                      const SlotMap &slots)
+	{
+		std::string false_label = make_label(".L_logic_false_");
+		std::string end_label = make_label(".L_logic_end_");
+
+		emit_value(*binary.lhs, frame, slots);
+		out_ << "\tcmpb $0, %al\n";
+		out_ << "\tje " << false_label << "\n";
+		emit_value(*binary.rhs, frame, slots);
+		out_ << "\tcmpb $0, %al\n";
+		out_ << "\tje " << false_label << "\n";
+		out_ << "\t" << move_instruction() << " $1, " << accumulator_register() << "\n";
+		out_ << "\tjmp " << end_label << "\n";
+		out_ << false_label << ":\n";
+		out_ << "\t" << move_instruction() << " $0, " << accumulator_register() << "\n";
+		out_ << end_label << ":\n";
+	}
+
+	void emit_logical_or(const ir::BinaryValue &binary, const Frame &frame,
+	                     const SlotMap &slots)
+	{
+		std::string true_label = make_label(".L_logic_true_");
+		std::string end_label = make_label(".L_logic_end_");
+
+		emit_value(*binary.lhs, frame, slots);
+		out_ << "\tcmpb $0, %al\n";
+		out_ << "\tjne " << true_label << "\n";
+		emit_value(*binary.rhs, frame, slots);
+		out_ << "\tcmpb $0, %al\n";
+		out_ << "\tjne " << true_label << "\n";
+		out_ << "\t" << move_instruction() << " $0, " << accumulator_register() << "\n";
+		out_ << "\tjmp " << end_label << "\n";
+		out_ << true_label << ":\n";
+		out_ << "\t" << move_instruction() << " $1, " << accumulator_register() << "\n";
+		out_ << end_label << ":\n";
 	}
 
 	void emit_call(const ir::CallValue &call, const Frame &frame, const SlotMap &slots)

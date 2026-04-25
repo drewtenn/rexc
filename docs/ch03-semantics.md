@@ -101,14 +101,21 @@ same type. Comparison operators also require same-typed integer operands, but
 they produce `bool`. An `if` or `while` condition must already be `bool`; Rexc
 does not silently treat integers as truthy or falsy.
 
+Boolean operators live fully in the `bool` world. Unary `!` requires a `bool`
+operand and produces `bool`. The `&&` and `||` operators also require both
+operands to be `bool` and produce `bool`. Semantic analysis checks both sides
+even though the backend later emits short-circuit jumps, because both operands
+must be valid Rexc expressions before runtime control flow matters.
+
 ### Where the Compiler Is by the End of Chapter 3
 
 Rexc can now reject programs that are grammatically valid but semantically
 wrong. It knows which functions exist, which locals are visible, which primitive
 types are valid, which calls match their signatures, and which expressions
 produce which types. It also knows which locals are mutable, which assignments
-are legal, which branch and loop conditions are boolean, and which `break` and
-`continue` statements are actually inside loops.
+are legal, which logical expressions are boolean, which branch and loop
+conditions are boolean, and which `break` and `continue` statements are
+actually inside loops.
 
 The compiler has not emitted anything yet. It still holds the source-shaped AST,
 now checked for meaning. The next step is to lower that tree into a smaller

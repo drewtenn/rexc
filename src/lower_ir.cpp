@@ -34,6 +34,11 @@ bool is_comparison_operator(const std::string &op)
 	       op == ">=";
 }
 
+bool is_logical_operator(const std::string &op)
+{
+	return op == "&&" || op == "||";
+}
+
 ir::Type lower_type(const ast::TypeName &type)
 {
 	auto primitive_type = parse_primitive_type(type.name);
@@ -108,6 +113,12 @@ private:
 		}
 		case ast::Expr::Kind::Binary: {
 			const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
+			if (is_logical_operator(binary.op)) {
+				return std::make_unique<ir::BinaryValue>(
+					binary.op, lower_expr(*binary.lhs, locals, bool_type()),
+					lower_expr(*binary.rhs, locals, bool_type()), bool_type());
+			}
+
 			auto lhs = lower_expr(*binary.lhs, locals, expected);
 			ir::Type operand_type = lhs->type;
 			auto rhs = lower_expr(*binary.rhs, locals, operand_type);

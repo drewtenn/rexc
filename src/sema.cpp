@@ -32,6 +32,11 @@ bool is_comparison_operator(const std::string &op)
 	       op == ">=";
 }
 
+bool is_logical_operator(const std::string &op)
+{
+	return op == "&&" || op == "||";
+}
+
 std::optional<std::uint64_t> parse_decimal_magnitude(const std::string &literal)
 {
 	// Parse from the original token text so huge literals are checked here,
@@ -237,6 +242,9 @@ private:
 		}
 		case ast::Expr::Kind::Binary: {
 			const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
+			if (is_logical_operator(binary.op))
+				return check_logical_binary_expr(locals, binary);
+
 			auto lhs_type = check_expr(locals, *binary.lhs, expected);
 			auto rhs_type = check_expr(locals, *binary.rhs, lhs_type ? lhs_type : expected);
 			if (!lhs_type || !rhs_type)
@@ -306,6 +314,9 @@ private:
 		const std::unordered_map<std::string, LocalInfo> &locals, const ast::UnaryExpr &unary,
 		std::optional<PrimitiveType> expected)
 	{
+		if (unary.op == "!")
+			return check_logical_not_expr(locals, unary);
+
 		if (unary.op != "-")
 			return check_expr(locals, *unary.operand, expected);
 
@@ -330,6 +341,31 @@ private:
 			return operand_type;
 		}
 		return operand_type;
+	}
+
+	std::optional<PrimitiveType> check_logical_binary_expr(
+		const std::unordered_map<std::string, LocalInfo> &locals,
+		const ast::BinaryExpr &binary)
+	{
+		auto lhs_type = check_expr(locals, *binary.lhs, bool_type());
+		auto rhs_type = check_expr(locals, *binary.rhs, bool_type());
+		if (!lhs_type || !rhs_type)
+			return bool_type();
+		if (*lhs_type != bool_type() || *rhs_type != bool_type())
+			diagnostics_.error(binary.location, "logical operator requires bool operands");
+		return bool_type();
+	}
+
+	std::optional<PrimitiveType> check_logical_not_expr(
+		const std::unordered_map<std::string, LocalInfo> &locals,
+		const ast::UnaryExpr &unary)
+	{
+		auto operand_type = check_expr(locals, *unary.operand, bool_type());
+		if (!operand_type)
+			return std::nullopt;
+		if (*operand_type != bool_type())
+			diagnostics_.error(unary.location, "unary '!' requires a bool operand");
+		return bool_type();
 	}
 
 	void check_integer_literal(SourceLocation location, PrimitiveType type,

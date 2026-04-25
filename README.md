@@ -100,9 +100,9 @@ source .rx
 3. **AST**: The AST preserves source-level structure: functions, parameters,
    `let`, assignment, `return`, `if/else`, `while`, `break`, and `continue`
    statements, names, calls, unary/binary expressions, comparison expressions, and
-   integer/bool/char/string literals. Integer literals keep their original
-   decimal text so later stages can range-check large values without parser
-   overflow.
+   logical expressions, and integer/bool/char/string literals. Integer
+   literals keep their original decimal text so later stages can range-check
+   large values without parser overflow.
 
 4. **Semantic analysis**: `src/sema.cpp` validates names, duplicate functions
    and locals, function calls, return types, initializer and assignment types,
@@ -122,9 +122,10 @@ source .rx
    for either `i386` or `x86_64`. It emits supported scalar values in target
    stack slots, emits strings in `.rodata` with `.LstrN` labels, uses signed or
    unsigned division and comparison condition codes based on IR type, emits
-   branch labels and jumps for `if/else`, `while`, `break`, and `continue`,
-   stores assignments into existing local slots, and reports backend
-   diagnostics when a type is unsupported by the selected target.
+   branch labels and jumps for short-circuiting logical operators, `if/else`,
+   `while`, `break`, and `continue`, stores assignments into existing local
+   slots, and reports backend diagnostics when a type is unsupported by the
+   selected target.
 
 7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64] -S -o
    output.s` writes assembly only after code generation succeeds. Failed code
@@ -162,6 +163,10 @@ comparisons are supported with `==`, `!=`, `<`, `<=`, `>`, and `>=`; comparison
 results have type `bool`. Both comparison operands must be integers with the
 same type. Signed integer comparisons use signed condition codes, and unsigned
 integer comparisons use unsigned condition codes.
+
+Boolean operators are supported with unary `!` plus short-circuiting `&&` and
+`||`. All logical operands must have type `bool`, and the result has type
+`bool`.
 
 Rexc also supports `if` and `if/else` statements:
 
