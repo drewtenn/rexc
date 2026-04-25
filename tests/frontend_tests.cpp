@@ -196,6 +196,28 @@ TEST_CASE(parser_accepts_indirect_assignment)
 	REQUIRE_EQ(assign.value->kind, rexc::ast::Expr::Kind::Integer);
 }
 
+TEST_CASE(parser_desugars_index_expression_to_pointer_add_deref)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; return p[0]; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &ret =
+	    static_cast<const rexc::ast::ReturnStmt &>(*result.module().functions[0].body[2]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Unary);
+	const auto &deref = static_cast<const rexc::ast::UnaryExpr &>(*ret.value);
+	REQUIRE_EQ(deref.op, std::string("*"));
+	REQUIRE_EQ(deref.operand->kind, rexc::ast::Expr::Kind::Binary);
+	const auto &add = static_cast<const rexc::ast::BinaryExpr &>(*deref.operand);
+	REQUIRE_EQ(add.op, std::string("+"));
+	REQUIRE_EQ(add.lhs->kind, rexc::ast::Expr::Kind::Name);
+	REQUIRE_EQ(add.rhs->kind, rexc::ast::Expr::Kind::Integer);
+}
+
 TEST_CASE(parser_accepts_if_else_statements)
 {
 	rexc::SourceFile source(

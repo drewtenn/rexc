@@ -316,6 +316,27 @@ TEST_CASE(codegen_x86_64_emits_pointer_address_deref_and_store)
 	REQUIRE(assembly.find("movq (%rax), %rax") != std::string::npos);
 }
 
+TEST_CASE(codegen_i386_scales_pointer_arithmetic_and_indexing)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; return p[1]; }\n");
+
+	REQUIRE(assembly.find("imull $4, %ecx") != std::string::npos);
+	REQUIRE(assembly.find("addl %ecx, %eax") != std::string::npos);
+	REQUIRE(assembly.find("movl (%eax), %eax") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_scales_pointer_arithmetic_and_indexing)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i64 { let mut x: i64 = 7; let p: *i64 = &x; return p[1]; }\n",
+	    rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("imulq $8, %rcx") != std::string::npos);
+	REQUIRE(assembly.find("addq %rcx, %rax") != std::string::npos);
+	REQUIRE(assembly.find("movq (%rax), %rax") != std::string::npos);
+}
+
 TEST_CASE(codegen_i386_emits_if_else_comparison_branch)
 {
 	auto assembly = compile_to_assembly(

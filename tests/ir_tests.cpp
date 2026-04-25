@@ -291,6 +291,31 @@ TEST_CASE(lowering_lowers_pointer_address_deref_and_indirect_assignment)
 	REQUIRE_EQ(deref.op, std::string("*"));
 }
 
+TEST_CASE(lowering_lowers_index_expression_as_deref_pointer_add)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; return p[1]; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[2]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Unary);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("i32"));
+	const auto &deref = static_cast<const rexc::ir::UnaryValue &>(*ret.value);
+	REQUIRE_EQ(deref.op, std::string("*"));
+	REQUIRE_EQ(deref.operand->kind, rexc::ir::Value::Kind::Binary);
+	const auto &add = static_cast<const rexc::ir::BinaryValue &>(*deref.operand);
+	REQUIRE_EQ(add.op, std::string("+"));
+	REQUIRE_EQ(rexc::format_type(add.type), std::string("*i32"));
+	REQUIRE_EQ(rexc::format_type(add.lhs->type), std::string("*i32"));
+	REQUIRE_EQ(rexc::format_type(add.rhs->type), std::string("i32"));
+}
+
 TEST_CASE(lowering_lowers_if_else_statement)
 {
 	rexc::SourceFile source(

@@ -314,6 +314,38 @@ TEST_CASE(sema_rejects_indirect_assignment_type_mismatch)
 	        std::string::npos);
 }
 
+TEST_CASE(sema_accepts_pointer_arithmetic_and_indexing)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; let q: *i32 = p + 1; let r: *i32 = q - 1; return r[0]; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_pointer_arithmetic_with_non_integer_offset)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> *i32 { let mut x: i32 = 7; let p: *i32 = &x; return p + true; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("pointer arithmetic requires integer offset") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_pointer_plus_pointer)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> *i32 { let mut x: i32 = 7; let p: *i32 = &x; return p + p; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("pointer arithmetic requires integer offset") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_accepts_if_else_with_bool_condition)
 {
 	rexc::Diagnostics diagnostics;

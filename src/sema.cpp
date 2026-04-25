@@ -284,6 +284,13 @@ private:
 					                   "comparison operands must have the same type");
 				return bool_type();
 			}
+			if (is_pointer_arithmetic(binary.op, *lhs_type)) {
+				if (!is_integer(*rhs_type)) {
+					diagnostics_.error(binary.location,
+					                   "pointer arithmetic requires integer offset");
+				}
+				return lhs_type;
+			}
 			if (!is_integer(*lhs_type) || !is_integer(*rhs_type)) {
 				diagnostics_.error(binary.location, "arithmetic requires integer operands");
 				return *lhs_type;
@@ -387,6 +394,11 @@ private:
 		if (*lhs_type != bool_type() || *rhs_type != bool_type())
 			diagnostics_.error(binary.location, "logical operator requires bool operands");
 		return bool_type();
+	}
+
+	bool is_pointer_arithmetic(const std::string &op, PrimitiveType lhs_type) const
+	{
+		return is_pointer(lhs_type) && (op == "+" || op == "-");
 	}
 
 	std::optional<PrimitiveType> check_address_of_expr(

@@ -125,10 +125,11 @@ source .rx
    stack slots, emits strings in `.rodata` with `.LstrN` labels, uses signed or
    unsigned division and comparison condition codes based on IR type, emits
    explicit casts with target-width sign or zero extension, emits address-of,
-   dereference, and indirect pointer stores, emits branch labels and jumps for
-   short-circuiting logical operators, `if/else`, `while`, `break`, and
-   `continue`, stores assignments into existing local slots, and reports
-   backend diagnostics when a type is unsupported by the selected target.
+   dereference, scaled pointer arithmetic, pointer indexing, and indirect
+   pointer stores, emits branch labels and jumps for short-circuiting logical
+   operators, `if/else`, `while`, `break`, and `continue`, stores assignments
+   into existing local slots, and reports backend diagnostics when a type is
+   unsupported by the selected target.
 
 7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64] -S -o
    output.s` writes assembly only after code generation succeeds. Failed code
@@ -178,14 +179,17 @@ casts, `bool` to integer casts, and `char as u32`. Casts involving `str`, and
 other character casts such as `char as u8`, are rejected.
 
 Pointer expressions use `&` to take the address of a mutable local and `*` to
-dereference a pointer. Indirect assignment writes through a pointer:
+dereference a pointer. Pointer arithmetic supports `pointer + integer` and
+`pointer - integer`, with the integer offset scaled by the pointee size.
+Indexing is syntax for dereferencing a scaled pointer offset: `p[i]` means
+`*(p + i)`. Indirect assignment writes through a pointer:
 
 ```rust
 fn main() -> i32 {
     let mut x: i32 = 7;
     let p: *i32 = &x;
-    *p = 9;
-    return *p;
+    *(p + 0) = 9;
+    return p[0];
 }
 ```
 

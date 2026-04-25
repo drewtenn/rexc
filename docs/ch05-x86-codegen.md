@@ -72,13 +72,19 @@ zero-extension, while signed narrow casts use sign-extension. On x86_64, casts
 to `i32` sign-extend `%eax` into `%rax`, and casts to `u32` zero-extend by
 writing through `%eax`.
 
-### Pointer Loads and Stores
+### Pointer Arithmetic, Loads, and Stores
 
 Pointer operations are small but important because they are the first feature
 that treats a value as an address. For `&x`, the backend emits a
 load-effective-address instruction: `leal` on i386 or `leaq` on x86_64. That
 puts the stack slot address for `x` into the accumulator instead of loading the
 value stored in that slot.
+
+For `p + i` and `p - i`, Rexc evaluates `p` as an address and `i` as an
+integer offset. Before adding or subtracting, the backend multiplies the offset
+by the pointee size. A `*i32` offset scales by four bytes, while a `*i64`
+offset scales by eight bytes. Indexing uses the same code path because `p[i]`
+has already become `*(p + i)` by the time code generation runs.
 
 For `*p`, Rexc first emits `p` so the accumulator holds an address, then emits
 a load from memory at that address. The load instruction follows the pointee
@@ -153,10 +159,11 @@ That creates the usual loop shape:
 
 Rexc can now emit assembly for typed functions, locals, returns, calls,
 arithmetic, division, comparisons, explicit casts, boolean operators, strings,
-address-of, dereference, direct and indirect assignment, `if/else` branches,
-and `while` loops with `break` and `continue`. The i386 target is the default
-path for the current Drunix user runtime. The x86_64 target emits 64-bit
-Linux-compatible assembly using the System V calling convention.
+address-of, dereference, pointer arithmetic, indexing, direct and indirect
+assignment, `if/else` branches, and `while` loops with `break` and `continue`.
+The i386 target is the default path for the current Drunix user runtime. The
+x86_64 target emits 64-bit Linux-compatible assembly using the System V calling
+convention.
 
 The compiler still has not produced an executable by itself. Assembly is the
 input to the assembler, and the assembler produces an object file. To become a

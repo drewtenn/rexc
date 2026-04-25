@@ -85,6 +85,11 @@ the same idea with an extra address step: evaluate the value, evaluate the
 pointer target, then store the value into the memory address held by that
 pointer.
 
+Pointer indexing does not need its own IR node. The parser turns `p[i]` into
+the same shape the programmer could have written directly: `*(p + i)`. That
+means semantic analysis, lowering, and code generation all reuse the existing
+unary dereference and binary pointer-addition paths.
+
 ### Where the Compiler Is by the End of Chapter 4
 
 Rexc now holds a typed IR module. The source has been parsed, checked, and

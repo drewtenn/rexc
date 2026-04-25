@@ -616,6 +616,7 @@ private:
 		out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
 		     << scratch_register() << "\n";
 		emit_pop_accumulator();
+		scale_pointer_offset(binary);
 
 		if (is_comparison_operator(binary.op)) {
 			out_ << "\t" << compare_instruction() << " " << scratch_register() << ", "
@@ -644,6 +645,17 @@ private:
 				     << scratch_register() << "\n";
 			}
 		}
+	}
+
+	void scale_pointer_offset(const ir::BinaryValue &binary)
+	{
+		if (!is_pointer(binary.type) || (binary.op != "+" && binary.op != "-"))
+			return;
+		int scale = pointee_size_bytes(binary.type);
+		if (scale == 1)
+			return;
+		out_ << "\t" << multiply_instruction() << " $" << scale << ", "
+		     << scratch_register() << "\n";
 	}
 
 	void emit_logical_binary(const ir::BinaryValue &binary, const Frame &frame,
@@ -1151,6 +1163,14 @@ private:
 		if (type.kind == PrimitiveKind::Str || is_pointer(type))
 			return target_ == CodegenTarget::X86_64 ? 64 : 32;
 		return target_ == CodegenTarget::X86_64 ? 64 : 32;
+	}
+
+	int pointee_size_bytes(ir::Type pointer_type) const
+	{
+		auto target_type = pointee_type(pointer_type);
+		if (!target_type)
+			return 1;
+		return memory_bits(*target_type) / 8;
 	}
 
 	const char *accumulator_register() const

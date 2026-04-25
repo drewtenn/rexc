@@ -125,7 +125,11 @@ unary
 	| '!' unary
 	| '&' unary
 	| '*' unary
-	| primary
+	| postfix
+	;
+
+postfix
+	: primary ('[' expression ']')*
 	;
 
 primary

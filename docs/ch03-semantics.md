@@ -68,6 +68,11 @@ The expression `*p` requires `p` to have pointer type and produces the pointee
 type. An indirect assignment such as `*p = 9;` checks the right side against
 the pointee type before code generation ever sees it.
 
+Pointer arithmetic is limited to `pointer + integer` and `pointer - integer`.
+The result keeps the pointer type. The integer is an element offset, not a byte
+offset, so the backend later scales it by the pointee size. Indexing follows
+that same rule: `p[i]` is checked as `*(p + i)`.
+
 ### Block Scopes
 
 Branches get their own copies of the local table. When Rexc analyzes an `if`

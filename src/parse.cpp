@@ -329,14 +329,27 @@ private:
 
 	std::unique_ptr<ast::Expr> build_unary(RexcParser::UnaryContext *context)
 	{
-		if (auto *primary = context->primary())
-			return build_primary(primary);
+		if (auto *postfix = context->postfix())
+			return build_postfix(postfix);
 
 		auto *operator_node =
 		    dynamic_cast<antlr4::tree::TerminalNode *>(context->children.front());
 		return std::make_unique<ast::UnaryExpr>(
 		    location(operator_node), operator_node != nullptr ? operator_node->getText() : "-",
 		    build_unary(context->unary()));
+	}
+
+	std::unique_ptr<ast::Expr> build_postfix(RexcParser::PostfixContext *context)
+	{
+		auto value = build_primary(context->primary());
+		for (auto *index : context->expression()) {
+			auto offset = build_expression(index);
+			auto address = std::make_unique<ast::BinaryExpr>(
+			    location(index), "+", std::move(value), std::move(offset));
+			value = std::make_unique<ast::UnaryExpr>(
+			    location(index), "*", std::move(address));
+		}
+		return value;
 	}
 
 	std::unique_ptr<ast::Expr> build_primary(RexcParser::PrimaryContext *context)
