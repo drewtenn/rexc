@@ -41,13 +41,10 @@ build/rexc examples/add.rx -S -o build/add.s
 x86_64-elf-as --32 -o build/add.o build/add.s
 ```
 
-Build the Drunix user runtime objects:
+Build the Drunix startup object and runtime archive:
 
 ```sh
-make -C "$DRUNIX/user" \
-  lib/crt0.o lib/cxx_init.o lib/syscall.o lib/malloc.o \
-  lib/string.o lib/ctype.o lib/stdlib.o lib/stdio.o \
-  lib/unistd.o lib/time.o
+make -C "$DRUNIX/user" lib/crt0.o lib/libc.a
 ```
 
 Link the final Drunix ELF executable:
@@ -57,16 +54,8 @@ x86_64-elf-ld -m elf_i386 \
   -T "$DRUNIX/user/user.ld" \
   -o build/add.drunix \
   "$DRUNIX/user/lib/crt0.o" \
-  "$DRUNIX/user/lib/cxx_init.o" \
-  "$DRUNIX/user/lib/syscall.o" \
-  "$DRUNIX/user/lib/malloc.o" \
-  "$DRUNIX/user/lib/string.o" \
-  "$DRUNIX/user/lib/ctype.o" \
-  "$DRUNIX/user/lib/stdlib.o" \
-  "$DRUNIX/user/lib/stdio.o" \
-  "$DRUNIX/user/lib/unistd.o" \
-  "$DRUNIX/user/lib/time.o" \
-  build/add.o
+  build/add.o \
+  "$DRUNIX/user/lib/libc.a"
 ```
 
 Verify the output:
@@ -78,7 +67,8 @@ x86_64-elf-readelf -h build/add.drunix
 
 The result should be a 32-bit Intel 80386 executable ELF. Drunix's `crt0.o`
 provides `_start`, prepares `argc`, `argv`, and `envp`, calls `main`, and exits
-through the Drunix syscall runtime.
+through the Drunix syscall runtime. Keep `lib/libc.a` after `build/add.o` so
+the linker pulls only the archive members needed by the program.
 
 ## Optional Assembly Check
 
