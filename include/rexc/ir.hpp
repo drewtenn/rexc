@@ -1,5 +1,6 @@
 #pragma once
 
+// Typed intermediate representation consumed by the x86 backend.
 #include "rexc/types.hpp"
 
 #include <cstdint>

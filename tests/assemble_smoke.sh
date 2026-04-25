@@ -1,4 +1,5 @@
 #!/bin/sh
+# Assembles compiler output as 32-bit x86 when a suitable assembler is present.
 set -eu
 
 build_dir=$1

@@ -1,3 +1,4 @@
+// Rexc command-line driver: source file to GNU i386 assembly.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"

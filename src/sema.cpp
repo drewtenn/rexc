@@ -1,3 +1,4 @@
+// Semantic analysis: names, primitive types, calls, and literal ranges.
 #include "rexc/sema.hpp"
 #include "rexc/types.hpp"
 
@@ -16,6 +17,8 @@ PrimitiveType i32_type()
 
 std::optional<std::uint64_t> parse_decimal_magnitude(const std::string &literal)
 {
+	// Parse from the original token text so huge literals are checked here,
+	// rather than being silently wrapped by parser-side numeric conversion.
 	std::uint64_t value = 0;
 	for (char digit : literal) {
 		std::uint64_t next_digit = static_cast<std::uint64_t>(digit - '0');
@@ -94,6 +97,8 @@ private:
 			bool duplicate = locals.find(let.name) != locals.end();
 			if (duplicate)
 				diagnostics_.error(let.location, "duplicate local '" + let.name + "'");
+			// The new binding is inserted after checking the initializer so
+			// `let x: i32 = x;` remains an unknown-name error.
 			auto initializer_type = check_expr(locals, *let.initializer, let_type);
 			if (initializer_type && *initializer_type != let_type) {
 				diagnostics_.error(let.location, "initializer type mismatch: expected '" +
@@ -118,6 +123,8 @@ private:
 		const std::unordered_map<std::string, PrimitiveType> &locals, const ast::Expr &expr,
 		std::optional<PrimitiveType> expected = std::nullopt)
 	{
+		// Expected types let unadorned integer literals inherit context from
+		// initializers, returns, calls, and unary expressions.
 		switch (expr.kind) {
 		case ast::Expr::Kind::Integer: {
 			const auto &integer = static_cast<const ast::IntegerExpr &>(expr);

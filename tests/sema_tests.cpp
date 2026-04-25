@@ -1,3 +1,4 @@
+// Semantic analysis tests for names, types, calls, and literal ranges.
 #include "rexc/diagnostics.hpp"
 #include "rexc/parse.hpp"
 #include "rexc/sema.hpp"

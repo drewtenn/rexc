@@ -1,3 +1,4 @@
+// IR lowering tests that check typed values survive frontend stages.
 #include "rexc/ast.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"

@@ -1,3 +1,4 @@
+// Constructors for AST nodes; ownership is expressed with unique_ptr fields.
 #include "rexc/ast.hpp"
 
 #include <utility>

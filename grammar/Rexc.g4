@@ -1,3 +1,4 @@
+// Reference grammar for the hand-written parser in src/parse.cpp.
 grammar Rexc;
 
 compilationUnit

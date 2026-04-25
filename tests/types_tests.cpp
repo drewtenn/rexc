@@ -1,3 +1,4 @@
+// Primitive type model tests shared by sema, IR, and codegen.
 #include "rexc/types.hpp"
 #include "test_support.hpp"
 

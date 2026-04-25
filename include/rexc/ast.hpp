@@ -1,5 +1,6 @@
 #pragma once
 
+// Source-level syntax tree produced by the parser and checked by sema.
 #include "rexc/source.hpp"
 
 #include <cstdint>

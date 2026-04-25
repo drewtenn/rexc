@@ -1,5 +1,6 @@
 #pragma once
 
+// Source text plus offset-to-line/column mapping for diagnostics.
 #include <cstddef>
 #include <string>
 #include <vector>

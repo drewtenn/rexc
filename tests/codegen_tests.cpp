@@ -1,3 +1,4 @@
+// Unit coverage for i386 assembly emission and backend diagnostics.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"

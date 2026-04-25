@@ -1,3 +1,4 @@
+// Minimal function-call example used by smoke tests and Drunix link docs.
 fn add(a: i32, b: i32) -> i32 {
     return a + b;
 }

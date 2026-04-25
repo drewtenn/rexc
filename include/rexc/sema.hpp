@@ -1,5 +1,6 @@
 #pragma once
 
+// Semantic analyzer entry point for name, type, and literal checks.
 #include "rexc/ast.hpp"
 #include "rexc/diagnostics.hpp"
 

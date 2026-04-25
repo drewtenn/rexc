@@ -1,3 +1,4 @@
+// Hand-written lexer and recursive-descent parser for the Rexc grammar.
 #include "rexc/parse.hpp"
 
 #include <cctype>

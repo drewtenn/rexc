@@ -1,3 +1,4 @@
+// Tiny test runner entry point used by all C++ unit tests.
 #include "test_support.hpp"
 
 #include <exception>

@@ -1,3 +1,4 @@
+// Lowers semantically checked AST nodes into typed backend IR.
 #include "rexc/lower_ir.hpp"
 #include "rexc/types.hpp"
 
@@ -61,6 +62,8 @@ private:
 		const ast::Expr &expr, const Locals &locals,
 		std::optional<ir::Type> expected = std::nullopt)
 	{
+		// Sema has already proven types match; this mirrors its expected-type
+		// flow so literal IR nodes keep their resolved primitive type.
 		switch (expr.kind) {
 		case ast::Expr::Kind::Integer: {
 			const auto &integer = static_cast<const ast::IntegerExpr &>(expr);

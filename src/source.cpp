@@ -1,3 +1,4 @@
+// SourceFile line table implementation for fast diagnostic locations.
 #include "rexc/source.hpp"
 
 #include <algorithm>

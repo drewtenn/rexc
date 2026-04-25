@@ -1,3 +1,4 @@
+// Unit coverage for source locations and diagnostic formatting.
 #include "rexc/diagnostics.hpp"
 #include "rexc/source.hpp"
 #include "test_support.hpp"

@@ -1,5 +1,6 @@
 #pragma once
 
+// Shared primitive type model used by sema, IR, and codegen.
 #include <cstdint>
 #include <optional>
 #include <string>

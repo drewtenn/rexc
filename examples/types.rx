@@ -1,3 +1,4 @@
+// Mixed primitive example used by the CLI smoke test.
 fn main() -> i32 {
     let signed: i32 = -42;
     let unsigned: u32 = 4000000000;

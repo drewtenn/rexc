@@ -1,4 +1,5 @@
 #!/bin/sh
+# Exercises the installed CLI against example Rexc programs.
 set -eu
 
 build_dir=$1

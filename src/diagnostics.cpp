@@ -1,3 +1,4 @@
+// Accumulates stage errors and renders them in a compiler-style format.
 #include "rexc/diagnostics.hpp"
 
 #include <sstream>

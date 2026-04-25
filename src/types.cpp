@@ -1,3 +1,4 @@
+// Primitive type parsing, formatting, predicates, and range checks.
 #include "rexc/types.hpp"
 
 #include <limits>

@@ -1,5 +1,6 @@
 #pragma once
 
+// Public i386 backend API: typed IR in, assembly or diagnostics out.
 #include "rexc/diagnostics.hpp"
 #include "rexc/ir.hpp"
 

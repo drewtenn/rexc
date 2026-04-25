@@ -1,5 +1,6 @@
 #pragma once
 
+// Parser entry point for turning source text into an AST module.
 #include "rexc/ast.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/source.hpp"

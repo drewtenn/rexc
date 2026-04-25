@@ -1,3 +1,4 @@
+// Basic test-runner smoke coverage.
 #include "test_support.hpp"
 
 #include <string>

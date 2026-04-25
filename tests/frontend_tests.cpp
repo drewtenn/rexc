@@ -1,3 +1,4 @@
+// Parser/frontend tests for grammar coverage and AST shape.
 #include "rexc/parse.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/source.hpp"

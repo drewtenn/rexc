@@ -1,3 +1,4 @@
+// Constructors for the typed intermediate representation.
 #include "rexc/ir.hpp"
 
 #include <utility>

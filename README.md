@@ -19,6 +19,64 @@ build/rexc examples/add.rx -S -o build/add.s
 The generated assembly is GNU assembler-compatible 32-bit x86 text intended for
 the Drunix userland toolchain.
 
+## Compiler Pipeline
+
+Rexc is organized as a small, explicit compiler pipeline. Each stage consumes
+the previous stage's output and either produces the next representation or adds
+diagnostics and stops.
+
+```text
+source .rx
+  -> lexer and parser
+  -> AST
+  -> semantic analysis
+  -> typed IR
+  -> i386 assembly
+  -> assembler object
+  -> Drunix ELF link
+```
+
+1. **CLI input**: `src/main.cpp` reads the input file, creates a `SourceFile`,
+   and owns the top-level flow. It prints diagnostics and exits non-zero if any
+   frontend or backend stage fails.
+
+2. **Lexing and parsing**: `src/parse.cpp` tokenizes the source and parses
+   functions, extern declarations, statements, expressions, primitive type
+   names, and literals. The parser builds the AST types declared in
+   `include/rexc/ast.hpp`.
+
+3. **AST**: The AST preserves source-level structure: functions, parameters,
+   `let` statements, `return` statements, names, calls, unary/binary
+   expressions, and integer/bool/char/string literals. Integer literals keep
+   their original decimal text so later stages can range-check large values
+   without parser overflow.
+
+4. **Semantic analysis**: `src/sema.cpp` validates names, duplicate functions
+   and locals, function calls, return types, initializer types, arithmetic
+   operands, unary operators, and integer literal ranges. It uses the primitive
+   type helpers in `src/types.cpp` so all frontend checks share one type model.
+
+5. **IR lowering**: `src/lower_ir.cpp` converts the checked AST into the typed
+   IR in `include/rexc/ir.hpp`. The IR carries resolved primitive types on
+   functions, parameters, locals, calls, literals, unary expressions, and binary
+   expressions. This gives the backend a smaller, typed representation to emit.
+
+6. **i386 code generation**: `src/codegen_x86.cpp` emits GNU assembler syntax
+   for 32-bit x86. It emits supported scalar values in 32-bit stack slots,
+   emits strings in `.rodata` with `.LstrN` labels, uses signed or unsigned
+   division based on IR type, and reports backend diagnostics for unsupported
+   `i64` and `u64` code generation.
+
+7. **Assembly output**: `build/rexc input.rx -S -o output.s` writes assembly
+   only after code generation succeeds. Failed code generation reports
+   diagnostics and does not write partial assembly.
+
+8. **Object assembly**: Use `x86_64-elf-as --32` or GNU `as --32` to assemble
+   the generated `.s` file into an i386 object file.
+
+9. **Drunix ELF link**: Link the object with Drunix's `crt0.o`, `libc.a`, and
+   user linker script to produce the final 32-bit ELF executable.
+
 ## Core Primitive Types
 
 Rexc supports signed integers (`i8`, `i16`, `i32`, `i64`), unsigned integers

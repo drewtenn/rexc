@@ -1,3 +1,4 @@
+// GNU i386 assembly backend for the typed Rexc IR.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/types.hpp"
 
@@ -84,6 +85,8 @@ public:
 	{
 		std::size_t starting_diagnostics = diagnostics_.items().size();
 
+		// Validate the entire module before emitting any assembly so failed
+		// codegen cannot hand back plausible partial output.
 		validate_module(module);
 		if (diagnostics_.items().size() != starting_diagnostics)
 			return CodegenResult(false, "");
@@ -212,6 +215,8 @@ private:
 			return true;
 		std::string message = unsupported_codegen_message(type);
 		std::string key = current_function_ + '\n' + message;
+		// Report one unsupported-backend diagnostic per function to avoid
+		// spam from return type, locals, and return value all repeating it.
 		if (unsupported_diagnostics_.insert(std::move(key)).second)
 			diagnostics_.error({}, std::move(message));
 		return false;
@@ -341,6 +346,8 @@ private:
 
 	void collect_string_labels(const ir::Value &value)
 	{
+		// Labels are keyed by IR node address so repeated equal string text
+		// still has deterministic, unique labels in emission order.
 		switch (value.kind) {
 		case ir::Value::Kind::Integer:
 		case ir::Value::Kind::Bool:

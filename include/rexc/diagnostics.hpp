@@ -1,5 +1,6 @@
 #pragma once
 
+// Shared diagnostic collection and formatting for compiler stages.
 #include "rexc/source.hpp"
 
 #include <string>

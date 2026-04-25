@@ -1,5 +1,6 @@
 #pragma once
 
+// Lightweight test registration and assertion helpers.
 #include <functional>
 #include <stdexcept>
 #include <string>

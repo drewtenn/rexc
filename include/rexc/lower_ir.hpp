@@ -1,5 +1,6 @@
 #pragma once
 
+// AST-to-IR lowering entry point.
 #include "rexc/ast.hpp"
 #include "rexc/ir.hpp"
 
