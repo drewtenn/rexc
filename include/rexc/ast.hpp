@@ -22,7 +22,7 @@ struct Parameter {
 };
 
 struct Expr {
-	enum class Kind { Integer, Bool, Char, String, Name, Unary, Binary, Call };
+	enum class Kind { Integer, Bool, Char, String, Name, Unary, Binary, Cast, Call };
 
 	Expr(Kind kind, SourceLocation location);
 	virtual ~Expr() = default;
@@ -69,6 +69,13 @@ struct BinaryExpr final : Expr {
 	std::string op;
 	std::unique_ptr<Expr> lhs;
 	std::unique_ptr<Expr> rhs;
+};
+
+struct CastExpr final : Expr {
+	CastExpr(SourceLocation location, std::unique_ptr<Expr> value, TypeName target);
+
+	std::unique_ptr<Expr> value;
+	TypeName target;
 };
 
 struct UnaryExpr final : Expr {

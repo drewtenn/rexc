@@ -237,6 +237,33 @@ TEST_CASE(sema_rejects_logical_operator_on_non_bool)
 	        std::string::npos);
 }
 
+TEST_CASE(sema_accepts_supported_explicit_casts)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> u32 { let x: i32 = 42; let b: u8 = true as u8; let c: u32 = 'A' as u32; return x as u32 + c; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_str_casts)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> u32 { let s: str = \"hi\"; return s as u32; }\n",
+	                      diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("cannot cast 'str' to 'u32'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_unsupported_char_casts)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> u8 { return 'A' as u8; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("cannot cast 'char' to 'u8'") != std::string::npos);
+}
+
 TEST_CASE(sema_accepts_if_else_with_bool_condition)
 {
 	rexc::Diagnostics diagnostics;

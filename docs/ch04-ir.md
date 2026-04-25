@@ -20,8 +20,8 @@ The IR keeps the facts the backend needs. Functions have names, parameters,
 return types, and statement bodies. Values carry resolved primitive types.
 Integer literals keep their decimal text. Calls carry the callee name and the
 lowered argument values. Assignments carry a target local name and a typed
-value to store. Branches and loops carry typed conditions and lowered statement
-bodies.
+value to store. Casts carry the lowered source value and the resolved target
+type. Branches and loops carry typed conditions and lowered statement bodies.
 
 The main shift is that source type names disappear. Once semantic analysis has
 proved that `i32` is a valid primitive type, later stages do not need to parse
@@ -82,9 +82,10 @@ Declarations allocate slots; assignments reuse them.
 Rexc now holds a typed IR module. The source has been parsed, checked, and
 lowered into a backend-facing representation. Every value has a primitive type.
 Every branch and loop condition is already known to be boolean. Every
-assignment targets an existing local with a value of the right type. Every
-`break` and `continue` statement is known to be inside a loop. Every function
-body is a sequence of typed IR statements.
+explicit cast has a validated source and target type. Every assignment targets
+an existing local with a value of the right type. Every `break` and `continue`
+statement is known to be inside a loop. Every function body is a sequence of
+typed IR statements.
 
 The compiler is ready to leave source-language territory. The next stage must
 take this typed IR and make it concrete for a CPU: stack frames, registers,

@@ -136,6 +136,22 @@ TEST_CASE(parser_accepts_boolean_operators_with_precedence)
 	REQUIRE_EQ(comparison.op, std::string("<"));
 }
 
+TEST_CASE(parser_accepts_cast_expressions)
+{
+	rexc::SourceFile source("test.rx", "fn main() -> u32 { return 'A' as u32; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &ret =
+	    static_cast<const rexc::ast::ReturnStmt &>(*result.module().functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Cast);
+	const auto &cast = static_cast<const rexc::ast::CastExpr &>(*ret.value);
+	REQUIRE_EQ(cast.target.name, std::string("u32"));
+	REQUIRE_EQ(cast.value->kind, rexc::ast::Expr::Kind::Char);
+}
+
 TEST_CASE(parser_accepts_if_else_statements)
 {
 	rexc::SourceFile source(

@@ -290,12 +290,21 @@ private:
 	std::unique_ptr<ast::Expr> build_multiplicative(
 	    RexcParser::MultiplicativeContext *context)
 	{
-		auto operands = context->unary();
-		auto lhs = build_unary(operands[0]);
+		auto operands = context->cast();
+		auto lhs = build_cast(operands[0]);
 		for (std::size_t i = 1; i < operands.size(); ++i)
 			lhs = build_binary(context, 2 * i - 1, std::move(lhs),
-			                   build_unary(operands[i]));
+			                   build_cast(operands[i]));
 		return lhs;
+	}
+
+	std::unique_ptr<ast::Expr> build_cast(RexcParser::CastContext *context)
+	{
+		auto value = build_unary(context->unary());
+		for (auto *type : context->type())
+			value = std::make_unique<ast::CastExpr>(
+			    location(type), std::move(value), build_type(type));
+		return value;
 	}
 
 	std::unique_ptr<ast::Expr> build_binary(

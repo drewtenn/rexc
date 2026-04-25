@@ -49,6 +49,11 @@ BinaryValue::BinaryValue(std::string op, std::unique_ptr<Value> lhs,
 {
 }
 
+CastValue::CastValue(std::unique_ptr<Value> value, Type type)
+	: Value(Kind::Cast, type), value(std::move(value))
+{
+}
+
 CallValue::CallValue(std::string callee, Type type)
 	: Value(Kind::Call, type), callee(std::move(callee))
 {

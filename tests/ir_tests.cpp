@@ -238,6 +238,24 @@ TEST_CASE(lowering_lowers_boolean_operators_as_bool_values)
 	REQUIRE_EQ(logical_and.type, rexc::PrimitiveType{rexc::PrimitiveKind::Bool});
 }
 
+TEST_CASE(lowering_lowers_cast_expression)
+{
+	rexc::SourceFile source("test.rx", "fn main() -> u32 { return 'A' as u32; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Cast);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("u32"));
+	const auto &cast = static_cast<const rexc::ir::CastValue &>(*ret.value);
+	REQUIRE_EQ(cast.value->kind, rexc::ir::Value::Kind::Char);
+	REQUIRE_EQ(rexc::format_type(cast.value->type), std::string("char"));
+}
+
 TEST_CASE(lowering_lowers_if_else_statement)
 {
 	rexc::SourceFile source(

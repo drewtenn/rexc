@@ -269,6 +269,10 @@ private:
 			}
 			return lhs_type;
 		}
+		case ast::Expr::Kind::Cast: {
+			const auto &cast = static_cast<const ast::CastExpr &>(expr);
+			return check_cast_expr(locals, cast);
+		}
 		case ast::Expr::Kind::Unary: {
 			const auto &unary = static_cast<const ast::UnaryExpr &>(expr);
 			return check_unary_expr(locals, unary, expected);
@@ -354,6 +358,34 @@ private:
 		if (*lhs_type != bool_type() || *rhs_type != bool_type())
 			diagnostics_.error(binary.location, "logical operator requires bool operands");
 		return bool_type();
+	}
+
+	std::optional<PrimitiveType> check_cast_expr(
+		const std::unordered_map<std::string, LocalInfo> &locals, const ast::CastExpr &cast)
+	{
+		auto source_type = check_expr(locals, *cast.value);
+		PrimitiveType target_type = check_type(cast.target);
+		if (!source_type)
+			return target_type;
+		if (!is_cast_allowed(*source_type, target_type)) {
+			diagnostics_.error(cast.location, "cannot cast '" + format_type(*source_type) +
+			                   "' to '" + format_type(target_type) + "'");
+		}
+		return target_type;
+	}
+
+	bool is_cast_allowed(PrimitiveType source, PrimitiveType target) const
+	{
+		if (source == target && source.kind != PrimitiveKind::Str)
+			return true;
+		if (is_integer(source) && is_integer(target))
+			return true;
+		if (source.kind == PrimitiveKind::Bool && is_integer(target))
+			return true;
+		PrimitiveType char_scalar_type{PrimitiveKind::UnsignedInteger, 32};
+		if (source.kind == PrimitiveKind::Char && target == char_scalar_type)
+			return true;
+		return false;
 	}
 
 	std::optional<PrimitiveType> check_logical_not_expr(

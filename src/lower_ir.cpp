@@ -126,6 +126,11 @@ private:
 			return std::make_unique<ir::BinaryValue>(binary.op, std::move(lhs),
 			                                         std::move(rhs), type);
 		}
+		case ast::Expr::Kind::Cast: {
+			const auto &cast = static_cast<const ast::CastExpr &>(expr);
+			return std::make_unique<ir::CastValue>(
+				lower_expr(*cast.value, locals), lower_type(cast.target));
+		}
 		case ast::Expr::Kind::Unary:
 			return lower_unary(static_cast<const ast::UnaryExpr &>(expr), locals, expected);
 		case ast::Expr::Kind::Call: {

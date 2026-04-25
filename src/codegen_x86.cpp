@@ -341,6 +341,10 @@ private:
 			ok = validate_value(*binary.rhs) && ok;
 			return ok;
 		}
+		case ir::Value::Kind::Cast: {
+			const auto &cast = static_cast<const ir::CastValue &>(value);
+			return validate_value(*cast.value) && ok;
+		}
 		case ir::Value::Kind::Call: {
 			const auto &call = static_cast<const ir::CallValue &>(value);
 			for (const auto &argument : call.arguments)
@@ -502,9 +506,37 @@ private:
 		case ir::Value::Kind::Binary:
 			emit_binary(static_cast<const ir::BinaryValue &>(value), frame, slots);
 			return;
+		case ir::Value::Kind::Cast:
+			emit_cast(static_cast<const ir::CastValue &>(value), frame, slots);
+			return;
 		case ir::Value::Kind::Call:
 			emit_call(static_cast<const ir::CallValue &>(value), frame, slots);
 			return;
+		}
+	}
+
+	void emit_cast(const ir::CastValue &cast, const Frame &frame, const SlotMap &slots)
+	{
+		emit_value(*cast.value, frame, slots);
+		if (!is_integer(cast.type))
+			return;
+
+		if (cast.type.bits == 8) {
+			out_ << "\t" << (is_signed_integer(cast.type) ? sign_extend_8_instruction()
+			                                             : zero_extend_8_instruction())
+			     << "\n";
+			return;
+		}
+		if (cast.type.bits == 16) {
+			out_ << "\t" << (is_signed_integer(cast.type) ? sign_extend_16_instruction()
+			                                             : zero_extend_16_instruction())
+			     << "\n";
+			return;
+		}
+		if (target_ == CodegenTarget::X86_64 && cast.type.bits == 32) {
+			out_ << "\t" << (is_signed_integer(cast.type) ? "movslq %eax, %rax"
+			                                             : "movl %eax, %eax")
+			     << "\n";
 		}
 	}
 
@@ -745,6 +777,11 @@ private:
 			collect_string_labels(*binary.rhs);
 			return;
 		}
+		case ir::Value::Kind::Cast: {
+			const auto &cast = static_cast<const ir::CastValue &>(value);
+			collect_string_labels(*cast.value);
+			return;
+		}
 		case ir::Value::Kind::Call: {
 			const auto &call = static_cast<const ir::CallValue &>(value);
 			for (const auto &argument : call.arguments)
@@ -831,6 +868,11 @@ private:
 			emit_string_literals(*binary.rhs);
 			return;
 		}
+		case ir::Value::Kind::Cast: {
+			const auto &cast = static_cast<const ir::CastValue &>(value);
+			emit_string_literals(*cast.value);
+			return;
+		}
 		case ir::Value::Kind::Call: {
 			const auto &call = static_cast<const ir::CallValue &>(value);
 			for (const auto &argument : call.arguments)
@@ -908,6 +950,26 @@ private:
 	const char *zero_extend_bool_instruction() const
 	{
 		return target_ == CodegenTarget::X86_64 ? "movzbq" : "movzbl";
+	}
+
+	const char *zero_extend_8_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "movzbq %al, %rax" : "movzbl %al, %eax";
+	}
+
+	const char *sign_extend_8_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "movsbq %al, %rax" : "movsbl %al, %eax";
+	}
+
+	const char *zero_extend_16_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "movzwq %ax, %rax" : "movzwl %ax, %eax";
+	}
+
+	const char *sign_extend_16_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "movswq %ax, %rax" : "movswl %ax, %eax";
 	}
 
 	const char *setcc_instruction(const ir::BinaryValue &binary) const

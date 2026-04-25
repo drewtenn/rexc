@@ -49,6 +49,12 @@ BinaryExpr::BinaryExpr(SourceLocation location, std::string op,
 {
 }
 
+CastExpr::CastExpr(SourceLocation location, std::unique_ptr<Expr> value, TypeName target)
+	: Expr(Kind::Cast, std::move(location)), value(std::move(value)),
+	  target(std::move(target))
+{
+}
+
 UnaryExpr::UnaryExpr(SourceLocation location, std::string op, std::unique_ptr<Expr> operand)
 	: Expr(Kind::Unary, std::move(location)), op(std::move(op)),
 	  operand(std::move(operand))

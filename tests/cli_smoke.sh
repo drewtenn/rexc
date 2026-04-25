@@ -54,3 +54,8 @@ test -s "${tmp_dir}/bool32.s"
 grep -F -q 'sete %al' "${tmp_dir}/bool32.s"
 grep -F -q '.L_logic_false_' "${tmp_dir}/bool32.s"
 grep -F -q '.L_logic_true_' "${tmp_dir}/bool32.s"
+
+"${build_dir}/rexc" "${repo_dir}/examples/cast.rx" --target i386 -S -o "${tmp_dir}/cast32.s"
+test -s "${tmp_dir}/cast32.s"
+grep -F -q 'movzbl %al, %eax' "${tmp_dir}/cast32.s"
+grep -F -q 'movl $65, %eax' "${tmp_dir}/cast32.s"

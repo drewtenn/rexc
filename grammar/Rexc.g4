@@ -107,7 +107,11 @@ additive
 	;
 
 multiplicative
-	: unary (('*' | '/') unary)*
+	: cast (('*' | '/') cast)*
+	;
+
+cast
+	: unary ('as' type)*
 	;
 
 unary

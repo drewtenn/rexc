@@ -107,15 +107,22 @@ operands to be `bool` and produce `bool`. Semantic analysis checks both sides
 even though the backend later emits short-circuit jumps, because both operands
 must be valid Rexc expressions before runtime control flow matters.
 
+Explicit casts use `as` and deliberately start with a small, predictable
+surface. Integer values can be cast to other integer types. A `bool` can be
+cast to an integer, producing `0` or `1`. A `char` can be cast to `u32`, which
+exposes the character's scalar value. Casts involving `str`, and other
+character casts such as `char as u8`, are rejected so the language does not
+pretend strings or characters are byte arrays.
+
 ### Where the Compiler Is by the End of Chapter 3
 
 Rexc can now reject programs that are grammatically valid but semantically
 wrong. It knows which functions exist, which locals are visible, which primitive
 types are valid, which calls match their signatures, and which expressions
-produce which types. It also knows which locals are mutable, which assignments
-are legal, which logical expressions are boolean, which branch and loop
-conditions are boolean, and which `break` and `continue` statements are
-actually inside loops.
+produce which types. It also knows which explicit casts are legal, which locals
+are mutable, which assignments are legal, which logical expressions are
+boolean, which branch and loop conditions are boolean, and which `break` and
+`continue` statements are actually inside loops.
 
 The compiler has not emitted anything yet. It still holds the source-shaped AST,
 now checked for meaning. The next step is to lower that tree into a smaller

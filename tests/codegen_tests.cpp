@@ -270,6 +270,31 @@ TEST_CASE(codegen_x86_64_emits_short_circuit_or)
 	REQUIRE(assembly.find(".L_logic_end_") != std::string::npos);
 }
 
+TEST_CASE(codegen_i386_emits_narrow_unsigned_cast)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> u8 { let x: u32 = 300; return x as u8; }\n");
+
+	REQUIRE(assembly.find("movzbl %al, %eax") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_char_as_u32_cast)
+{
+	auto assembly = compile_to_assembly("fn main() -> u32 { return 'A' as u32; }\n");
+
+	REQUIRE(assembly.find("movl $65, %eax") != std::string::npos);
+	REQUIRE(assembly.find("movz") == std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_i32_cast_sign_extension)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i32 { let x: i64 = 4294967295; return x as i32; }\n",
+	    rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("movslq %eax, %rax") != std::string::npos);
+}
+
 TEST_CASE(codegen_i386_emits_if_else_comparison_branch)
 {
 	auto assembly = compile_to_assembly(

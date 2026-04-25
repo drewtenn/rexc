@@ -65,6 +65,13 @@ is false. The result is then zero-extended back into the accumulator-sized
 register. Signed comparisons use signed condition codes; unsigned comparisons
 use unsigned ones.
 
+Explicit casts are emitted after evaluating the source value. Many casts are
+already in the right accumulator-sized representation, but narrowing casts need
+the backend to make the target width visible. Unsigned narrow casts use
+zero-extension, while signed narrow casts use sign-extension. On x86_64, casts
+to `i32` sign-extend `%eax` into `%rax`, and casts to `u32` zero-extend by
+writing through `%eax`.
+
 ### Boolean Operators and Short-Circuit Jumps
 
 Unary `!` is a small boolean transformation: emit the operand, compare the low
@@ -127,10 +134,10 @@ That creates the usual loop shape:
 ### Where the Compiler Is by the End of Chapter 5
 
 Rexc can now emit assembly for typed functions, locals, returns, calls,
-arithmetic, division, comparisons, boolean operators, strings, assignment,
-`if/else` branches, and `while` loops with `break` and `continue`. The i386
-target is the default path for the current Drunix user runtime. The x86_64
-target emits 64-bit Linux-compatible assembly using the System V calling
+arithmetic, division, comparisons, explicit casts, boolean operators, strings,
+assignment, `if/else` branches, and `while` loops with `break` and `continue`.
+The i386 target is the default path for the current Drunix user runtime. The
+x86_64 target emits 64-bit Linux-compatible assembly using the System V calling
 convention.
 
 The compiler still has not produced an executable by itself. Assembly is the

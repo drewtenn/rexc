@@ -94,15 +94,16 @@ source .rx
    `grammar/Rexc.g4`. `src/parse.cpp` invokes those generated classes for
    functions, extern declarations, immutable and mutable `let` declarations,
    assignment, `return`, `if/else`, `while`, `break`, and `continue`
-   statements, expressions, primitive type names, and literals, then converts
-   the parse tree into the AST types declared in `include/rexc/ast.hpp`.
+   statements, expressions, explicit casts, primitive type names, and literals,
+   then converts the parse tree into the AST types declared in
+   `include/rexc/ast.hpp`.
 
 3. **AST**: The AST preserves source-level structure: functions, parameters,
    `let`, assignment, `return`, `if/else`, `while`, `break`, and `continue`
-   statements, names, calls, unary/binary expressions, comparison expressions, and
-   logical expressions, and integer/bool/char/string literals. Integer
-   literals keep their original decimal text so later stages can range-check
-   large values without parser overflow.
+   statements, names, calls, unary/binary expressions, comparison expressions,
+   logical expressions, explicit casts, and integer/bool/char/string literals.
+   Integer literals keep their original decimal text so later stages can
+   range-check large values without parser overflow.
 
 4. **Semantic analysis**: `src/sema.cpp` validates names, duplicate functions
    and locals, function calls, return types, initializer and assignment types,
@@ -122,10 +123,11 @@ source .rx
    for either `i386` or `x86_64`. It emits supported scalar values in target
    stack slots, emits strings in `.rodata` with `.LstrN` labels, uses signed or
    unsigned division and comparison condition codes based on IR type, emits
-   branch labels and jumps for short-circuiting logical operators, `if/else`,
-   `while`, `break`, and `continue`, stores assignments into existing local
-   slots, and reports backend diagnostics when a type is unsupported by the
-   selected target.
+   explicit casts with target-width sign or zero extension, emits branch labels
+   and jumps for short-circuiting logical operators, `if/else`, `while`,
+   `break`, and `continue`, stores assignments into existing local slots, and
+   reports backend diagnostics when a type is unsupported by the selected
+   target.
 
 7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64] -S -o
    output.s` writes assembly only after code generation succeeds. Failed code
@@ -167,6 +169,10 @@ integer comparisons use unsigned condition codes.
 Boolean operators are supported with unary `!` plus short-circuiting `&&` and
 `||`. All logical operands must have type `bool`, and the result has type
 `bool`.
+
+Explicit casts use `as`. The first cast surface supports integer-to-integer
+casts, `bool` to integer casts, and `char as u32`. Casts involving `str`, and
+other character casts such as `char as u8`, are rejected.
 
 Rexc also supports `if` and `if/else` statements:
 

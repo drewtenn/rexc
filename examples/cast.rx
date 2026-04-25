@@ -1,0 +1,7 @@
+// Explicit cast example used by CLI smoke tests.
+fn main() -> u32 {
+    let letter: u32 = 'A' as u32;
+    let low: u8 = 300 as u8;
+    let flag: u8 = true as u8;
+    return letter + low as u32 + flag as u32;
+}

@@ -13,7 +13,7 @@ namespace rexc::ir {
 using Type = PrimitiveType;
 
 struct Value {
-	enum class Kind { Integer, Bool, Char, String, Local, Unary, Binary, Call };
+	enum class Kind { Integer, Bool, Char, String, Local, Unary, Binary, Cast, Call };
 
 	Value(Kind kind, Type type);
 	virtual ~Value() = default;
@@ -67,6 +67,12 @@ struct BinaryValue final : Value {
 	std::string op;
 	std::unique_ptr<Value> lhs;
 	std::unique_ptr<Value> rhs;
+};
+
+struct CastValue final : Value {
+	CastValue(std::unique_ptr<Value> value, Type type);
+
+	std::unique_ptr<Value> value;
 };
 
 struct CallValue final : Value {
