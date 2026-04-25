@@ -91,7 +91,8 @@ private:
 		if (statement.kind == ast::Stmt::Kind::Let) {
 			const auto &let = static_cast<const ast::LetStmt &>(statement);
 			PrimitiveType let_type = check_type(let.type);
-			if (!locals.emplace(let.name, let_type).second)
+			bool duplicate = locals.find(let.name) != locals.end();
+			if (duplicate)
 				diagnostics_.error(let.location, "duplicate local '" + let.name + "'");
 			auto initializer_type = check_expr(locals, *let.initializer, let_type);
 			if (initializer_type && *initializer_type != let_type) {
@@ -99,6 +100,8 @@ private:
 				                   format_type(let_type) + "' but got '" +
 				                   format_type(*initializer_type) + "'");
 			}
+			if (!duplicate)
+				locals.emplace(let.name, let_type);
 			return;
 		}
 
