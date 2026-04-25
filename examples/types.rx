@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    let signed: i32 = -42;
+    let unsigned: u32 = 42;
+    let ok: bool = true;
+    let letter: char = 'x';
+    let greeting: str = "hello";
+    return signed + 42;
+}
