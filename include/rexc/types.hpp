@@ -31,10 +31,12 @@ struct PrimitiveType {
 
 std::optional<PrimitiveType> parse_primitive_type(const std::string &name);
 std::string format_type(PrimitiveType type);
+bool is_valid_primitive_type(PrimitiveType type);
 bool is_integer(PrimitiveType type);
 bool is_signed_integer(PrimitiveType type);
 bool is_unsigned_integer(PrimitiveType type);
 bool is_i386_codegen_supported(PrimitiveType type);
 bool integer_literal_fits(PrimitiveType type, std::int64_t value);
+bool unsigned_integer_literal_fits(PrimitiveType type, std::uint64_t value);
 
 } // namespace rexc
