@@ -28,6 +28,23 @@ void require_lowering_throws_for(const std::string &text)
 	}
 }
 
+void require_lowering_throws_for(const std::string &text, const std::string &message)
+{
+	rexc::SourceFile source("test.rx", text);
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	try {
+		(void)rexc::lower_to_ir(parsed.module());
+		REQUIRE(false);
+	} catch (const std::runtime_error &err) {
+		REQUIRE(std::string(err.what()).find(message) != std::string::npos);
+	}
+}
+
 } // namespace
 
 TEST_CASE(lowering_preserves_function_signature)
@@ -86,4 +103,14 @@ TEST_CASE(lowering_rejects_integer_literals_that_current_ir_cannot_represent)
 {
 	require_lowering_throws_for("fn main() -> i32 { let x: u64 = 18446744073709551615; return 0; }\n");
 	require_lowering_throws_for("fn main() -> i32 { let x: i64 = -9223372036854775808; return 0; }\n");
+}
+
+TEST_CASE(lowering_rejects_types_that_current_ir_cannot_represent)
+{
+	require_lowering_throws_for("fn id(x: i64) -> i64 { return x; }\n",
+	                            "type is not supported by current IR lowering: i64");
+	require_lowering_throws_for("fn main() -> u64 { return 1; }\n",
+	                            "type is not supported by current IR lowering: u64");
+	require_lowering_throws_for("fn main() -> i32 { let b: bool = true; return 0; }\n",
+	                            "literal type is not supported by current IR lowering: bool");
 }

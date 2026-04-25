@@ -1,4 +1,5 @@
 #include "rexc/lower_ir.hpp"
+#include "rexc/types.hpp"
 
 #include <limits>
 #include <memory>
@@ -9,8 +10,11 @@
 namespace rexc {
 namespace {
 
-ir::Type lower_type(const ast::TypeName &)
+ir::Type lower_type(const ast::TypeName &type)
 {
+	auto primitive_type = parse_primitive_type(type.name);
+	if (!primitive_type || *primitive_type != PrimitiveType{PrimitiveKind::SignedInteger, 32})
+		throw std::runtime_error("type is not supported by current IR lowering: " + type.name);
 	return ir::Type::I32;
 }
 
@@ -64,9 +68,11 @@ std::unique_ptr<ir::Value> lower_expr(const ast::Expr &expr)
 		return std::make_unique<ir::IntegerValue>(integer.value);
 	}
 	case ast::Expr::Kind::Bool:
+		throw std::runtime_error("literal type is not supported by current IR lowering: bool");
 	case ast::Expr::Kind::Char:
+		throw std::runtime_error("literal type is not supported by current IR lowering: char");
 	case ast::Expr::Kind::String:
-		throw std::logic_error("unsupported literal reached IR lowering");
+		throw std::runtime_error("literal type is not supported by current IR lowering: str");
 	case ast::Expr::Kind::Name: {
 		const auto &name = static_cast<const ast::NameExpr &>(expr);
 		return std::make_unique<ir::LocalValue>(name.name);
@@ -108,7 +114,9 @@ std::unique_ptr<ir::Statement> lower_statement(const ast::Stmt &statement)
 {
 	if (statement.kind == ast::Stmt::Kind::Let) {
 		const auto &let = static_cast<const ast::LetStmt &>(statement);
-		return std::make_unique<ir::LetStatement>(let.name, lower_expr(*let.initializer));
+		auto initializer = lower_expr(*let.initializer);
+		(void)lower_type(let.type);
+		return std::make_unique<ir::LetStatement>(let.name, std::move(initializer));
 	}
 
 	const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
