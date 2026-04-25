@@ -1,7 +1,9 @@
 #include "rexc/lower_ir.hpp"
 
+#include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace rexc {
@@ -12,11 +14,34 @@ ir::Type lower_type(const ast::TypeName &)
 	return ir::Type::I32;
 }
 
+bool decimal_literal_exceeds_current_integer_value(const std::string &literal)
+{
+	std::size_t first_non_zero = literal.find_first_not_of('0');
+	std::string magnitude = first_non_zero == std::string::npos
+	                            ? "0"
+	                            : literal.substr(first_non_zero);
+	std::string max = std::to_string(std::numeric_limits<int>::max());
+	if (magnitude.size() != max.size())
+		return magnitude.size() > max.size();
+	return magnitude > max;
+}
+
+void guard_current_integer_value_literal(const ast::IntegerExpr &integer, bool is_negative)
+{
+	if (!decimal_literal_exceeds_current_integer_value(integer.literal))
+		return;
+
+	std::string literal = is_negative ? "-" + integer.literal : integer.literal;
+	throw std::runtime_error("integer literal is not supported by current IR lowering: " +
+	                         literal);
+}
+
 std::unique_ptr<ir::Value> lower_expr(const ast::Expr &expr)
 {
 	switch (expr.kind) {
 	case ast::Expr::Kind::Integer: {
 		const auto &integer = static_cast<const ast::IntegerExpr &>(expr);
+		guard_current_integer_value_literal(integer, false);
 		return std::make_unique<ir::IntegerValue>(integer.value);
 	}
 	case ast::Expr::Kind::Bool:
@@ -34,9 +59,14 @@ std::unique_ptr<ir::Value> lower_expr(const ast::Expr &expr)
 	}
 	case ast::Expr::Kind::Unary: {
 		const auto &unary = static_cast<const ast::UnaryExpr &>(expr);
-		if (unary.op == "-")
+		if (unary.op == "-") {
+			if (unary.operand->kind == ast::Expr::Kind::Integer) {
+				const auto &integer = static_cast<const ast::IntegerExpr &>(*unary.operand);
+				guard_current_integer_value_literal(integer, true);
+			}
 			return std::make_unique<ir::BinaryValue>("-", std::make_unique<ir::IntegerValue>(0),
 			                                         lower_expr(*unary.operand));
+		}
 		return lower_expr(*unary.operand);
 	}
 	case ast::Expr::Kind::Call: {
