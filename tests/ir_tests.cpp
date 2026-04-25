@@ -70,6 +70,18 @@ TEST_CASE(lowering_lowers_unary_minus_as_zero_minus_operand)
 	REQUIRE_EQ(local.name, std::string("x"));
 }
 
+TEST_CASE(lowering_allows_i32_min_integer_literal)
+{
+	rexc::SourceFile source("test.rx", "fn main() -> i32 { let x: i32 = -2147483648; return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	(void)rexc::lower_to_ir(parsed.module());
+}
+
 TEST_CASE(lowering_rejects_integer_literals_that_current_ir_cannot_represent)
 {
 	require_lowering_throws_for("fn main() -> i32 { let x: u64 = 18446744073709551615; return 0; }\n");

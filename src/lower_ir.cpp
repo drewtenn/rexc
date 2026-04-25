@@ -14,21 +14,40 @@ ir::Type lower_type(const ast::TypeName &)
 	return ir::Type::I32;
 }
 
-bool decimal_literal_exceeds_current_integer_value(const std::string &literal)
+std::string decimal_literal_magnitude(const std::string &literal)
 {
 	std::size_t first_non_zero = literal.find_first_not_of('0');
-	std::string magnitude = first_non_zero == std::string::npos
-	                            ? "0"
-	                            : literal.substr(first_non_zero);
-	std::string max = std::to_string(std::numeric_limits<int>::max());
+	return first_non_zero == std::string::npos ? "0" : literal.substr(first_non_zero);
+}
+
+bool decimal_literal_exceeds(const std::string &literal, const std::string &max)
+{
+	std::string magnitude = decimal_literal_magnitude(literal);
 	if (magnitude.size() != max.size())
 		return magnitude.size() > max.size();
 	return magnitude > max;
 }
 
+bool decimal_literal_exceeds_current_integer_value(const std::string &literal)
+{
+	return decimal_literal_exceeds(literal, std::to_string(std::numeric_limits<int>::max()));
+}
+
+bool decimal_literal_exceeds_current_negative_integer_value(const std::string &literal)
+{
+	return decimal_literal_exceeds(literal, "2147483648");
+}
+
+bool decimal_literal_is_current_integer_min_magnitude(const std::string &literal)
+{
+	return decimal_literal_magnitude(literal) == "2147483648";
+}
+
 void guard_current_integer_value_literal(const ast::IntegerExpr &integer, bool is_negative)
 {
-	if (!decimal_literal_exceeds_current_integer_value(integer.literal))
+	if (is_negative && !decimal_literal_exceeds_current_negative_integer_value(integer.literal))
+		return;
+	if (!is_negative && !decimal_literal_exceeds_current_integer_value(integer.literal))
 		return;
 
 	std::string literal = is_negative ? "-" + integer.literal : integer.literal;
@@ -63,6 +82,8 @@ std::unique_ptr<ir::Value> lower_expr(const ast::Expr &expr)
 			if (unary.operand->kind == ast::Expr::Kind::Integer) {
 				const auto &integer = static_cast<const ast::IntegerExpr &>(*unary.operand);
 				guard_current_integer_value_literal(integer, true);
+				if (decimal_literal_is_current_integer_min_magnitude(integer.literal))
+					return std::make_unique<ir::IntegerValue>(std::numeric_limits<int>::min());
 			}
 			return std::make_unique<ir::BinaryValue>("-", std::make_unique<ir::IntegerValue>(0),
 			                                         lower_expr(*unary.operand));
