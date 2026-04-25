@@ -74,6 +74,16 @@ TEST_CASE(sema_rejects_unknown_local_inside_unary)
 	REQUIRE(diagnostics.format().find("unknown name 'missing'") != std::string::npos);
 }
 
+TEST_CASE(sema_keeps_local_visible_to_its_initializer)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("fn main() -> i32 { let x: i32 = x; return x; }\n", diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(diagnostics.format().find("unknown name 'x'") == std::string::npos);
+}
+
 TEST_CASE(sema_accepts_core_primitive_literals)
 {
 	rexc::Diagnostics diagnostics;
