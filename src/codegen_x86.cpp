@@ -1,13 +1,15 @@
-// GNU i386 assembly backend for the typed Rexc IR.
+// GNU i386/x86_64 assembly backend for the typed Rexc IR.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/types.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace rexc {
 namespace {
@@ -70,16 +72,20 @@ std::string escape_asciz_payload(const std::string &payload)
 	return escaped.str();
 }
 
-std::string unsupported_codegen_message(ir::Type type)
+std::string unsupported_codegen_message(ir::Type type, CodegenTarget target)
 {
-	if (is_integer(type) && type.bits == 64)
+	if (target == CodegenTarget::I386 && is_integer(type) && type.bits == 64)
 		return "64-bit integer code generation is not implemented for i386";
-	return format_type(type) + " code generation is not implemented for i386";
+	return format_type(type) + " code generation is not implemented for " +
+	       (target == CodegenTarget::X86_64 ? "x86_64" : "i386");
 }
 
 class Emitter {
 public:
-	explicit Emitter(Diagnostics &diagnostics) : diagnostics_(diagnostics) {}
+	Emitter(Diagnostics &diagnostics, CodegenTarget target)
+		: diagnostics_(diagnostics), target_(target)
+	{
+	}
 
 	CodegenResult emit(const ir::Module &module)
 	{
@@ -112,10 +118,19 @@ private:
 
 		out_ << ".globl " << function.name << '\n';
 		out_ << function.name << ":\n";
-		out_ << "\tpushl %ebp\n";
-		out_ << "\tmovl %esp, %ebp\n";
+		if (target_ == CodegenTarget::X86_64) {
+			out_ << "\tpushq %rbp\n";
+			out_ << "\tmovq %rsp, %rbp\n";
+		} else {
+			out_ << "\tpushl %ebp\n";
+			out_ << "\tmovl %esp, %ebp\n";
+		}
 		if (frame.local_bytes > 0)
-			out_ << "\tsubl $" << frame.local_bytes << ", %esp\n";
+			out_ << "\t" << stack_sub_instruction() << " $" << frame.local_bytes
+			     << ", " << stack_pointer_register() << "\n";
+
+		if (target_ == CodegenTarget::X86_64)
+			emit_x86_64_parameter_spills(function, frame);
 
 		for (const auto &statement : function.body)
 			emit_statement(*statement, frame, done_label);
@@ -127,6 +142,9 @@ private:
 
 	Frame build_frame(const ir::Function &function)
 	{
+		if (target_ == CodegenTarget::X86_64)
+			return build_x86_64_frame(function);
+
 		Frame frame;
 		int offset = 8;
 		for (const auto &parameter : function.parameters) {
@@ -143,6 +161,33 @@ private:
 			frame.slots[let.name] = -4 * local_index;
 		}
 		frame.local_bytes = count_locals(function) * 4;
+		return frame;
+	}
+
+	Frame build_x86_64_frame(const ir::Function &function)
+	{
+		Frame frame;
+		int slot_index = 0;
+		for (std::size_t i = 0; i < function.parameters.size(); ++i) {
+			const auto &parameter = function.parameters[i];
+			if (i < x86_64_argument_registers().size()) {
+				++slot_index;
+				frame.slots[parameter.name] = -8 * slot_index;
+			} else {
+				frame.slots[parameter.name] =
+					16 + static_cast<int>(i - x86_64_argument_registers().size()) * 8;
+			}
+		}
+
+		for (const auto &statement : function.body) {
+			if (statement->kind != ir::Statement::Kind::Let)
+				continue;
+			const auto &let = static_cast<const ir::LetStatement &>(*statement);
+			++slot_index;
+			frame.slots[let.name] = -8 * slot_index;
+		}
+
+		frame.local_bytes = align_stack_bytes(slot_index * 8);
 		return frame;
 	}
 
@@ -211,9 +256,9 @@ private:
 
 	bool validate_type(ir::Type type)
 	{
-		if (is_i386_codegen_supported(type))
+		if (is_target_codegen_supported(type))
 			return true;
-		std::string message = unsupported_codegen_message(type);
+		std::string message = unsupported_codegen_message(type, target_);
 		std::string key = current_function_ + '\n' + message;
 		// Report one unsupported-backend diagnostic per function to avoid
 		// spam from return type, locals, and return value all repeating it.
@@ -228,7 +273,9 @@ private:
 		if (statement.kind == ir::Statement::Kind::Let) {
 			const auto &let = static_cast<const ir::LetStatement &>(statement);
 			emit_value(*let.value, frame);
-			out_ << "\tmovl %eax, " << frame.slots.at(let.name) << "(%ebp)\n";
+			out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
+			     << frame.slots.at(let.name) << "(" << frame_pointer_register()
+			     << ")\n";
 			return;
 		}
 
@@ -242,25 +289,30 @@ private:
 		switch (value.kind) {
 		case ir::Value::Kind::Integer: {
 			const auto &integer = static_cast<const ir::IntegerValue &>(value);
-			out_ << "\tmovl $";
+			out_ << "\t" << move_immediate_instruction() << " $";
 			if (integer.is_negative)
 				out_ << '-';
-			out_ << canonical_decimal_literal(integer.literal) << ", %eax\n";
+			out_ << canonical_decimal_literal(integer.literal) << ", "
+			     << accumulator_register() << "\n";
 			return;
 		}
 		case ir::Value::Kind::Bool: {
 			const auto &boolean = static_cast<const ir::BoolValue &>(value);
-			out_ << "\tmovl $" << (boolean.value ? 1 : 0) << ", %eax\n";
+			out_ << "\t" << move_instruction() << " $" << (boolean.value ? 1 : 0)
+			     << ", " << accumulator_register() << "\n";
 			return;
 		}
 		case ir::Value::Kind::Char: {
 			const auto &character = static_cast<const ir::CharValue &>(value);
-			out_ << "\tmovl $" << static_cast<unsigned int>(character.value) << ", %eax\n";
+			out_ << "\t" << move_instruction() << " $"
+			     << static_cast<unsigned int>(character.value) << ", "
+			     << accumulator_register() << "\n";
 			return;
 		}
 		case ir::Value::Kind::String: {
 			const auto &string = static_cast<const ir::StringValue &>(value);
-			out_ << "\tmovl $" << string_labels_.at(&string) << ", %eax\n";
+			out_ << "\t" << move_instruction() << " $" << string_labels_.at(&string)
+			     << ", " << accumulator_register() << "\n";
 			return;
 		}
 		case ir::Value::Kind::Unary:
@@ -268,7 +320,9 @@ private:
 			return;
 		case ir::Value::Kind::Local: {
 			const auto &local = static_cast<const ir::LocalValue &>(value);
-			out_ << "\tmovl " << frame.slots.at(local.name) << "(%ebp), %eax\n";
+			out_ << "\t" << move_instruction() << " " << frame.slots.at(local.name)
+			     << "(" << frame_pointer_register() << "), " << accumulator_register()
+			     << "\n";
 			return;
 		}
 		case ir::Value::Kind::Binary:
@@ -284,36 +338,48 @@ private:
 	{
 		emit_value(*unary.operand, frame);
 		if (unary.op == "-")
-			out_ << "\tnegl %eax\n";
+			out_ << "\t" << negate_instruction() << " " << accumulator_register() << "\n";
 	}
 
 	void emit_binary(const ir::BinaryValue &binary, const Frame &frame)
 	{
 		emit_value(*binary.lhs, frame);
-		out_ << "\tpushl %eax\n";
+		emit_push_accumulator();
 		emit_value(*binary.rhs, frame);
-		out_ << "\tmovl %eax, %ecx\n";
-		out_ << "\tpopl %eax\n";
+		out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
+		     << scratch_register() << "\n";
+		emit_pop_accumulator();
 
 		if (binary.op == "+")
-			out_ << "\taddl %ecx, %eax\n";
+			out_ << "\t" << add_instruction() << " " << scratch_register() << ", "
+			     << accumulator_register() << "\n";
 		else if (binary.op == "-")
-			out_ << "\tsubl %ecx, %eax\n";
+			out_ << "\t" << subtract_instruction() << " " << scratch_register() << ", "
+			     << accumulator_register() << "\n";
 		else if (binary.op == "*")
-			out_ << "\timull %ecx, %eax\n";
+			out_ << "\t" << multiply_instruction() << " " << scratch_register() << ", "
+			     << accumulator_register() << "\n";
 		else if (binary.op == "/") {
 			if (is_unsigned_integer(binary.type)) {
-				out_ << "\txorl %edx, %edx\n";
-				out_ << "\tdivl %ecx\n";
+				out_ << "\t" << zero_remainder_instruction() << " "
+				     << remainder_register() << ", " << remainder_register() << "\n";
+				out_ << "\t" << unsigned_divide_instruction() << " "
+				     << scratch_register() << "\n";
 			} else {
-				out_ << "\tcltd\n";
-				out_ << "\tidivl %ecx\n";
+				out_ << "\t" << sign_extend_dividend_instruction() << "\n";
+				out_ << "\t" << signed_divide_instruction() << " "
+				     << scratch_register() << "\n";
 			}
 		}
 	}
 
 	void emit_call(const ir::CallValue &call, const Frame &frame)
 	{
+		if (target_ == CodegenTarget::X86_64) {
+			emit_x86_64_call(call, frame);
+			return;
+		}
+
 		for (auto it = call.arguments.rbegin(); it != call.arguments.rend(); ++it) {
 			emit_value(**it, frame);
 			out_ << "\tpushl %eax\n";
@@ -322,6 +388,47 @@ private:
 		out_ << "\tcall " << call.callee << '\n';
 		if (!call.arguments.empty())
 			out_ << "\taddl $" << call.arguments.size() * 4 << ", %esp\n";
+	}
+
+	void emit_x86_64_call(const ir::CallValue &call, const Frame &frame)
+	{
+		std::size_t stack_argument_count =
+			call.arguments.size() > x86_64_argument_registers().size()
+				? call.arguments.size() - x86_64_argument_registers().size()
+				: 0;
+		bool needs_padding = stack_argument_count % 2 != 0;
+		if (needs_padding) {
+			out_ << "\tsubq $8, %rsp\n";
+			eval_stack_bytes_ += 8;
+		}
+
+		for (auto it = call.arguments.rbegin(); it != call.arguments.rend(); ++it) {
+			emit_value(**it, frame);
+			emit_push_accumulator();
+		}
+
+		std::size_t register_count =
+			std::min(call.arguments.size(), x86_64_argument_registers().size());
+		for (std::size_t i = 0; i < register_count; ++i)
+			emit_pop_to(x86_64_argument_registers()[i]);
+
+		out_ << "\tcall " << call.callee << '\n';
+
+		std::size_t cleanup_bytes = stack_argument_count * 8 + (needs_padding ? 8 : 0);
+		if (cleanup_bytes > 0) {
+			out_ << "\taddq $" << cleanup_bytes << ", %rsp\n";
+			eval_stack_bytes_ -= cleanup_bytes;
+		}
+	}
+
+	void emit_x86_64_parameter_spills(const ir::Function &function, const Frame &frame)
+	{
+		std::size_t register_count =
+			std::min(function.parameters.size(), x86_64_argument_registers().size());
+		for (std::size_t i = 0; i < register_count; ++i) {
+			out_ << "\tmovq " << x86_64_argument_registers()[i] << ", "
+			     << frame.slots.at(function.parameters[i].name) << "(%rbp)\n";
+		}
 	}
 
 	void collect_string_labels(const ir::Module &module)
@@ -438,10 +545,137 @@ private:
 	}
 
 	Diagnostics &diagnostics_;
+	CodegenTarget target_;
 	std::ostringstream out_;
 	std::string current_function_;
 	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
 	std::unordered_set<std::string> unsupported_diagnostics_;
+	int eval_stack_bytes_ = 0;
+
+	bool is_target_codegen_supported(ir::Type type) const
+	{
+		if (target_ == CodegenTarget::X86_64)
+			return is_valid_primitive_type(type);
+		return is_i386_codegen_supported(type);
+	}
+
+	static int align_stack_bytes(int bytes)
+	{
+		return bytes == 0 ? 0 : ((bytes + 15) / 16) * 16;
+	}
+
+	static const std::vector<std::string> &x86_64_argument_registers()
+	{
+		static const std::vector<std::string> registers{
+			"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
+		return registers;
+	}
+
+	const char *stack_sub_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "subq" : "subl";
+	}
+
+	const char *move_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "movq" : "movl";
+	}
+
+	const char *move_immediate_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "movabsq" : "movl";
+	}
+
+	const char *add_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "addq" : "addl";
+	}
+
+	const char *subtract_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "subq" : "subl";
+	}
+
+	const char *multiply_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "imulq" : "imull";
+	}
+
+	const char *negate_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "negq" : "negl";
+	}
+
+	const char *unsigned_divide_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "divq" : "divl";
+	}
+
+	const char *signed_divide_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "idivq" : "idivl";
+	}
+
+	const char *sign_extend_dividend_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "cqto" : "cltd";
+	}
+
+	const char *zero_remainder_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "xorq" : "xorl";
+	}
+
+	const char *accumulator_register() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "%rax" : "%eax";
+	}
+
+	const char *scratch_register() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "%rcx" : "%ecx";
+	}
+
+	const char *remainder_register() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "%rdx" : "%edx";
+	}
+
+	const char *frame_pointer_register() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "%rbp" : "%ebp";
+	}
+
+	const char *stack_pointer_register() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "%rsp" : "%esp";
+	}
+
+	void emit_push_accumulator()
+	{
+		if (target_ == CodegenTarget::X86_64) {
+			out_ << "\tpushq %rax\n";
+			eval_stack_bytes_ += 8;
+		} else {
+			out_ << "\tpushl %eax\n";
+		}
+	}
+
+	void emit_pop_accumulator()
+	{
+		if (target_ == CodegenTarget::X86_64) {
+			out_ << "\tpopq %rax\n";
+			eval_stack_bytes_ -= 8;
+		} else {
+			out_ << "\tpopl %eax\n";
+		}
+	}
+
+	void emit_pop_to(const std::string &register_name)
+	{
+		out_ << "\tpopq " << register_name << "\n";
+		eval_stack_bytes_ -= 8;
+	}
 };
 
 } // namespace
@@ -461,9 +695,10 @@ const std::string &CodegenResult::assembly() const
 	return assembly_;
 }
 
-CodegenResult emit_x86_assembly(const ir::Module &module, Diagnostics &diagnostics)
+CodegenResult emit_x86_assembly(const ir::Module &module, Diagnostics &diagnostics,
+                                CodegenTarget target)
 {
-	Emitter emitter(diagnostics);
+	Emitter emitter(diagnostics, target);
 	return emitter.emit(module);
 }
 

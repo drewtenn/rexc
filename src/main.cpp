@@ -1,4 +1,4 @@
-// Rexc command-line driver: source file to GNU i386 assembly.
+// Rexc command-line driver: source file to target x86 assembly.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"
@@ -13,6 +13,51 @@
 #include <string>
 
 namespace {
+
+struct Options {
+	std::string input_path;
+	std::string output_path;
+	rexc::CodegenTarget target = rexc::CodegenTarget::I386;
+	bool emit_assembly = false;
+};
+
+rexc::CodegenTarget parse_target(const std::string &target)
+{
+	if (target == "i386")
+		return rexc::CodegenTarget::I386;
+	if (target == "x86_64")
+		return rexc::CodegenTarget::X86_64;
+	throw std::runtime_error("unknown target: " + target);
+}
+
+Options parse_options(int argc, char **argv)
+{
+	Options options;
+	if (argc < 5)
+		throw std::runtime_error("usage");
+
+	options.input_path = argv[1];
+	for (int i = 2; i < argc; ++i) {
+		std::string arg = argv[i];
+		if (arg == "-S") {
+			options.emit_assembly = true;
+			continue;
+		}
+		if (arg == "-o" && i + 1 < argc) {
+			options.output_path = argv[++i];
+			continue;
+		}
+		if (arg == "--target" && i + 1 < argc) {
+			options.target = parse_target(argv[++i]);
+			continue;
+		}
+		throw std::runtime_error("usage");
+	}
+
+	if (options.input_path.empty() || options.output_path.empty() || !options.emit_assembly)
+		throw std::runtime_error("usage");
+	return options;
+}
 
 std::string read_file(const std::string &path)
 {
@@ -38,16 +83,9 @@ void write_file(const std::string &path, const std::string &text)
 
 int main(int argc, char **argv)
 {
-	if (argc != 5 || std::string(argv[2]) != "-S" || std::string(argv[3]) != "-o") {
-		std::cerr << "usage: rexc input.rx -S -o output.s\n";
-		return 2;
-	}
-
-	const std::string input_path = argv[1];
-	const std::string output_path = argv[4];
-
 	try {
-		rexc::SourceFile source(input_path, read_file(input_path));
+		Options options = parse_options(argc, argv);
+		rexc::SourceFile source(options.input_path, read_file(options.input_path));
 		rexc::Diagnostics diagnostics;
 
 		auto parsed = rexc::parse_source(source, diagnostics);
@@ -63,15 +101,19 @@ int main(int argc, char **argv)
 		}
 
 		auto ir = rexc::lower_to_ir(parsed.module());
-		auto codegen = rexc::emit_x86_assembly(ir, diagnostics);
+		auto codegen = rexc::emit_x86_assembly(ir, diagnostics, options.target);
 		if (!codegen.ok()) {
 			std::cerr << diagnostics.format();
 			return 1;
 		}
 
-		write_file(output_path, codegen.assembly());
+		write_file(options.output_path, codegen.assembly());
 		return 0;
 	} catch (const std::exception &err) {
+		if (std::string(err.what()) == "usage") {
+			std::cerr << "usage: rexc input.rx [--target i386|x86_64] -S -o output.s\n";
+			return 2;
+		}
 		std::cerr << "rexc: " << err.what() << '\n';
 		return 1;
 	}

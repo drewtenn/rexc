@@ -14,10 +14,24 @@ ctest --test-dir build --output-on-failure
 
 ```sh
 build/rexc examples/add.rx -S -o build/add.s
+build/rexc examples/wide.rx --target x86_64 -S -o build/wide64.s
 ```
 
-The generated assembly is GNU assembler-compatible 32-bit x86 text intended for
-the Drunix userland toolchain.
+The default target is `i386`. Use `--target x86_64` to emit 64-bit
+Linux-compatible x86_64 assembly. Both outputs use GNU assembler syntax.
+
+## Targets
+
+Rexc currently supports two Linux-compatible x86 assembly targets:
+
+| Target | CLI option | Assembler mode | ELF object class | Notes |
+| --- | --- | --- | --- | --- |
+| `i386` | omitted or `--target i386` | `--32` | `ELF32` | Default target; matches the current Drunix user runtime. |
+| `x86_64` | `--target x86_64` | `--64` | `ELF64` | Uses the Linux/System V x86_64 calling convention. |
+
+Both targets emit assembly for functions named in the Rexc source. Final
+executables still need a startup object such as `crt0.o`, a runtime library,
+and a linker script or linker defaults that match the selected ABI.
 
 ## Compiler Pipeline
 
@@ -31,9 +45,9 @@ source .rx
   -> AST
   -> semantic analysis
   -> typed IR
-  -> i386 assembly
+  -> target assembly
   -> assembler object
-  -> Drunix ELF link
+  -> Linux-compatible ELF link
 ```
 
 1. **CLI input**: `src/main.cpp` reads the input file, creates a `SourceFile`,
@@ -61,37 +75,43 @@ source .rx
    functions, parameters, locals, calls, literals, unary expressions, and binary
    expressions. This gives the backend a smaller, typed representation to emit.
 
-6. **i386 code generation**: `src/codegen_x86.cpp` emits GNU assembler syntax
-   for 32-bit x86. It emits supported scalar values in 32-bit stack slots,
-   emits strings in `.rodata` with `.LstrN` labels, uses signed or unsigned
-   division based on IR type, and reports backend diagnostics for unsupported
-   `i64` and `u64` code generation.
+6. **x86 code generation**: `src/codegen_x86.cpp` emits GNU assembler syntax
+   for either `i386` or `x86_64`. It emits supported scalar values in target
+   stack slots, emits strings in `.rodata` with `.LstrN` labels, uses signed or
+   unsigned division based on IR type, and reports backend diagnostics when a
+   type is unsupported by the selected target.
 
-7. **Assembly output**: `build/rexc input.rx -S -o output.s` writes assembly
-   only after code generation succeeds. Failed code generation reports
-   diagnostics and does not write partial assembly.
+7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64] -S -o
+   output.s` writes assembly only after code generation succeeds. Failed code
+   generation reports diagnostics and does not write partial assembly.
 
-8. **Object assembly**: Use `x86_64-elf-as --32` or GNU `as --32` to assemble
-   the generated `.s` file into an i386 object file.
+8. **Object assembly**: Use `x86_64-elf-as --32` or GNU `as --32` for i386
+   output. Use `x86_64-elf-as --64` or GNU `as --64` for x86_64 output.
 
-9. **Drunix ELF link**: Link the object with Drunix's `crt0.o`, `libc.a`, and
-   user linker script to produce the final 32-bit ELF executable.
+9. **ELF link**: Link the object with a matching Linux-compatible startup
+   object, runtime library, and linker script to produce the final executable.
+   Drunix's current checked-in userland runtime is i386-focused; x86_64 output
+   needs an x86_64-compatible runtime/startup path.
 
 ## Core Primitive Types
 
 Rexc supports signed integers (`i8`, `i16`, `i32`, `i64`), unsigned integers
 (`u8`, `u16`, `u32`, `u64`), `bool`, `char`, and `str`.
 
-The i386 backend emits code for `i8`, `i16`, `i32`, `u8`, `u16`, `u32`,
+The `i386` target emits code for `i8`, `i16`, `i32`, `u8`, `u16`, `u32`,
 `bool`, `char`, and `str`. The `i64` and `u64` types parse and type-check, but
-code generation fails with a backend diagnostic because 64-bit integer emission
-is not implemented for i386 yet.
+`i386` code generation fails with a backend diagnostic because those values do
+not fit the current 32-bit backend.
+
+The `x86_64` target emits code for all current primitive types, including
+`i64` and `u64`, using the Linux/System V x86_64 calling convention.
 
 ## Build For Drunix Userland
 
-Rexc currently emits assembly. To build a runnable Drunix userland executable,
-assemble that output into a 32-bit i386 object file, then link it with Drunix's
-user runtime and linker script.
+Rexc currently emits assembly for Linux-compatible `i386` and `x86_64`
+targets. To build a runnable Drunix userland executable with the current Drunix
+runtime, assemble the default `i386` output into a 32-bit object file, then link
+it with Drunix's user runtime and linker script.
 
 Set the Drunix checkout path:
 
@@ -138,6 +158,45 @@ provides `_start`, prepares `argc`, `argv`, and `envp`, calls `main`, and exits
 through the Drunix syscall runtime. Keep `lib/libc.a` after `build/add.o` so
 the linker pulls only the archive members needed by the program.
 
+## Build 32-Bit And 64-Bit Objects
+
+To produce a 32-bit Linux-compatible object:
+
+```sh
+build/rexc examples/add.rx --target i386 -S -o build/add32.s
+x86_64-elf-as --32 -o build/add32.o build/add32.s
+```
+
+To produce a 64-bit Linux-compatible object:
+
+```sh
+build/rexc examples/wide.rx --target x86_64 -S -o build/wide64.s
+x86_64-elf-as --64 -o build/wide64.o build/wide64.s
+```
+
+Validate the object classes:
+
+```sh
+x86_64-elf-readelf -h build/add32.o | grep -E 'Class|Machine'
+x86_64-elf-readelf -h build/wide64.o | grep -E 'Class|Machine'
+```
+
+Expected fields:
+
+```text
+Class:                             ELF32
+Machine:                           Intel 80386
+
+Class:                             ELF64
+Machine:                           Advanced Micro Devices X86-64
+```
+
+Linking the 64-bit object into a final executable requires an x86_64 startup
+object, runtime library, and linker script that match the Linux-compatible ABI.
+The checked-in Drunix user runtime is currently i386-focused, so `x86_64`
+support is ready at the compiler/object level and needs matching OS runtime
+pieces before it can boot as a Drunix user program.
+
 ## Validate An ELF Binary
 
 Use `file` for a quick human-readable check:
@@ -182,5 +241,5 @@ Expected first four bytes:
 ## Optional Assembly Check
 
 `ctest` runs an assembler smoke check when `x86_64-elf-as` or GNU `as` is
-available. The check compiles `examples/add.rx` to assembly and assembles it as
-a 32-bit x86 object file.
+available. The check compiles `examples/add.rx` as i386 and `examples/wide.rx`
+as x86_64, then assembles both outputs into ELF object files.

@@ -1,0 +1,6 @@
+// 64-bit primitive example for the x86_64 target.
+fn main() -> i64 {
+    let min: i64 = -9223372036854775808;
+    let all: u64 = 18446744073709551615;
+    return min + 1;
+}

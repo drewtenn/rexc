@@ -1,4 +1,4 @@
-// Unit coverage for i386 assembly emission and backend diagnostics.
+// Unit coverage for x86 assembly emission and backend diagnostics.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"
@@ -15,20 +15,22 @@ struct CodegenAttempt {
 	rexc::Diagnostics diagnostics;
 };
 
-static CodegenAttempt compile_to_codegen_result(const std::string &text)
+static CodegenAttempt compile_to_codegen_result(
+	const std::string &text, rexc::CodegenTarget target = rexc::CodegenTarget::I386)
 {
 	rexc::SourceFile source("test.rx", text);
 	rexc::Diagnostics diagnostics;
 	auto parsed = rexc::parse_source(source, diagnostics);
 	REQUIRE(parsed.ok());
 	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
-	auto result = rexc::emit_x86_assembly(rexc::lower_to_ir(parsed.module()), diagnostics);
+	auto result = rexc::emit_x86_assembly(rexc::lower_to_ir(parsed.module()), diagnostics, target);
 	return {std::move(result), std::move(diagnostics)};
 }
 
-static std::string compile_to_assembly(const std::string &text)
+static std::string compile_to_assembly(
+	const std::string &text, rexc::CodegenTarget target = rexc::CodegenTarget::I386)
 {
-	auto attempt = compile_to_codegen_result(text);
+	auto attempt = compile_to_codegen_result(text, target);
 	REQUIRE(attempt.result.ok());
 	REQUIRE(!attempt.diagnostics.has_errors());
 	return attempt.result.assembly();
@@ -213,4 +215,60 @@ TEST_CASE(codegen_emits_unsigned_division)
 	REQUIRE(assembly.find("divl %ecx") != std::string::npos);
 	REQUIRE(assembly.find("cltd") == std::string::npos);
 	REQUIRE(assembly.find("idivl %ecx") == std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_64_bit_integer_arithmetic)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i64 { let x: i64 = 9223372036854775807; return x + 1; }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("pushq %rbp") != std::string::npos);
+	REQUIRE(assembly.find("movq %rsp, %rbp") != std::string::npos);
+	REQUIRE(assembly.find("subq $16, %rsp") != std::string::npos);
+	REQUIRE(assembly.find("movabsq $9223372036854775807, %rax") != std::string::npos);
+	REQUIRE(assembly.find("movq %rax, -8(%rbp)") != std::string::npos);
+	REQUIRE(assembly.find("addq %rcx, %rax") != std::string::npos);
+	REQUIRE(assembly.find("ret") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_uses_system_v_argument_registers)
+{
+	auto assembly = compile_to_assembly(
+		"fn add(a: i64, b: i64) -> i64 { return a + b; }\n"
+		"fn main() -> i64 { return add(20, 22); }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("movq %rdi, -8(%rbp)") != std::string::npos);
+	REQUIRE(assembly.find("movq %rsi, -16(%rbp)") != std::string::npos);
+	REQUIRE(assembly.find("popq %rdi") != std::string::npos);
+	REQUIRE(assembly.find("popq %rsi") != std::string::npos);
+	REQUIRE(assembly.find("call add") != std::string::npos);
+	REQUIRE(assembly.find("addq $") == std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_passes_seventh_argument_on_stack)
+{
+	auto assembly = compile_to_assembly(
+		"fn pick(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64) -> i64 { return g; }\n"
+		"fn main() -> i64 { return pick(1, 2, 3, 4, 5, 6, 7); }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("movq 16(%rbp), %rax") != std::string::npos);
+	REQUIRE(assembly.find("subq $8, %rsp") != std::string::npos);
+	REQUIRE(assembly.find("addq $16, %rsp") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_strings_and_unsigned_division)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> u64 { let s: str = \"wide\"; return 18446744073709551615 / 2; }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find(".section .rodata") != std::string::npos);
+	REQUIRE(assembly.find(".asciz \"wide\"") != std::string::npos);
+	REQUIRE(assembly.find("movq $.Lstr0, %rax") != std::string::npos);
+	REQUIRE(assembly.find("movabsq $18446744073709551615, %rax") != std::string::npos);
+	REQUIRE(assembly.find("xorq %rdx, %rdx") != std::string::npos);
+	REQUIRE(assembly.find("divq %rcx") != std::string::npos);
 }

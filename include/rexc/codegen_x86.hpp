@@ -1,6 +1,6 @@
 #pragma once
 
-// Public i386 backend API: typed IR in, assembly or diagnostics out.
+// Public x86 backend API: typed IR in, target assembly or diagnostics out.
 #include "rexc/diagnostics.hpp"
 #include "rexc/ir.hpp"
 
@@ -20,6 +20,12 @@ private:
 	std::string assembly_;
 };
 
-CodegenResult emit_x86_assembly(const ir::Module &module, Diagnostics &diagnostics);
+enum class CodegenTarget {
+	I386,
+	X86_64,
+};
+
+CodegenResult emit_x86_assembly(const ir::Module &module, Diagnostics &diagnostics,
+                                CodegenTarget target = CodegenTarget::I386);
 
 } // namespace rexc
