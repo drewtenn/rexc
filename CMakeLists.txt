@@ -13,6 +13,8 @@ add_library(rexc_core
 	src/ast.cpp
 	src/parse.cpp
 	src/sema.cpp
+	src/ir.cpp
+	src/lower_ir.cpp
 )
 
 target_include_directories(rexc_core PUBLIC include)
@@ -23,6 +25,7 @@ add_executable(rexc_tests
 	tests/diagnostics_tests.cpp
 	tests/frontend_tests.cpp
 	tests/sema_tests.cpp
+	tests/ir_tests.cpp
 )
 
 target_include_directories(rexc_tests PRIVATE tests)
