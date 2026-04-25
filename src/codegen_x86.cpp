@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 namespace rexc {
 namespace {
@@ -32,23 +33,75 @@ std::string canonical_decimal_literal(const std::string &literal)
 	return literal.substr(first_non_zero);
 }
 
+std::string escape_asciz_payload(const std::string &payload)
+{
+	std::ostringstream escaped;
+	for (unsigned char ch : payload) {
+		switch (ch) {
+		case '\n':
+			escaped << "\\n";
+			break;
+		case '\r':
+			escaped << "\\r";
+			break;
+		case '\t':
+			escaped << "\\t";
+			break;
+		case '"':
+			escaped << "\\\"";
+			break;
+		case '\\':
+			escaped << "\\\\";
+			break;
+		default:
+			if (ch >= 0x20 && ch <= 0x7e) {
+				escaped << static_cast<char>(ch);
+			} else {
+				escaped << '\\'
+				        << static_cast<char>('0' + ((ch >> 6) & 7))
+				        << static_cast<char>('0' + ((ch >> 3) & 7))
+				        << static_cast<char>('0' + (ch & 7));
+			}
+			break;
+		}
+	}
+	return escaped.str();
+}
+
+std::string unsupported_codegen_message(ir::Type type)
+{
+	if (is_integer(type) && type.bits == 64)
+		return "64-bit integer code generation is not implemented for i386";
+	return format_type(type) + " code generation is not implemented for i386";
+}
+
 class Emitter {
 public:
-	std::string emit(const ir::Module &module)
+	explicit Emitter(Diagnostics &diagnostics) : diagnostics_(diagnostics) {}
+
+	CodegenResult emit(const ir::Module &module)
 	{
+		std::size_t starting_diagnostics = diagnostics_.items().size();
+
+		collect_string_labels(module);
+		emit_string_section(module);
+
 		out_ << ".text\n";
 		for (const auto &function : module.functions) {
-			if (!function.is_extern)
-				emit_function(function);
+			if (function.is_extern)
+				continue;
+			if (!validate_function(function))
+				continue;
+			emit_function(function);
 		}
-		return out_.str();
+
+		return CodegenResult(diagnostics_.items().size() == starting_diagnostics,
+		                     out_.str());
 	}
 
 private:
 	void emit_function(const ir::Function &function)
 	{
-		guard_supported_function(function);
-
 		Frame frame = build_frame(function);
 		std::string done_label = ".L_return_" + function.name;
 
@@ -88,11 +141,65 @@ private:
 		return frame;
 	}
 
-	void guard_supported_function(const ir::Function &function)
+	bool validate_function(const ir::Function &function)
 	{
-		guard_supported_type(function.return_type);
+		bool ok = validate_type(function.return_type);
 		for (const auto &parameter : function.parameters)
-			guard_supported_type(parameter.type);
+			ok = validate_type(parameter.type) && ok;
+		for (const auto &statement : function.body)
+			ok = validate_statement(*statement) && ok;
+		return ok;
+	}
+
+	bool validate_statement(const ir::Statement &statement)
+	{
+		if (statement.kind == ir::Statement::Kind::Let) {
+			const auto &let = static_cast<const ir::LetStatement &>(statement);
+			return validate_value(*let.value);
+		}
+
+		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
+		return validate_value(*ret.value);
+	}
+
+	bool validate_value(const ir::Value &value)
+	{
+		bool ok = validate_type(value.type);
+
+		switch (value.kind) {
+		case ir::Value::Kind::Integer:
+		case ir::Value::Kind::Bool:
+		case ir::Value::Kind::Char:
+		case ir::Value::Kind::String:
+		case ir::Value::Kind::Local:
+			return ok;
+		case ir::Value::Kind::Unary: {
+			const auto &unary = static_cast<const ir::UnaryValue &>(value);
+			return validate_value(*unary.operand) && ok;
+		}
+		case ir::Value::Kind::Binary: {
+			const auto &binary = static_cast<const ir::BinaryValue &>(value);
+			ok = validate_value(*binary.lhs) && ok;
+			ok = validate_value(*binary.rhs) && ok;
+			return ok;
+		}
+		case ir::Value::Kind::Call: {
+			const auto &call = static_cast<const ir::CallValue &>(value);
+			for (const auto &argument : call.arguments)
+				ok = validate_value(*argument) && ok;
+			return ok;
+		}
+		}
+
+		throw std::runtime_error("unexpected IR value kind during validation");
+	}
+
+	bool validate_type(ir::Type type)
+	{
+		if (is_i386_codegen_supported(type))
+			return true;
+		diagnostics_.error({}, unsupported_codegen_message(type));
+		return false;
 	}
 
 	void emit_statement(const ir::Statement &statement, const Frame &frame,
@@ -112,8 +219,6 @@ private:
 
 	void emit_value(const ir::Value &value, const Frame &frame)
 	{
-		guard_supported_value(value);
-
 		switch (value.kind) {
 		case ir::Value::Kind::Integer: {
 			const auto &integer = static_cast<const ir::IntegerValue &>(value);
@@ -133,8 +238,11 @@ private:
 			out_ << "\tmovl $" << static_cast<unsigned int>(character.value) << ", %eax\n";
 			return;
 		}
-		case ir::Value::Kind::String:
-			throw std::runtime_error("string code generation is not implemented");
+		case ir::Value::Kind::String: {
+			const auto &string = static_cast<const ir::StringValue &>(value);
+			out_ << "\tmovl $" << string_labels_.at(&string) << ", %eax\n";
+			return;
+		}
 		case ir::Value::Kind::Unary:
 			emit_unary(static_cast<const ir::UnaryValue &>(value), frame);
 			return;
@@ -152,19 +260,6 @@ private:
 		}
 	}
 
-	void guard_supported_value(const ir::Value &value)
-	{
-		guard_supported_type(value.type);
-	}
-
-	void guard_supported_type(ir::Type type)
-	{
-		if (is_integer(type) && type.bits == 64)
-			throw std::runtime_error("64-bit integer code generation is not implemented");
-		if (type.kind == PrimitiveKind::Str)
-			throw std::runtime_error("string code generation is not implemented");
-	}
-
 	void emit_unary(const ir::UnaryValue &unary, const Frame &frame)
 	{
 		emit_value(*unary.operand, frame);
@@ -174,9 +269,6 @@ private:
 
 	void emit_binary(const ir::BinaryValue &binary, const Frame &frame)
 	{
-		if (binary.op == "/" && is_unsigned_integer(binary.type))
-			throw std::runtime_error("unsigned division code generation is not implemented");
-
 		emit_value(*binary.lhs, frame);
 		out_ << "\tpushl %eax\n";
 		emit_value(*binary.rhs, frame);
@@ -190,8 +282,13 @@ private:
 		else if (binary.op == "*")
 			out_ << "\timull %ecx, %eax\n";
 		else if (binary.op == "/") {
-			out_ << "\tcltd\n";
-			out_ << "\tidivl %ecx\n";
+			if (is_unsigned_integer(binary.type)) {
+				out_ << "\txorl %edx, %edx\n";
+				out_ << "\tdivl %ecx\n";
+			} else {
+				out_ << "\tcltd\n";
+				out_ << "\tidivl %ecx\n";
+			}
 		}
 	}
 
@@ -207,14 +304,142 @@ private:
 			out_ << "\taddl $" << call.arguments.size() * 4 << ", %esp\n";
 	}
 
+	void collect_string_labels(const ir::Module &module)
+	{
+		for (const auto &function : module.functions) {
+			for (const auto &statement : function.body)
+				collect_string_labels(*statement);
+		}
+	}
+
+	void collect_string_labels(const ir::Statement &statement)
+	{
+		if (statement.kind == ir::Statement::Kind::Let) {
+			const auto &let = static_cast<const ir::LetStatement &>(statement);
+			collect_string_labels(*let.value);
+			return;
+		}
+
+		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
+		collect_string_labels(*ret.value);
+	}
+
+	void collect_string_labels(const ir::Value &value)
+	{
+		switch (value.kind) {
+		case ir::Value::Kind::Integer:
+		case ir::Value::Kind::Bool:
+		case ir::Value::Kind::Char:
+		case ir::Value::Kind::Local:
+			return;
+		case ir::Value::Kind::String: {
+			const auto &string = static_cast<const ir::StringValue &>(value);
+			string_labels_[&string] = ".Lstr" + std::to_string(string_labels_.size());
+			return;
+		}
+		case ir::Value::Kind::Unary: {
+			const auto &unary = static_cast<const ir::UnaryValue &>(value);
+			collect_string_labels(*unary.operand);
+			return;
+		}
+		case ir::Value::Kind::Binary: {
+			const auto &binary = static_cast<const ir::BinaryValue &>(value);
+			collect_string_labels(*binary.lhs);
+			collect_string_labels(*binary.rhs);
+			return;
+		}
+		case ir::Value::Kind::Call: {
+			const auto &call = static_cast<const ir::CallValue &>(value);
+			for (const auto &argument : call.arguments)
+				collect_string_labels(*argument);
+			return;
+		}
+		}
+	}
+
+	void emit_string_section(const ir::Module &module)
+	{
+		if (string_labels_.empty())
+			return;
+
+		out_ << ".section .rodata\n";
+		for (const auto &function : module.functions) {
+			for (const auto &statement : function.body)
+				emit_string_literals(*statement);
+		}
+	}
+
+	void emit_string_literals(const ir::Statement &statement)
+	{
+		if (statement.kind == ir::Statement::Kind::Let) {
+			const auto &let = static_cast<const ir::LetStatement &>(statement);
+			emit_string_literals(*let.value);
+			return;
+		}
+
+		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
+		emit_string_literals(*ret.value);
+	}
+
+	void emit_string_literals(const ir::Value &value)
+	{
+		switch (value.kind) {
+		case ir::Value::Kind::Integer:
+		case ir::Value::Kind::Bool:
+		case ir::Value::Kind::Char:
+		case ir::Value::Kind::Local:
+			return;
+		case ir::Value::Kind::String: {
+			const auto &string = static_cast<const ir::StringValue &>(value);
+			out_ << string_labels_.at(&string) << ":\n";
+			out_ << "\t.asciz \"" << escape_asciz_payload(string.value) << "\"\n";
+			return;
+		}
+		case ir::Value::Kind::Unary: {
+			const auto &unary = static_cast<const ir::UnaryValue &>(value);
+			emit_string_literals(*unary.operand);
+			return;
+		}
+		case ir::Value::Kind::Binary: {
+			const auto &binary = static_cast<const ir::BinaryValue &>(value);
+			emit_string_literals(*binary.lhs);
+			emit_string_literals(*binary.rhs);
+			return;
+		}
+		case ir::Value::Kind::Call: {
+			const auto &call = static_cast<const ir::CallValue &>(value);
+			for (const auto &argument : call.arguments)
+				emit_string_literals(*argument);
+			return;
+		}
+		}
+	}
+
+	Diagnostics &diagnostics_;
 	std::ostringstream out_;
+	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
 };
 
 } // namespace
 
-std::string emit_x86_assembly(const ir::Module &module)
+CodegenResult::CodegenResult(bool ok, std::string assembly)
+	: ok_(ok), assembly_(std::move(assembly))
 {
-	Emitter emitter;
+}
+
+bool CodegenResult::ok() const
+{
+	return ok_;
+}
+
+const std::string &CodegenResult::assembly() const
+{
+	return assembly_;
+}
+
+CodegenResult emit_x86_assembly(const ir::Module &module, Diagnostics &diagnostics)
+{
+	Emitter emitter(diagnostics);
 	return emitter.emit(module);
 }
 

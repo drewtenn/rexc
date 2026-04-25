@@ -62,7 +62,13 @@ int main(int argc, char **argv)
 		}
 
 		auto ir = rexc::lower_to_ir(parsed.module());
-		write_file(output_path, rexc::emit_x86_assembly(ir));
+		auto codegen = rexc::emit_x86_assembly(ir, diagnostics);
+		if (!codegen.ok()) {
+			std::cerr << diagnostics.format();
+			return 1;
+		}
+
+		write_file(output_path, codegen.assembly());
 		return 0;
 	} catch (const std::exception &err) {
 		std::cerr << "rexc: " << err.what() << '\n';

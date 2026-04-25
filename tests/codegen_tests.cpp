@@ -6,17 +6,31 @@
 #include "rexc/source.hpp"
 #include "test_support.hpp"
 
-#include <stdexcept>
 #include <string>
+#include <utility>
 
-static std::string compile_to_assembly(const std::string &text)
+struct CodegenAttempt {
+	rexc::CodegenResult result;
+	rexc::Diagnostics diagnostics;
+};
+
+static CodegenAttempt compile_to_codegen_result(const std::string &text)
 {
 	rexc::SourceFile source("test.rx", text);
 	rexc::Diagnostics diagnostics;
 	auto parsed = rexc::parse_source(source, diagnostics);
 	REQUIRE(parsed.ok());
 	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
-	return rexc::emit_x86_assembly(rexc::lower_to_ir(parsed.module()));
+	auto result = rexc::emit_x86_assembly(rexc::lower_to_ir(parsed.module()), diagnostics);
+	return {std::move(result), std::move(diagnostics)};
+}
+
+static std::string compile_to_assembly(const std::string &text)
+{
+	auto attempt = compile_to_codegen_result(text);
+	REQUIRE(attempt.result.ok());
+	REQUIRE(!attempt.diagnostics.has_errors());
+	return attempt.result.assembly();
 }
 
 TEST_CASE(codegen_emits_main_returning_integer)
@@ -49,57 +63,55 @@ TEST_CASE(codegen_emits_decimal_integer_immediates_without_octal_spelling)
 	REQUIRE(assembly.find("movl $010, %eax") == std::string::npos);
 }
 
-TEST_CASE(codegen_rejects_unsupported_64_bit_integer_literals)
+TEST_CASE(codegen_emits_bool_char_and_string_literals)
 {
-	try {
-		(void)compile_to_assembly("fn main() -> i32 { let x: u64 = 18446744073709551615; return 0; }\n");
-		REQUIRE(false);
-	} catch (const std::runtime_error &err) {
-		REQUIRE(std::string(err.what()).find("64-bit integer code generation is not implemented") !=
-		        std::string::npos);
-	}
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 {\n"
+		"  let ok: bool = true;\n"
+		"  let c: char = 'A';\n"
+		"  let s: str = \"hi\";\n"
+		"  return 0;\n"
+		"}\n");
+
+	auto rodata = assembly.find(".section .rodata");
+	auto text = assembly.find(".text");
+	REQUIRE(rodata != std::string::npos);
+	REQUIRE(text != std::string::npos);
+	REQUIRE(rodata < text);
+	REQUIRE(assembly.find(".Lstr0:") != std::string::npos);
+	REQUIRE(assembly.find(".asciz \"hi\"") != std::string::npos);
+	REQUIRE(assembly.find("movl $1, %eax") != std::string::npos);
+	REQUIRE(assembly.find("movl $65, %eax") != std::string::npos);
+	REQUIRE(assembly.find("movl $.Lstr0, %eax") != std::string::npos);
 }
 
-TEST_CASE(codegen_rejects_unsupported_64_bit_integer_signatures)
+TEST_CASE(codegen_reports_unsupported_64_bit_integer_literals_as_diagnostics)
 {
-	try {
-		(void)compile_to_assembly("fn f(x: i64, y: i32) -> i32 { return y; }\n");
-		REQUIRE(false);
-	} catch (const std::runtime_error &err) {
-		REQUIRE(std::string(err.what()).find("64-bit integer code generation is not implemented") !=
-		        std::string::npos);
-	}
+	auto attempt = compile_to_codegen_result(
+		"fn main() -> i32 { let x: u64 = 18446744073709551615; return 0; }\n");
+
+	REQUIRE(!attempt.result.ok());
+	REQUIRE(attempt.diagnostics.has_errors());
+	REQUIRE(attempt.diagnostics.format().find("64-bit integer code generation is not implemented for i386") !=
+	        std::string::npos);
 }
 
-TEST_CASE(codegen_rejects_unsigned_division_until_supported)
+TEST_CASE(codegen_reports_unsupported_64_bit_integer_signatures_as_diagnostics)
 {
-	try {
-		(void)compile_to_assembly("fn main() -> u32 { return 4000000000 / 2; }\n");
-		REQUIRE(false);
-	} catch (const std::runtime_error &err) {
-		REQUIRE(std::string(err.what()).find("unsigned division code generation is not implemented") !=
-		        std::string::npos);
-	}
+	auto attempt = compile_to_codegen_result("fn f(x: i64, y: i32) -> i32 { return y; }\n");
+
+	REQUIRE(!attempt.result.ok());
+	REQUIRE(attempt.diagnostics.has_errors());
+	REQUIRE(attempt.diagnostics.format().find("64-bit integer code generation is not implemented for i386") !=
+	        std::string::npos);
 }
 
-TEST_CASE(codegen_rejects_string_literals_until_rodata_codegen_exists)
+TEST_CASE(codegen_emits_unsigned_division)
 {
-	try {
-		(void)compile_to_assembly("fn main() -> i32 { let s: str = \"hi\"; return 0; }\n");
-		REQUIRE(false);
-	} catch (const std::runtime_error &err) {
-		REQUIRE(std::string(err.what()).find("string code generation is not implemented") !=
-		        std::string::npos);
-	}
-}
+	auto assembly = compile_to_assembly("fn main() -> u32 { return 4000000000 / 2; }\n");
 
-TEST_CASE(codegen_rejects_string_signatures_until_abi_codegen_exists)
-{
-	try {
-		(void)compile_to_assembly("fn f(s: str) -> i32 { return 0; }\n");
-		REQUIRE(false);
-	} catch (const std::runtime_error &err) {
-		REQUIRE(std::string(err.what()).find("string code generation is not implemented") !=
-		        std::string::npos);
-	}
+	REQUIRE(assembly.find("xorl %edx, %edx") != std::string::npos);
+	REQUIRE(assembly.find("divl %ecx") != std::string::npos);
+	REQUIRE(assembly.find("cltd") == std::string::npos);
+	REQUIRE(assembly.find("idivl %ecx") == std::string::npos);
 }
