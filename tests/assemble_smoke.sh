@@ -31,3 +31,41 @@ test -s "${tmp_dir}/add.o"
 test -s "${tmp_dir}/branch32.o"
 test -s "${tmp_dir}/wide64.o"
 test -s "${tmp_dir}/branch64.o"
+
+"${build_dir}/rexc" "${repo_dir}/examples/add.rx" -c -o "${tmp_dir}/add-cli.o"
+"${build_dir}/rexc" "${repo_dir}/examples/wide.rx" --target x86_64 -c -o "${tmp_dir}/wide64-cli.o"
+test -s "${tmp_dir}/add-cli.o"
+test -s "${tmp_dir}/wide64-cli.o"
+
+if command -v x86_64-elf-as >/dev/null 2>&1 &&
+	command -v x86_64-elf-ld >/dev/null 2>&1; then
+	drunix_dir="${tmp_dir}/fake-drunix"
+	mkdir -p "${drunix_dir}/user/lib"
+	cat > "${tmp_dir}/crt0.s" <<'ASM'
+.globl _start
+_start:
+	call main
+.Lhalt:
+	jmp .Lhalt
+ASM
+	x86_64-elf-as --32 -o "${drunix_dir}/user/lib/crt0.o" "${tmp_dir}/crt0.s"
+	printf '!<arch>\n' > "${drunix_dir}/user/lib/libc.a"
+	cat > "${drunix_dir}/user/user.ld" <<'LDS'
+ENTRY(_start)
+SECTIONS
+{
+	. = 0x400000;
+	.text : { *(.text*) }
+	.rodata : { *(.rodata*) }
+	.data : { *(.data*) }
+	.bss : { *(.bss*) }
+}
+LDS
+
+	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" \
+		--drunix-root "${drunix_dir}" \
+		-o "${tmp_dir}/add.drunix"
+	test -s "${tmp_dir}/add.drunix"
+else
+	echo "SKIP: no x86_64-elf-as/x86_64-elf-ld pair found for Drunix link smoke"
+fi

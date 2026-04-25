@@ -32,16 +32,29 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Compile To Assembly
+## Compile, Assemble, And Link
 
 ```sh
 build/rexc examples/add.rx -S -o build/add.s
+build/rexc examples/add.rx -c -o build/add.o
 build/rexc examples/branch.rx --target i386 -S -o build/branch32.s
 build/rexc examples/wide.rx --target x86_64 -S -o build/wide64.s
+build/rexc examples/wide.rx --target x86_64 -c -o build/wide64.o
 ```
 
 The default target is `i386`. Use `--target x86_64` to emit 64-bit
-Linux-compatible x86_64 assembly. Both outputs use GNU assembler syntax.
+Linux-compatible x86_64 assembly or object files. `-S` writes assembly, while
+`-c` runs the assembler and writes an ELF object file.
+
+To build a linked Drunix i386 executable in one compiler invocation, point Rexc
+at a Drunix checkout that has `user/user.ld`, `user/lib/crt0.o`, and
+`user/lib/libc.a`:
+
+```sh
+build/rexc examples/add.rx --drunix-root /path/to/DrunixOS -o build/add.drunix
+```
+
+Drunix linking currently targets the i386 runtime path.
 
 ## Targets
 
@@ -117,13 +130,17 @@ source .rx
    output.s` writes assembly only after code generation succeeds. Failed code
    generation reports diagnostics and does not write partial assembly.
 
-8. **Object assembly**: Use `x86_64-elf-as --32` or GNU `as --32` for i386
-   output. Use `x86_64-elf-as --64` or GNU `as --64` for x86_64 output.
+8. **Object assembly**: `build/rexc input.rx [--target i386|x86_64] -c -o
+   output.o` runs `x86_64-elf-as` when available, falling back to GNU `as`,
+   and writes an ELF object file. Manual assembly still works with
+   `x86_64-elf-as --32` or GNU `as --32` for i386 output and
+   `x86_64-elf-as --64` or GNU `as --64` for x86_64 output.
 
-9. **ELF link**: Link the object with a matching Linux-compatible startup
-   object, runtime library, and linker script to produce the final executable.
-   Drunix's current checked-in userland runtime is i386-focused; x86_64 output
-   needs an x86_64-compatible runtime/startup path.
+9. **ELF link**: `build/rexc input.rx --drunix-root /path/to/DrunixOS -o
+   output.drunix` assembles a temporary i386 object and links it with Drunix's
+   startup object, runtime archive, and user linker script. Drunix's current
+   checked-in userland runtime is i386-focused; x86_64 output needs an
+   x86_64-compatible runtime/startup path before it can be linked this way.
 
 ## Core Primitive Types
 
@@ -200,14 +217,11 @@ Set the Drunix checkout path:
 DRUNIX=/Users/drew/development/DrunixOS
 ```
 
-Build the Rexc compiler and compile the example program:
+Build the Rexc compiler:
 
 ```sh
 cmake -S . -B build
 cmake --build build
-
-build/rexc examples/add.rx -S -o build/add.s
-x86_64-elf-as --32 -o build/add.o build/add.s
 ```
 
 Build the Drunix startup object and runtime archive:
@@ -216,9 +230,18 @@ Build the Drunix startup object and runtime archive:
 make -C "$DRUNIX/user" lib/crt0.o lib/libc.a
 ```
 
-Link the final Drunix ELF executable:
+Compile and link the final Drunix ELF executable:
 
 ```sh
+build/rexc examples/add.rx --drunix-root "$DRUNIX" -o build/add.drunix
+```
+
+The command above is equivalent to compiling assembly, assembling an i386
+object, and linking it with the Drunix user runtime:
+
+```sh
+build/rexc examples/add.rx -S -o build/add.s
+x86_64-elf-as --32 -o build/add.o build/add.s
 x86_64-elf-ld -m elf_i386 \
   -T "$DRUNIX/user/user.ld" \
   -o build/add.drunix \
@@ -244,15 +267,13 @@ the linker pulls only the archive members needed by the program.
 To produce a 32-bit Linux-compatible object:
 
 ```sh
-build/rexc examples/add.rx --target i386 -S -o build/add32.s
-x86_64-elf-as --32 -o build/add32.o build/add32.s
+build/rexc examples/add.rx --target i386 -c -o build/add32.o
 ```
 
 To produce a 64-bit Linux-compatible object:
 
 ```sh
-build/rexc examples/wide.rx --target x86_64 -S -o build/wide64.s
-x86_64-elf-as --64 -o build/wide64.o build/wide64.s
+build/rexc examples/wide.rx --target x86_64 -c -o build/wide64.o
 ```
 
 Validate the object classes:
