@@ -70,6 +70,47 @@ provides `_start`, prepares `argc`, `argv`, and `envp`, calls `main`, and exits
 through the Drunix syscall runtime. Keep `lib/libc.a` after `build/add.o` so
 the linker pulls only the archive members needed by the program.
 
+## Validate An ELF Binary
+
+Use `file` for a quick human-readable check:
+
+```sh
+file build/add.drunix
+```
+
+Expected output includes:
+
+```text
+ELF 32-bit LSB executable, Intel 80386
+```
+
+Use `readelf` to inspect the ELF header:
+
+```sh
+x86_64-elf-readelf -h build/add.drunix
+```
+
+Key fields for a Drunix x86 user program:
+
+```text
+Class:                             ELF32
+Type:                              EXEC (Executable file)
+Machine:                           Intel 80386
+Entry point address:               0x400000
+```
+
+For a minimal byte-level check, confirm the ELF magic number:
+
+```sh
+xxd -l 4 build/add.drunix
+```
+
+Expected first four bytes:
+
+```text
+7f 45 4c 46
+```
+
 ## Optional Assembly Check
 
 `ctest` runs an assembler smoke check when `x86_64-elf-as` or GNU `as` is
