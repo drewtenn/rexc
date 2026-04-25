@@ -47,6 +47,8 @@ public:
 private:
 	void emit_function(const ir::Function &function)
 	{
+		guard_supported_function(function);
+
 		Frame frame = build_frame(function);
 		std::string done_label = ".L_return_" + function.name;
 
@@ -84,6 +86,13 @@ private:
 		}
 		frame.local_bytes = count_locals(function) * 4;
 		return frame;
+	}
+
+	void guard_supported_function(const ir::Function &function)
+	{
+		guard_supported_type(function.return_type);
+		for (const auto &parameter : function.parameters)
+			guard_supported_type(parameter.type);
 	}
 
 	void emit_statement(const ir::Statement &statement, const Frame &frame,
@@ -145,10 +154,15 @@ private:
 
 	void guard_supported_value(const ir::Value &value)
 	{
-		if (is_integer(value.type) && value.type.bits == 64)
-			throw std::runtime_error("64-bit integer code generation is not implemented");
+		guard_supported_type(value.type);
 		if (value.type.kind == PrimitiveKind::Str)
 			throw std::runtime_error("string code generation is not implemented");
+	}
+
+	void guard_supported_type(ir::Type type)
+	{
+		if (is_integer(type) && type.bits == 64)
+			throw std::runtime_error("64-bit integer code generation is not implemented");
 	}
 
 	void emit_unary(const ir::UnaryValue &unary, const Frame &frame)
@@ -160,6 +174,9 @@ private:
 
 	void emit_binary(const ir::BinaryValue &binary, const Frame &frame)
 	{
+		if (binary.op == "/" && is_unsigned_integer(binary.type))
+			throw std::runtime_error("unsigned division code generation is not implemented");
+
 		emit_value(*binary.lhs, frame);
 		out_ << "\tpushl %eax\n";
 		emit_value(*binary.rhs, frame);

@@ -60,6 +60,28 @@ TEST_CASE(codegen_rejects_unsupported_64_bit_integer_literals)
 	}
 }
 
+TEST_CASE(codegen_rejects_unsupported_64_bit_integer_signatures)
+{
+	try {
+		(void)compile_to_assembly("fn f(x: i64, y: i32) -> i32 { return y; }\n");
+		REQUIRE(false);
+	} catch (const std::runtime_error &err) {
+		REQUIRE(std::string(err.what()).find("64-bit integer code generation is not implemented") !=
+		        std::string::npos);
+	}
+}
+
+TEST_CASE(codegen_rejects_unsigned_division_until_supported)
+{
+	try {
+		(void)compile_to_assembly("fn main() -> u32 { return 4000000000 / 2; }\n");
+		REQUIRE(false);
+	} catch (const std::runtime_error &err) {
+		REQUIRE(std::string(err.what()).find("unsigned division code generation is not implemented") !=
+		        std::string::npos);
+	}
+}
+
 TEST_CASE(codegen_rejects_string_literals_until_rodata_codegen_exists)
 {
 	try {
