@@ -153,6 +153,8 @@ private:
 
 	bool validate_function(const ir::Function &function)
 	{
+		current_function_ = function.name;
+
 		bool ok = validate_type(function.return_type);
 		for (const auto &parameter : function.parameters)
 			ok = validate_type(parameter.type) && ok;
@@ -209,7 +211,8 @@ private:
 		if (is_i386_codegen_supported(type))
 			return true;
 		std::string message = unsupported_codegen_message(type);
-		if (unsupported_diagnostics_.insert(message).second)
+		std::string key = current_function_ + '\n' + message;
+		if (unsupported_diagnostics_.insert(std::move(key)).second)
 			diagnostics_.error({}, std::move(message));
 		return false;
 	}
@@ -429,6 +432,7 @@ private:
 
 	Diagnostics &diagnostics_;
 	std::ostringstream out_;
+	std::string current_function_;
 	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
 	std::unordered_set<std::string> unsupported_diagnostics_;
 };

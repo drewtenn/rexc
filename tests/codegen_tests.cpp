@@ -96,6 +96,40 @@ TEST_CASE(codegen_emits_bool_char_and_string_literals)
 	REQUIRE(assembly.find("movl $.Lstr0, %eax") != std::string::npos);
 }
 
+TEST_CASE(codegen_escapes_string_literals_for_asciz)
+{
+	auto assembly = compile_to_assembly(
+		R"(fn main() -> i32 {
+  let s: str = "line\n\"slash\\tab\t";
+  return 0;
+}
+)");
+
+	REQUIRE(assembly.find(R"(.asciz "line\n\"slash\\tab\t")") != std::string::npos);
+}
+
+TEST_CASE(codegen_uses_32_bit_stack_slots_for_mixed_primitive_locals)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 {\n"
+		"  let a: i8 = 1;\n"
+		"  let b: u16 = 2;\n"
+		"  let c: i32 = 3;\n"
+		"  let ok: bool = true;\n"
+		"  let ch: char = 'A';\n"
+		"  let s: str = \"hi\";\n"
+		"  return c;\n"
+		"}\n");
+
+	REQUIRE(assembly.find("subl $24, %esp") != std::string::npos);
+	REQUIRE(assembly.find("-4(%ebp)") != std::string::npos);
+	REQUIRE(assembly.find("-8(%ebp)") != std::string::npos);
+	REQUIRE(assembly.find("-12(%ebp)") != std::string::npos);
+	REQUIRE(assembly.find("-16(%ebp)") != std::string::npos);
+	REQUIRE(assembly.find("-20(%ebp)") != std::string::npos);
+	REQUIRE(assembly.find("-24(%ebp)") != std::string::npos);
+}
+
 TEST_CASE(codegen_reports_unsupported_64_bit_integer_literals_as_diagnostics)
 {
 	auto attempt = compile_to_codegen_result(
@@ -148,6 +182,26 @@ TEST_CASE(codegen_deduplicates_unsupported_64_bit_diagnostics)
 
 	REQUIRE(!attempt.result.ok());
 	REQUIRE_EQ(count_occurrences(attempt.diagnostics.format(), message), 1);
+}
+
+TEST_CASE(codegen_reports_unsupported_64_bit_diagnostics_per_function)
+{
+	auto attempt = compile_to_codegen_result(
+		"fn a() -> i64 { return 1; }\n"
+		"fn b() -> u64 { return 2; }\n");
+	const std::string message = "64-bit integer code generation is not implemented for i386";
+
+	REQUIRE(!attempt.result.ok());
+	REQUIRE_EQ(count_occurrences(attempt.diagnostics.format(), message), 2);
+}
+
+TEST_CASE(codegen_emits_signed_division)
+{
+	auto assembly = compile_to_assembly("fn main() -> i32 { return 7 / 2; }\n");
+
+	REQUIRE(assembly.find("cltd") != std::string::npos);
+	REQUIRE(assembly.find("idivl %ecx") != std::string::npos);
+	REQUIRE(assembly.find("\tdivl %ecx") == std::string::npos);
 }
 
 TEST_CASE(codegen_emits_unsigned_division)
