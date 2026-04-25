@@ -256,6 +256,41 @@ TEST_CASE(lowering_lowers_cast_expression)
 	REQUIRE_EQ(rexc::format_type(cast.value->type), std::string("char"));
 }
 
+TEST_CASE(lowering_lowers_pointer_address_deref_and_indirect_assignment)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; *p = 9; return *p; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &function = module.functions[0];
+	REQUIRE_EQ(function.body.size(), std::size_t(4));
+
+	const auto &pointer = static_cast<const rexc::ir::LetStatement &>(*function.body[1]);
+	REQUIRE_EQ(rexc::format_type(pointer.value->type), std::string("*i32"));
+	REQUIRE_EQ(pointer.value->kind, rexc::ir::Value::Kind::Unary);
+	const auto &address = static_cast<const rexc::ir::UnaryValue &>(*pointer.value);
+	REQUIRE_EQ(address.op, std::string("&"));
+	REQUIRE_EQ(address.operand->kind, rexc::ir::Value::Kind::Local);
+
+	REQUIRE_EQ(function.body[2]->kind, rexc::ir::Statement::Kind::IndirectAssign);
+	const auto &assign =
+	    static_cast<const rexc::ir::IndirectAssignStatement &>(*function.body[2]);
+	REQUIRE_EQ(rexc::format_type(assign.target->type), std::string("*i32"));
+	REQUIRE_EQ(rexc::format_type(assign.value->type), std::string("i32"));
+
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*function.body[3]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Unary);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("i32"));
+	const auto &deref = static_cast<const rexc::ir::UnaryValue &>(*ret.value);
+	REQUIRE_EQ(deref.op, std::string("*"));
+}
+
 TEST_CASE(lowering_lowers_if_else_statement)
 {
 	rexc::SourceFile source(

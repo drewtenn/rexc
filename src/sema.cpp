@@ -157,6 +157,31 @@ private:
 			return;
 		}
 
+		if (statement.kind == ast::Stmt::Kind::IndirectAssign) {
+			const auto &assign = static_cast<const ast::IndirectAssignStmt &>(statement);
+			auto target_type = check_expr(locals, *assign.target);
+			if (!target_type) {
+				check_expr(locals, *assign.value);
+				return;
+			}
+
+			auto target_pointee = pointee_type(*target_type);
+			if (!target_pointee) {
+				diagnostics_.error(assign.location,
+				                   "indirect assignment requires pointer target");
+				check_expr(locals, *assign.value);
+				return;
+			}
+
+			auto value_type = check_expr(locals, *assign.value, *target_pointee);
+			if (value_type && *value_type != *target_pointee) {
+				diagnostics_.error(assign.location, "assignment type mismatch: expected '" +
+				                   format_type(*target_pointee) + "' but got '" +
+				                   format_type(*value_type) + "'");
+			}
+			return;
+		}
+
 		if (statement.kind == ast::Stmt::Kind::If) {
 			const auto &if_stmt = static_cast<const ast::IfStmt &>(statement);
 			auto condition_type = check_expr(locals, *if_stmt.condition, bool_type());
@@ -320,6 +345,10 @@ private:
 	{
 		if (unary.op == "!")
 			return check_logical_not_expr(locals, unary);
+		if (unary.op == "&")
+			return check_address_of_expr(locals, unary);
+		if (unary.op == "*")
+			return check_deref_expr(locals, unary);
 
 		if (unary.op != "-")
 			return check_expr(locals, *unary.operand, expected);
@@ -358,6 +387,43 @@ private:
 		if (*lhs_type != bool_type() || *rhs_type != bool_type())
 			diagnostics_.error(binary.location, "logical operator requires bool operands");
 		return bool_type();
+	}
+
+	std::optional<PrimitiveType> check_address_of_expr(
+		const std::unordered_map<std::string, LocalInfo> &locals,
+		const ast::UnaryExpr &unary)
+	{
+		if (unary.operand->kind != ast::Expr::Kind::Name) {
+			diagnostics_.error(unary.location, "address-of requires local name");
+			check_expr(locals, *unary.operand);
+			return std::nullopt;
+		}
+
+		const auto &name = static_cast<const ast::NameExpr &>(*unary.operand);
+		auto it = locals.find(name.name);
+		if (it == locals.end()) {
+			diagnostics_.error(name.location, "unknown name '" + name.name + "'");
+			return std::nullopt;
+		}
+		if (!it->second.is_mutable)
+			diagnostics_.error(unary.location,
+			                   "address-of requires mutable local '" + name.name + "'");
+		return pointer_to(it->second.type);
+	}
+
+	std::optional<PrimitiveType> check_deref_expr(
+		const std::unordered_map<std::string, LocalInfo> &locals,
+		const ast::UnaryExpr &unary)
+	{
+		auto operand_type = check_expr(locals, *unary.operand);
+		if (!operand_type)
+			return std::nullopt;
+		auto target_type = pointee_type(*operand_type);
+		if (!target_type) {
+			diagnostics_.error(unary.location, "dereference requires pointer operand");
+			return operand_type;
+		}
+		return target_type;
 	}
 
 	std::optional<PrimitiveType> check_cast_expr(

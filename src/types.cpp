@@ -1,13 +1,14 @@
-// Primitive type utilities shared across compiler stages.
+// Type utilities shared across compiler stages.
 //
 // The parser preserves type spelling, sema resolves that spelling with these
 // helpers, IR stores the resolved PrimitiveType, and codegen asks the same
-// model about widths, signedness, formatting, literal ranges, and target
-// support. Keeping this here prevents each stage from inventing its own type
-// rules.
+// model about widths, signedness, pointer pointees, formatting, literal ranges,
+// and target support. Keeping this here prevents each stage from inventing its
+// own type rules.
 #include "rexc/types.hpp"
 
 #include <limits>
+#include <utility>
 
 namespace rexc {
 
@@ -20,8 +21,20 @@ bool is_valid_integer_width(int bits)
 
 } // namespace
 
+PrimitiveType pointer_to(PrimitiveType pointee)
+{
+	return PrimitiveType{PrimitiveKind::Pointer, 0,
+	                     std::make_shared<const PrimitiveType>(std::move(pointee))};
+}
+
 std::optional<PrimitiveType> parse_primitive_type(const std::string &name)
 {
+	if (!name.empty() && name.front() == '*') {
+		auto pointee = parse_primitive_type(name.substr(1));
+		if (!pointee)
+			return std::nullopt;
+		return pointer_to(*pointee);
+	}
 	if (name == "i8")
 		return PrimitiveType{PrimitiveKind::SignedInteger, 8};
 	if (name == "i16")
@@ -63,6 +76,8 @@ std::string format_type(PrimitiveType type)
 		return "char";
 	case PrimitiveKind::Str:
 		return "str";
+	case PrimitiveKind::Pointer:
+		return "*" + format_type(*type.pointee);
 	}
 	return "";
 }
@@ -77,6 +92,9 @@ bool is_valid_primitive_type(PrimitiveType type)
 	case PrimitiveKind::Char:
 	case PrimitiveKind::Str:
 		return type.bits == 0;
+	case PrimitiveKind::Pointer:
+		return type.bits == 0 && type.pointee != nullptr &&
+		       is_valid_primitive_type(*type.pointee);
 	}
 	return false;
 }
@@ -96,10 +114,24 @@ bool is_unsigned_integer(PrimitiveType type)
 	return is_valid_primitive_type(type) && type.kind == PrimitiveKind::UnsignedInteger;
 }
 
+bool is_pointer(PrimitiveType type)
+{
+	return is_valid_primitive_type(type) && type.kind == PrimitiveKind::Pointer;
+}
+
+std::optional<PrimitiveType> pointee_type(PrimitiveType type)
+{
+	if (!is_pointer(type))
+		return std::nullopt;
+	return *type.pointee;
+}
+
 bool is_i386_codegen_supported(PrimitiveType type)
 {
 	if (!is_valid_primitive_type(type))
 		return false;
+	if (is_pointer(type))
+		return true;
 	return !(is_integer(type) && type.bits == 64);
 }
 

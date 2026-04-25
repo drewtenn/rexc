@@ -7,8 +7,8 @@
 Code generation begins with an important advantage: it does not have to guess.
 The backend receives typed IR. It knows whether a value is signed or unsigned,
 whether a comparison produces `bool`, whether a local is a string pointer or an
-integer-sized scalar, whether an assignment targets existing local storage, and
-whether the selected target is i386 or x86_64.
+integer-sized scalar, whether an assignment targets existing local storage or a
+pointer address, and whether the selected target is i386 or x86_64.
 
 The backend's job is to turn those facts into assembly. Assembly is a textual
 form of machine instructions. Rexc emits GNU assembler syntax, which means the
@@ -71,6 +71,24 @@ the backend to make the target width visible. Unsigned narrow casts use
 zero-extension, while signed narrow casts use sign-extension. On x86_64, casts
 to `i32` sign-extend `%eax` into `%rax`, and casts to `u32` zero-extend by
 writing through `%eax`.
+
+### Pointer Loads and Stores
+
+Pointer operations are small but important because they are the first feature
+that treats a value as an address. For `&x`, the backend emits a
+load-effective-address instruction: `leal` on i386 or `leaq` on x86_64. That
+puts the stack slot address for `x` into the accumulator instead of loading the
+value stored in that slot.
+
+For `*p`, Rexc first emits `p` so the accumulator holds an address, then emits
+a load from memory at that address. The load instruction follows the pointee
+type: byte and word values are sign- or zero-extended, `i32` sign-extends on
+x86_64, `u32` zero-extends through `%eax`, and pointer-sized values use the
+target's normal word move.
+
+For `*p = value`, Rexc evaluates the value, saves it briefly, evaluates the
+pointer target, restores the value into a scratch register, and stores through
+the address in the accumulator. The store width comes from the pointee type.
 
 ### Boolean Operators and Short-Circuit Jumps
 
@@ -135,10 +153,10 @@ That creates the usual loop shape:
 
 Rexc can now emit assembly for typed functions, locals, returns, calls,
 arithmetic, division, comparisons, explicit casts, boolean operators, strings,
-assignment, `if/else` branches, and `while` loops with `break` and `continue`.
-The i386 target is the default path for the current Drunix user runtime. The
-x86_64 target emits 64-bit Linux-compatible assembly using the System V calling
-convention.
+address-of, dereference, direct and indirect assignment, `if/else` branches,
+and `while` loops with `break` and `continue`. The i386 target is the default
+path for the current Drunix user runtime. The x86_64 target emits 64-bit
+Linux-compatible assembly using the System V calling convention.
 
 The compiler still has not produced an executable by itself. Assembly is the
 input to the assembler, and the assembler produces an object file. To become a

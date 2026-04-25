@@ -159,8 +159,17 @@ private:
 		const ast::UnaryExpr &unary, const Locals &locals,
 		std::optional<ir::Type> expected)
 	{
-		auto operand = lower_expr(*unary.operand, locals, expected);
+		auto operand = lower_expr(*unary.operand, locals,
+		                          unary.op == "*" ? std::nullopt : expected);
 		ir::Type type = operand->type;
+		if (unary.op == "&") {
+			type = pointer_to(type);
+		} else if (unary.op == "*") {
+			auto target_type = pointee_type(type);
+			if (!target_type)
+				throw std::runtime_error("dereference of non-pointer in IR lowering");
+			type = *target_type;
+		}
 		return std::make_unique<ir::UnaryValue>(unary.op, std::move(operand), type);
 	}
 
@@ -193,6 +202,16 @@ private:
 				throw std::runtime_error("unknown local in IR lowering: " + assign.name);
 			return std::make_unique<ir::AssignStatement>(
 				assign.name, lower_expr(*assign.value, locals, it->second));
+		}
+
+		if (statement.kind == ast::Stmt::Kind::IndirectAssign) {
+			const auto &assign = static_cast<const ast::IndirectAssignStmt &>(statement);
+			auto target = lower_expr(*assign.target, locals);
+			auto target_pointee = pointee_type(target->type);
+			if (!target_pointee)
+				throw std::runtime_error("indirect assignment through non-pointer in IR lowering");
+			return std::make_unique<ir::IndirectAssignStatement>(
+				std::move(target), lower_expr(*assign.value, locals, *target_pointee));
 		}
 
 		if (statement.kind == ast::Stmt::Kind::If) {

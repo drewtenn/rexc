@@ -20,8 +20,10 @@ The IR keeps the facts the backend needs. Functions have names, parameters,
 return types, and statement bodies. Values carry resolved primitive types.
 Integer literals keep their decimal text. Calls carry the callee name and the
 lowered argument values. Assignments carry a target local name and a typed
-value to store. Casts carry the lowered source value and the resolved target
-type. Branches and loops carry typed conditions and lowered statement bodies.
+value to store. Indirect assignments carry a lowered pointer target and a typed
+value to write through it. Casts carry the lowered source value and the
+resolved target type. Branches and loops carry typed conditions and lowered
+statement bodies.
 
 The main shift is that source type names disappear. Once semantic analysis has
 proved that `i32` is a valid primitive type, later stages do not need to parse
@@ -71,11 +73,17 @@ body uses the same source name.
 The IR does not need a separate "mutable local" flag. Mutability is a source
 language rule, and semantic analysis has already enforced it. By the time
 lowering creates an assignment statement, the target is known to be a visible
-mutable local and the assigned value is known to have the target's type.
+mutable local and the assigned value is known to have the target's type. When
+lowering creates an indirect assignment, semantic analysis has already proved
+that the target expression has pointer type and the value matches the pointee
+type.
 
 That leaves the backend with a small instruction-level job: evaluate the right
 side and store the accumulator back into the existing stack slot for that local.
-Declarations allocate slots; assignments reuse them.
+Declarations allocate slots; assignments reuse them. Indirect assignments use
+the same idea with an extra address step: evaluate the value, evaluate the
+pointer target, then store the value into the memory address held by that
+pointer.
 
 ### Where the Compiler Is by the End of Chapter 4
 
@@ -83,7 +91,8 @@ Rexc now holds a typed IR module. The source has been parsed, checked, and
 lowered into a backend-facing representation. Every value has a primitive type.
 Every branch and loop condition is already known to be boolean. Every
 explicit cast has a validated source and target type. Every assignment targets
-an existing local with a value of the right type. Every `break` and `continue`
+an existing local with a value of the right type. Every indirect assignment has
+a pointer target and a value of the pointee type. Every `break` and `continue`
 statement is known to be inside a loop. Every function body is a sequence of
 typed IR statements.
 

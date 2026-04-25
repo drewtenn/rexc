@@ -156,8 +156,7 @@ private:
 
 	ast::TypeName build_type(RexcParser::TypeContext *context)
 	{
-		auto *primitive = context->primitiveType();
-		return ast::TypeName{primitive->getText(), location(primitive)};
+		return ast::TypeName{context->getText(), location(context)};
 	}
 
 	std::vector<std::unique_ptr<ast::Stmt>> build_block(RexcParser::BlockContext *context)
@@ -174,6 +173,8 @@ private:
 			return build_let_statement(let);
 		if (auto *assign = context->assignStatement())
 			return build_assign_statement(assign);
+		if (auto *indirect_assign = context->indirectAssignStatement())
+			return build_indirect_assign_statement(indirect_assign);
 		if (auto *ret = context->returnStatement())
 			return build_return_statement(ret);
 		if (auto *if_statement = context->ifStatement())
@@ -213,6 +214,14 @@ private:
 		auto *name = context->IDENT();
 		return std::make_unique<ast::AssignStmt>(
 		    location(name), name->getText(), build_expression(context->expression()));
+	}
+
+	std::unique_ptr<ast::Stmt> build_indirect_assign_statement(
+	    RexcParser::IndirectAssignStatementContext *context)
+	{
+		return std::make_unique<ast::IndirectAssignStmt>(
+		    location(context), build_unary(context->unary()),
+		    build_expression(context->expression()));
 	}
 
 	std::unique_ptr<ast::Stmt> build_return_statement(

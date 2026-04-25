@@ -1,0 +1,7 @@
+// Pointer example used by CLI smoke tests.
+fn main() -> i32 {
+    let mut x: i32 = 7;
+    let p: *i32 = &x;
+    *p = 9;
+    return *p;
+}

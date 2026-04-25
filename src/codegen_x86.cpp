@@ -294,6 +294,13 @@ private:
 			return validate_value(*assign.value);
 		}
 
+		if (statement.kind == ir::Statement::Kind::IndirectAssign) {
+			const auto &assign = static_cast<const ir::IndirectAssignStatement &>(statement);
+			bool ok = validate_value(*assign.target);
+			ok = validate_value(*assign.value) && ok;
+			return ok;
+		}
+
 		if (statement.kind == ir::Statement::Kind::If) {
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			bool ok = validate_value(*if_statement.condition);
@@ -387,6 +394,12 @@ private:
 			emit_value(*assign.value, frame, slots);
 			out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
 			     << slots.at(assign.name) << "(" << frame_pointer_register() << ")\n";
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::IndirectAssign) {
+			const auto &assign = static_cast<const ir::IndirectAssignStatement &>(statement);
+			emit_indirect_assign(assign, frame, slots);
 			return;
 		}
 
@@ -542,6 +555,11 @@ private:
 
 	void emit_unary(const ir::UnaryValue &unary, const Frame &frame, const SlotMap &slots)
 	{
+		if (unary.op == "&") {
+			emit_address_of(*unary.operand, slots);
+			return;
+		}
+
 		emit_value(*unary.operand, frame, slots);
 		if (unary.op == "-") {
 			out_ << "\t" << negate_instruction() << " " << accumulator_register() << "\n";
@@ -550,7 +568,39 @@ private:
 			out_ << "\tsete %al\n";
 			out_ << "\t" << zero_extend_bool_instruction() << " %al, "
 			     << accumulator_register() << "\n";
+		} else if (unary.op == "*") {
+			emit_indirect_load(unary.type);
 		}
+	}
+
+	void emit_address_of(const ir::Value &operand, const SlotMap &slots)
+	{
+		const auto &local = static_cast<const ir::LocalValue &>(operand);
+		out_ << "\t" << load_effective_address_instruction() << " "
+		     << slots.at(local.name) << "(" << frame_pointer_register() << "), "
+		     << accumulator_register() << "\n";
+	}
+
+	void emit_indirect_assign(const ir::IndirectAssignStatement &assign,
+	                          const Frame &frame, const SlotMap &slots)
+	{
+		emit_value(*assign.value, frame, slots);
+		emit_push_accumulator();
+		emit_value(*assign.target, frame, slots);
+		emit_pop_scratch();
+		emit_indirect_store(assign.value->type);
+	}
+
+	void emit_indirect_load(ir::Type type)
+	{
+		out_ << "\t" << load_indirect_instruction(type) << " ("
+		     << accumulator_register() << "), " << load_destination_register(type) << "\n";
+	}
+
+	void emit_indirect_store(ir::Type type)
+	{
+		out_ << "\t" << store_instruction(type) << " " << store_source_register(type)
+		     << ", (" << accumulator_register() << ")\n";
 	}
 
 	void emit_binary(const ir::BinaryValue &binary, const Frame &frame, const SlotMap &slots)
@@ -725,6 +775,13 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::IndirectAssign) {
+			const auto &assign = static_cast<const ir::IndirectAssignStatement &>(statement);
+			collect_string_labels(*assign.target);
+			collect_string_labels(*assign.value);
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::If) {
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			collect_string_labels(*if_statement.condition);
@@ -813,6 +870,13 @@ private:
 
 		if (statement.kind == ir::Statement::Kind::Assign) {
 			const auto &assign = static_cast<const ir::AssignStatement &>(statement);
+			emit_string_literals(*assign.value);
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::IndirectAssign) {
+			const auto &assign = static_cast<const ir::IndirectAssignStatement &>(statement);
+			emit_string_literals(*assign.target);
 			emit_string_literals(*assign.value);
 			return;
 		}
@@ -917,6 +981,11 @@ private:
 		return target_ == CodegenTarget::X86_64 ? "subq" : "subl";
 	}
 
+	const char *load_effective_address_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "leaq" : "leal";
+	}
+
 	const char *move_instruction() const
 	{
 		return target_ == CodegenTarget::X86_64 ? "movq" : "movl";
@@ -1015,6 +1084,75 @@ private:
 		return target_ == CodegenTarget::X86_64 ? "xorq" : "xorl";
 	}
 
+	std::string load_indirect_instruction(ir::Type type) const
+	{
+		int bits = memory_bits(type);
+		if (target_ == CodegenTarget::X86_64) {
+			if (bits == 8)
+				return is_signed_integer(type) ? "movsbq" : "movzbq";
+			if (bits == 16)
+				return is_signed_integer(type) ? "movswq" : "movzwq";
+			if (bits == 32)
+				return is_signed_integer(type) ? "movslq" : "movl";
+			return "movq";
+		}
+
+		if (bits == 8)
+			return is_signed_integer(type) ? "movsbl" : "movzbl";
+		if (bits == 16)
+			return is_signed_integer(type) ? "movswl" : "movzwl";
+		return "movl";
+	}
+
+	const char *load_destination_register(ir::Type type) const
+	{
+		if (target_ == CodegenTarget::X86_64 && memory_bits(type) == 32 &&
+		    !is_signed_integer(type))
+			return "%eax";
+		return accumulator_register();
+	}
+
+	const char *store_instruction(ir::Type type) const
+	{
+		switch (memory_bits(type)) {
+		case 8:
+			return "movb";
+		case 16:
+			return "movw";
+		case 64:
+			return "movq";
+		default:
+			return "movl";
+		}
+	}
+
+	const char *store_source_register(ir::Type type) const
+	{
+		switch (memory_bits(type)) {
+		case 8:
+			return "%cl";
+		case 16:
+			return "%cx";
+		case 64:
+			return "%rcx";
+		default:
+			return "%ecx";
+		}
+	}
+
+	int memory_bits(ir::Type type) const
+	{
+		if (is_integer(type))
+			return type.bits;
+		if (type.kind == PrimitiveKind::Bool)
+			return 8;
+		if (type.kind == PrimitiveKind::Char)
+			return 32;
+		if (type.kind == PrimitiveKind::Str || is_pointer(type))
+			return target_ == CodegenTarget::X86_64 ? 64 : 32;
+		return target_ == CodegenTarget::X86_64 ? 64 : 32;
+	}
+
 	const char *accumulator_register() const
 	{
 		return target_ == CodegenTarget::X86_64 ? "%rax" : "%eax";
@@ -1057,6 +1195,16 @@ private:
 			eval_stack_bytes_ -= 8;
 		} else {
 			out_ << "\tpopl %eax\n";
+		}
+	}
+
+	void emit_pop_scratch()
+	{
+		if (target_ == CodegenTarget::X86_64) {
+			out_ << "\tpopq %rcx\n";
+			eval_stack_bytes_ -= 8;
+		} else {
+			out_ << "\tpopl %ecx\n";
 		}
 	}
 

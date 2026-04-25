@@ -23,6 +23,7 @@ Rexc currently has a small systems-language type set:
 | Signed integers | `i8`, `i16`, `i32`, `i64` |
 | Unsigned integers | `u8`, `u16`, `u32`, `u64` |
 | Other scalar values | `bool`, `char`, `str` |
+| Pointers | `*T` |
 
 A type name in the AST is only source spelling. During semantic analysis, Rexc
 parses that spelling into a primitive type value. That value is what the rest
@@ -59,6 +60,13 @@ fn count() -> i32 {
 The right side of an assignment is checked against the target local's declared
 type. Assigning a `bool` into an `i32`, assigning to a plain `let`, assigning
 to a parameter, or assigning to an unknown name all produce diagnostics.
+
+Pointers deliberately start with local addresses. The expression `&x` is valid
+only when `x` names a mutable local, and it produces a pointer to that local's
+type. That rule prevents pointer assignment from bypassing `let` immutability.
+The expression `*p` requires `p` to have pointer type and produces the pointee
+type. An indirect assignment such as `*p = 9;` checks the right side against
+the pointee type before code generation ever sees it.
 
 ### Block Scopes
 
@@ -120,9 +128,10 @@ Rexc can now reject programs that are grammatically valid but semantically
 wrong. It knows which functions exist, which locals are visible, which primitive
 types are valid, which calls match their signatures, and which expressions
 produce which types. It also knows which explicit casts are legal, which locals
-are mutable, which assignments are legal, which logical expressions are
-boolean, which branch and loop conditions are boolean, and which `break` and
-`continue` statements are actually inside loops.
+are mutable, which assignments are legal, which pointer expressions and
+indirect assignments are legal, which logical expressions are boolean, which
+branch and loop conditions are boolean, and which `break` and `continue`
+statements are actually inside loops.
 
 The compiler has not emitted anything yet. It still holds the source-shaped AST,
 now checked for meaning. The next step is to lower that tree into a smaller

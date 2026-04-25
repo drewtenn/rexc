@@ -67,7 +67,7 @@ Rexc's current expression layers are:
 | Additive | `+`, `-` |
 | Multiplicative | `*`, `/` |
 | Cast | `as` followed by a type |
-| Unary | unary `-`, `!` |
+| Unary | unary `-`, `!`, `&`, `*` |
 | Primary | literals, names, calls, parenthesised expressions |
 
 These grammar layers give each operator family a clear place. A comparison can
@@ -94,10 +94,11 @@ then stops.
 ### Where the Compiler Is by the End of Chapter 2
 
 Rexc can now turn valid source text into a syntax tree. It understands
-function definitions, extern declarations, typed parameters, immutable and
-mutable typed locals, assignments, returns, conditionals, while loops, calls,
-literals, unary expressions, binary arithmetic, comparisons, boolean operators,
-explicit casts, `break`, and `continue`.
+function definitions, extern declarations, typed parameters, pointer types,
+immutable and mutable typed locals, assignments, indirect pointer assignments,
+returns, conditionals, while loops, calls, literals, unary expressions, binary
+arithmetic, comparisons, boolean operators, explicit casts, `break`, and
+`continue`.
 
 The compiler still has not proved the program is meaningful. The tree might
 refer to an unknown function. A return statement might produce the wrong type.

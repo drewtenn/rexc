@@ -20,6 +20,23 @@ TEST_CASE(types_parse_all_core_primitive_names)
 	}
 }
 
+TEST_CASE(types_parse_and_format_pointer_types)
+{
+	auto pointer = rexc::parse_primitive_type("*i32");
+	auto nested = rexc::parse_primitive_type("**u8");
+
+	REQUIRE(pointer.has_value());
+	REQUIRE(nested.has_value());
+	REQUIRE(rexc::is_pointer(*pointer));
+	REQUIRE(rexc::is_pointer(*nested));
+	REQUIRE_EQ(rexc::format_type(*pointer), std::string("*i32"));
+	REQUIRE_EQ(rexc::format_type(*nested), std::string("**u8"));
+	REQUIRE_EQ(rexc::format_type(*rexc::pointee_type(*pointer)), std::string("i32"));
+	REQUIRE_EQ(rexc::format_type(*rexc::pointee_type(*nested)), std::string("*u8"));
+	REQUIRE(rexc::is_i386_codegen_supported(*pointer));
+	REQUIRE(rexc::is_i386_codegen_supported(*rexc::parse_primitive_type("*i64")));
+}
+
 TEST_CASE(types_report_integer_properties)
 {
 	auto i16 = *rexc::parse_primitive_type("i16");

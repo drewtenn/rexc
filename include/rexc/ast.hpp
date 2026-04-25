@@ -93,7 +93,7 @@ struct CallExpr final : Expr {
 };
 
 struct Stmt {
-	enum class Kind { Let, Assign, Return, If, While, Break, Continue };
+	enum class Kind { Let, Assign, IndirectAssign, Return, If, While, Break, Continue };
 
 	Stmt(Kind kind, SourceLocation location);
 	virtual ~Stmt() = default;
@@ -116,6 +116,14 @@ struct AssignStmt final : Stmt {
 	AssignStmt(SourceLocation location, std::string name, std::unique_ptr<Expr> value);
 
 	std::string name;
+	std::unique_ptr<Expr> value;
+};
+
+struct IndirectAssignStmt final : Stmt {
+	IndirectAssignStmt(SourceLocation location, std::unique_ptr<Expr> target,
+	                   std::unique_ptr<Expr> value);
+
+	std::unique_ptr<Expr> target;
 	std::unique_ptr<Expr> value;
 };
 

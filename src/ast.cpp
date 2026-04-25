@@ -84,6 +84,13 @@ AssignStmt::AssignStmt(SourceLocation location, std::string name, std::unique_pt
 {
 }
 
+IndirectAssignStmt::IndirectAssignStmt(SourceLocation location, std::unique_ptr<Expr> target,
+                                       std::unique_ptr<Expr> value)
+	: Stmt(Kind::IndirectAssign, std::move(location)), target(std::move(target)),
+	  value(std::move(value))
+{
+}
+
 ReturnStmt::ReturnStmt(SourceLocation location, std::unique_ptr<Expr> value)
 	: Stmt(Kind::Return, std::move(location)), value(std::move(value))
 {

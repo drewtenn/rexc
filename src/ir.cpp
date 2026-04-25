@@ -71,6 +71,12 @@ AssignStatement::AssignStatement(std::string name, std::unique_ptr<Value> value)
 {
 }
 
+IndirectAssignStatement::IndirectAssignStatement(std::unique_ptr<Value> target,
+                                                 std::unique_ptr<Value> value)
+	: Statement(Kind::IndirectAssign), target(std::move(target)), value(std::move(value))
+{
+}
+
 ReturnStatement::ReturnStatement(std::unique_ptr<Value> value)
 	: Statement(Kind::Return), value(std::move(value))
 {

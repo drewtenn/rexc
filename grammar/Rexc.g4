@@ -27,7 +27,8 @@ parameter
 	;
 
 type
-	: primitiveType
+	: '*' type
+	| primitiveType
 	;
 
 primitiveType
@@ -51,6 +52,7 @@ block
 statement
 	: letStatement
 	| assignStatement
+	| indirectAssignStatement
 	| returnStatement
 	| ifStatement
 	| whileStatement
@@ -64,6 +66,10 @@ letStatement
 
 assignStatement
 	: IDENT '=' expression ';'
+	;
+
+indirectAssignStatement
+	: '*' unary '=' expression ';'
 	;
 
 returnStatement
@@ -117,6 +123,8 @@ cast
 unary
 	: '-' unary
 	| '!' unary
+	| '&' unary
+	| '*' unary
 	| primary
 	;
 

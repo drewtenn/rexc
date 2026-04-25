@@ -264,6 +264,56 @@ TEST_CASE(sema_rejects_unsupported_char_casts)
 	REQUIRE(diagnostics.format().find("cannot cast 'char' to 'u8'") != std::string::npos);
 }
 
+TEST_CASE(sema_accepts_pointer_address_deref_and_indirect_assignment)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; *p = 9; return *p; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_address_of_immutable_local)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i32 = 7; let p: *i32 = &x; return x; }\n",
+	                      diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("address-of requires mutable local 'x'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_deref_of_non_pointer)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i32 = 7; return *x; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("dereference requires pointer operand") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_indirect_assignment_through_non_pointer)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let mut x: i32 = 7; *x = 9; return x; }\n",
+	                      diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("indirect assignment requires pointer target") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_indirect_assignment_type_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; *p = true; return x; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("assignment type mismatch: expected 'i32' but got 'bool'") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_accepts_if_else_with_bool_condition)
 {
 	rexc::Diagnostics diagnostics;

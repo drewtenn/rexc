@@ -93,41 +93,42 @@ source .rx
 2. **Lexing and parsing**: ANTLR generates the lexer and parser from
    `grammar/Rexc.g4`. `src/parse.cpp` invokes those generated classes for
    functions, extern declarations, immutable and mutable `let` declarations,
-   assignment, `return`, `if/else`, `while`, `break`, and `continue`
-   statements, expressions, explicit casts, primitive type names, and literals,
-   then converts the parse tree into the AST types declared in
+   assignment, indirect pointer assignment, `return`, `if/else`, `while`,
+   `break`, and `continue` statements, expressions, explicit casts, type names,
+   and literals, then converts the parse tree into the AST types declared in
    `include/rexc/ast.hpp`.
 
 3. **AST**: The AST preserves source-level structure: functions, parameters,
-   `let`, assignment, `return`, `if/else`, `while`, `break`, and `continue`
-   statements, names, calls, unary/binary expressions, comparison expressions,
-   logical expressions, explicit casts, and integer/bool/char/string literals.
-   Integer literals keep their original decimal text so later stages can
-   range-check large values without parser overflow.
+   `let`, assignment, indirect pointer assignment, `return`, `if/else`,
+   `while`, `break`, and `continue` statements, names, calls, unary/binary
+   expressions, comparison expressions, logical expressions, explicit casts,
+   and integer/bool/char/string literals. Integer literals keep their original
+   decimal text so later stages can range-check large values without parser
+   overflow.
 
 4. **Semantic analysis**: `src/sema.cpp` validates names, duplicate functions
    and locals, function calls, return types, initializer and assignment types,
-   local mutability, arithmetic operands, comparison operands, `if` and
-   `while` condition types, loop-only `break` and `continue`, unary operators,
-   and integer literal ranges. It uses the primitive type helpers in
-   `src/types.cpp` so all frontend checks share one type model.
+   local mutability, pointer address/dereference rules, arithmetic operands,
+   comparison operands, `if` and `while` condition types, loop-only `break` and
+   `continue`, unary operators, and integer literal ranges. It uses the type
+   helpers in `src/types.cpp` so all frontend checks share one type model.
 
 5. **IR lowering**: `src/lower_ir.cpp` converts the checked AST into the typed
    IR in `include/rexc/ir.hpp`. The IR carries resolved primitive types on
-   functions, parameters, locals, assignments, calls, literals, unary
-   expressions, binary expressions, comparisons, `if/else` branches, and
-   `while` loops with `break` and `continue`. This gives the backend a smaller,
-   typed representation to emit.
+   functions, parameters, locals, assignments, indirect pointer assignments,
+   calls, literals, unary expressions, binary expressions, comparisons,
+   `if/else` branches, and `while` loops with `break` and `continue`. This
+   gives the backend a smaller, typed representation to emit.
 
 6. **x86 code generation**: `src/codegen_x86.cpp` emits GNU assembler syntax
    for either `i386` or `x86_64`. It emits supported scalar values in target
    stack slots, emits strings in `.rodata` with `.LstrN` labels, uses signed or
    unsigned division and comparison condition codes based on IR type, emits
-   explicit casts with target-width sign or zero extension, emits branch labels
-   and jumps for short-circuiting logical operators, `if/else`, `while`,
-   `break`, and `continue`, stores assignments into existing local slots, and
-   reports backend diagnostics when a type is unsupported by the selected
-   target.
+   explicit casts with target-width sign or zero extension, emits address-of,
+   dereference, and indirect pointer stores, emits branch labels and jumps for
+   short-circuiting logical operators, `if/else`, `while`, `break`, and
+   `continue`, stores assignments into existing local slots, and reports
+   backend diagnostics when a type is unsupported by the selected target.
 
 7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64] -S -o
    output.s` writes assembly only after code generation succeeds. Failed code
@@ -145,18 +146,20 @@ source .rx
    checked-in userland runtime is i386-focused; x86_64 output needs an
    x86_64-compatible runtime/startup path before it can be linked this way.
 
-## Core Primitive Types
+## Core Types
 
 Rexc supports signed integers (`i8`, `i16`, `i32`, `i64`), unsigned integers
-(`u8`, `u16`, `u32`, `u64`), `bool`, `char`, and `str`.
+(`u8`, `u16`, `u32`, `u64`), `bool`, `char`, `str`, and pointer types written
+as `*T`.
 
 The `i386` target emits code for `i8`, `i16`, `i32`, `u8`, `u16`, `u32`,
-`bool`, `char`, and `str`. The `i64` and `u64` types parse and type-check, but
-`i386` code generation fails with a backend diagnostic because those values do
-not fit the current 32-bit backend.
+`bool`, `char`, `str`, and pointer values. The `i64` and `u64` types parse and
+type-check, but `i386` code generation fails with a backend diagnostic when a
+program needs to load, store, or return those 64-bit values directly.
 
 The `x86_64` target emits code for all current primitive types, including
-`i64` and `u64`, using the Linux/System V x86_64 calling convention.
+`i64` and `u64`, and represents pointers as 64-bit addresses using the
+Linux/System V x86_64 calling convention.
 
 ## Operators And Control Flow
 
@@ -173,6 +176,18 @@ Boolean operators are supported with unary `!` plus short-circuiting `&&` and
 Explicit casts use `as`. The first cast surface supports integer-to-integer
 casts, `bool` to integer casts, and `char as u32`. Casts involving `str`, and
 other character casts such as `char as u8`, are rejected.
+
+Pointer expressions use `&` to take the address of a mutable local and `*` to
+dereference a pointer. Indirect assignment writes through a pointer:
+
+```rust
+fn main() -> i32 {
+    let mut x: i32 = 7;
+    let p: *i32 = &x;
+    *p = 9;
+    return *p;
+}
+```
 
 Rexc also supports `if` and `if/else` statements:
 

@@ -152,6 +152,50 @@ TEST_CASE(parser_accepts_cast_expressions)
 	REQUIRE_EQ(cast.value->kind, rexc::ast::Expr::Kind::Char);
 }
 
+TEST_CASE(parser_accepts_pointer_types_and_unary_pointer_expressions)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; return *p; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(3));
+	const auto &p = static_cast<const rexc::ast::LetStmt &>(*body[1]);
+	REQUIRE_EQ(p.type.name, std::string("*i32"));
+	REQUIRE_EQ(p.initializer->kind, rexc::ast::Expr::Kind::Unary);
+	const auto &address = static_cast<const rexc::ast::UnaryExpr &>(*p.initializer);
+	REQUIRE_EQ(address.op, std::string("&"));
+	REQUIRE_EQ(address.operand->kind, rexc::ast::Expr::Kind::Name);
+
+	const auto &ret = static_cast<const rexc::ast::ReturnStmt &>(*body[2]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Unary);
+	const auto &deref = static_cast<const rexc::ast::UnaryExpr &>(*ret.value);
+	REQUIRE_EQ(deref.op, std::string("*"));
+	REQUIRE_EQ(deref.operand->kind, rexc::ast::Expr::Kind::Name);
+}
+
+TEST_CASE(parser_accepts_indirect_assignment)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; *p = 9; return x; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(4));
+	REQUIRE_EQ(body[2]->kind, rexc::ast::Stmt::Kind::IndirectAssign);
+	const auto &assign = static_cast<const rexc::ast::IndirectAssignStmt &>(*body[2]);
+	REQUIRE_EQ(assign.target->kind, rexc::ast::Expr::Kind::Name);
+	REQUIRE_EQ(assign.value->kind, rexc::ast::Expr::Kind::Integer);
+}
+
 TEST_CASE(parser_accepts_if_else_statements)
 {
 	rexc::SourceFile source(

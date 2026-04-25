@@ -83,7 +83,7 @@ struct CallValue final : Value {
 };
 
 struct Statement {
-	enum class Kind { Let, Assign, Return, If, While, Break, Continue };
+	enum class Kind { Let, Assign, IndirectAssign, Return, If, While, Break, Continue };
 
 	explicit Statement(Kind kind);
 	virtual ~Statement() = default;
@@ -102,6 +102,13 @@ struct AssignStatement final : Statement {
 	AssignStatement(std::string name, std::unique_ptr<Value> value);
 
 	std::string name;
+	std::unique_ptr<Value> value;
+};
+
+struct IndirectAssignStatement final : Statement {
+	IndirectAssignStatement(std::unique_ptr<Value> target, std::unique_ptr<Value> value);
+
+	std::unique_ptr<Value> target;
 	std::unique_ptr<Value> value;
 };
 
