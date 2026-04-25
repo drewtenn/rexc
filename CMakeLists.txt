@@ -7,13 +7,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 enable_testing()
 
-add_library(rexc_core INTERFACE)
+add_library(rexc_core
+	src/source.cpp
+	src/diagnostics.cpp
+)
 
-target_include_directories(rexc_core INTERFACE include)
+target_include_directories(rexc_core PUBLIC include)
 
 add_executable(rexc_tests
 	tests/test_main.cpp
 	tests/smoke_tests.cpp
+	tests/diagnostics_tests.cpp
 )
 
 target_include_directories(rexc_tests PRIVATE tests)
