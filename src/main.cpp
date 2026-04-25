@@ -25,7 +25,7 @@ namespace {
 enum class OutputMode {
 	Assembly,
 	Object,
-	DarwinExecutable,
+	Executable,
 	DrunixExecutable,
 };
 
@@ -33,7 +33,12 @@ struct Options {
 	std::string input_path;
 	std::string output_path;
 	std::string drunix_root;
-	rexc::CodegenTarget target = rexc::CodegenTarget::I386;
+	rexc::CodegenTarget target =
+#if defined(__APPLE__)
+		rexc::CodegenTarget::ARM64_MACOS;
+#else
+		rexc::CodegenTarget::I386;
+#endif
 	OutputMode output_mode = OutputMode::Assembly;
 	bool output_mode_selected = false;
 };
@@ -94,12 +99,8 @@ Options parse_options(int argc, char **argv)
 		throw std::runtime_error("usage");
 
 	if (!options.output_mode_selected) {
-		if (options.target == rexc::CodegenTarget::ARM64_MACOS) {
-			options.output_mode = OutputMode::DarwinExecutable;
-			options.output_mode_selected = true;
-		} else {
-			throw std::runtime_error("usage");
-		}
+		options.output_mode = OutputMode::Executable;
+		options.output_mode_selected = true;
 	}
 	return options;
 }
@@ -236,6 +237,83 @@ void link_darwin_arm64_object(const std::string &object_path,
 	run_tool(command, "Darwin link failed");
 }
 
+void write_cross_elf_startup(const std::string &assembly_path, rexc::CodegenTarget target)
+{
+	if (target == rexc::CodegenTarget::I386) {
+		write_file(assembly_path,
+		           ".globl _start\n"
+		           "_start:\n"
+		           "\tcall main\n"
+		           "\tmovl %eax, %ebx\n"
+		           "\tmovl $1, %eax\n"
+		           "\tint $0x80\n");
+		return;
+	}
+
+	write_file(assembly_path,
+	           ".globl _start\n"
+	           "_start:\n"
+	           "\tcall main\n"
+	           "\tmovl %eax, %edi\n"
+	           "\tmovq $60, %rax\n"
+	           "\tsyscall\n");
+}
+
+void link_cross_elf_object(const std::string &object_path, const std::string &output_path,
+                           rexc::CodegenTarget target)
+{
+	if (target == rexc::CodegenTarget::ARM64_MACOS)
+		throw std::runtime_error("internal error: ARM64 object reached ELF linker");
+	if (!command_exists("x86_64-elf-as") || !command_exists("x86_64-elf-ld"))
+		throw std::runtime_error("no x86_64-elf-as/x86_64-elf-ld toolchain found");
+
+	std::string startup_assembly = output_path + ".crt0.s.tmp";
+	std::string startup_object = output_path + ".crt0.o.tmp";
+	write_cross_elf_startup(startup_assembly, target);
+	try {
+		assemble_object(startup_assembly, startup_object, target);
+		std::string linker_mode = target == rexc::CodegenTarget::I386 ? "elf_i386" : "elf_x86_64";
+		std::string command = "x86_64-elf-ld -m " + linker_mode + " -o " +
+		                      shell_quote(output_path) + " " + shell_quote(startup_object) +
+		                      " " + shell_quote(object_path);
+		run_tool(command, "cross ELF link failed");
+	} catch (...) {
+		std::remove(startup_assembly.c_str());
+		std::remove(startup_object.c_str());
+		std::remove(output_path.c_str());
+		throw;
+	}
+	std::remove(startup_assembly.c_str());
+	std::remove(startup_object.c_str());
+}
+
+void link_host_x86_object(const std::string &object_path, const std::string &output_path,
+                          rexc::CodegenTarget target)
+{
+	if (target == rexc::CodegenTarget::ARM64_MACOS)
+		throw std::runtime_error("internal error: ARM64 object reached x86 linker");
+	if (command_succeeds("uname -s | grep -q Darwin")) {
+		link_cross_elf_object(object_path, output_path, target);
+		return;
+	}
+
+	std::string linker = find_tool("clang", "cc", "C linker driver");
+	std::string mode = target == rexc::CodegenTarget::I386 ? "-m32" : "-m64";
+	std::string command = linker + " " + mode + " " + shell_quote(object_path) +
+	                      " -o " + shell_quote(output_path);
+	run_tool(command, "host executable link failed");
+}
+
+void link_executable_object(const std::string &object_path, const std::string &output_path,
+                            rexc::CodegenTarget target)
+{
+	if (target == rexc::CodegenTarget::ARM64_MACOS) {
+		link_darwin_arm64_object(object_path, output_path, target);
+		return;
+	}
+	link_host_x86_object(object_path, output_path, target);
+}
+
 void remove_if_present(const std::string &path)
 {
 	std::remove(path.c_str());
@@ -291,14 +369,14 @@ int main(int argc, char **argv)
 			return 0;
 		}
 
-		if (options.output_mode == OutputMode::DarwinExecutable) {
+		if (options.output_mode == OutputMode::Executable) {
 			std::string assembly_path = options.output_path + ".s.tmp";
 			std::string object_path = options.output_path + ".o.tmp";
 			write_file(assembly_path, codegen.assembly());
 			try {
 				assemble_object(assembly_path, object_path, options.target);
-				link_darwin_arm64_object(object_path, options.output_path,
-				                         options.target);
+				link_executable_object(object_path, options.output_path,
+				                       options.target);
 			} catch (...) {
 				remove_if_present(assembly_path);
 				remove_if_present(object_path);

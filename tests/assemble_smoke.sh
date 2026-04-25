@@ -7,7 +7,7 @@ repo_dir=$2
 tmp_dir="${build_dir}/assemble-smoke"
 mkdir -p "$tmp_dir"
 
-"${build_dir}/rexc" "${repo_dir}/examples/add.rx" -S -o "${tmp_dir}/add.s"
+"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -S -o "${tmp_dir}/add.s"
 "${build_dir}/rexc" "${repo_dir}/examples/branch.rx" --target i386 -S -o "${tmp_dir}/branch32.s"
 "${build_dir}/rexc" "${repo_dir}/examples/wide.rx" --target x86_64 -S -o "${tmp_dir}/wide64.s"
 "${build_dir}/rexc" "${repo_dir}/examples/branch.rx" --target x86_64 -S -o "${tmp_dir}/branch64.s"
@@ -30,25 +30,50 @@ if [ -n "$gnu_as" ]; then
 	test -s "${tmp_dir}/wide64.o"
 	test -s "${tmp_dir}/branch64.o"
 
-	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" -c -o "${tmp_dir}/add-cli.o"
+	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -c -o "${tmp_dir}/add-cli.o"
 	"${build_dir}/rexc" "${repo_dir}/examples/wide.rx" --target x86_64 -c -o "${tmp_dir}/wide64-cli.o"
 	test -s "${tmp_dir}/add-cli.o"
 	test -s "${tmp_dir}/wide64-cli.o"
+
+	if [ "$(uname -s)" != "Darwin" ] && command -v clang >/dev/null 2>&1; then
+		"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target x86_64 -o "${tmp_dir}/add-x86_64"
+		test -x "${tmp_dir}/add-x86_64"
+		if clang -m32 -x c /dev/null -o "${tmp_dir}/empty32" >/dev/null 2>&1; then
+			"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -o "${tmp_dir}/add-i386"
+			test -x "${tmp_dir}/add-i386"
+		else
+			echo "SKIP: no clang -m32 runtime found for i386 executable smoke"
+		fi
+	elif [ "$(uname -s)" = "Darwin" ]; then
+		if command -v x86_64-elf-ld >/dev/null 2>&1; then
+			"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -o "${tmp_dir}/add-i386.elf"
+			"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target x86_64 -o "${tmp_dir}/add-x86_64.elf"
+			file "${tmp_dir}/add-i386.elf" | grep -F -q 'ELF 32-bit'
+			file "${tmp_dir}/add-x86_64.elf" | grep -F -q 'ELF 64-bit'
+		else
+			echo "SKIP: no x86_64-elf-ld found for Darwin x86 ELF executable smoke"
+		fi
+	fi
 else
 	echo "SKIP: no GNU assembler found"
 fi
 
 if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	as -arch arm64 -o "${tmp_dir}/add-arm64.o" "${tmp_dir}/add-arm64.s"
+	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" -o "${tmp_dir}/add-default"
 	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target arm64-macos -c -o "${tmp_dir}/add-arm64-cli.o"
 	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target arm64-macos -o "${tmp_dir}/add-arm64"
 	test -s "${tmp_dir}/add-arm64.o"
 	test -s "${tmp_dir}/add-arm64-cli.o"
+	test -x "${tmp_dir}/add-default"
 	test -x "${tmp_dir}/add-arm64"
 	set +e
+	"${tmp_dir}/add-default"
+	default_exit_code=$?
 	"${tmp_dir}/add-arm64"
 	exit_code=$?
 	set -e
+	test "$default_exit_code" -eq 42
 	test "$exit_code" -eq 42
 else
 	echo "SKIP: arm64-macos object smoke requires Apple Silicon macOS"
@@ -80,6 +105,7 @@ SECTIONS
 LDS
 
 	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" \
+		--target i386 \
 		--drunix-root "${drunix_dir}" \
 		-o "${tmp_dir}/add.drunix"
 	test -s "${tmp_dir}/add.drunix"

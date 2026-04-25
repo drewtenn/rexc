@@ -34,7 +34,9 @@ Rexc macOS arm64 package
 This package contains a native Apple Silicon rexc CLI.
 
 Examples:
-  ./rexc input.rx -S -o output-x86.s
+  ./rexc input.rx -S -o output-arm64.s
+  ./rexc input.rx -o output-arm64
+  ./rexc input.rx --target i386 -S -o output-x86.s
   ./rexc input.rx --target arm64-macos -S -o output-arm64.s
   ./rexc input.rx --target arm64-macos -c -o output-arm64.o
   ./rexc input.rx --target arm64-macos -o output-arm64

@@ -138,19 +138,41 @@ dist/rexc-macos-arm64.tar.gz.sha256
 ```sh
 build/rexc examples/add.rx -S -o build/add.s
 build/rexc examples/add.rx -c -o build/add.o
+build/rexc examples/add.rx -o build/add
 build/rexc examples/branch.rx --target i386 -S -o build/branch32.s
+build/rexc examples/add.rx --target i386 -o build/add-i386.elf
 build/rexc examples/wide.rx --target x86_64 -S -o build/wide64.s
 build/rexc examples/wide.rx --target x86_64 -c -o build/wide64.o
+build/rexc examples/add.rx --target x86_64 -o build/add-x86_64.elf
 build/rexc examples/add.rx --target arm64-macos -S -o build/add-arm64.s
 build/rexc examples/add.rx --target arm64-macos -c -o build/add-arm64.o
 build/rexc examples/add.rx --target arm64-macos -o build/add-arm64
 ```
 
-The default target is `i386`. Use `--target x86_64` to emit 64-bit
-Linux-compatible x86_64 assembly or object files. Use `--target arm64-macos`
-on Apple Silicon macOS to emit Darwin ARM64 assembly or Mach-O object files.
+The default target is the native host target. On Apple Silicon macOS, omitting
+`--target` selects `arm64-macos` and produces Darwin ARM64 assembly, Mach-O
+objects, or Mach-O command-line executables. On non-Darwin hosts, the default
+target remains `i386`. Use `--target` whenever you want to cross-compile.
 `-S` writes assembly, while `-c` runs the target assembler and writes an object
-file.
+file. Omitting `-S` and `-c` asks Rexc to produce a linked command-line
+executable for the selected or default target.
+
+For x86 targets on Linux-style hosts, executable linking uses the host C linker
+driver (`clang` or `cc`) with `-m32` for `i386` and `-m64` for `x86_64`. On
+macOS, x86 executable linking uses the cross ELF binutils pair
+`x86_64-elf-as` and `x86_64-elf-ld`, generates a tiny `_start`, and writes an
+ELF executable. macOS can build and inspect that ELF file, but it cannot run it
+directly. Use `--target arm64-macos` when you want a native Darwin/Mach-O
+command-line executable.
+
+Examples on macOS:
+
+```sh
+build/rexc examples/add.rx -o build/add-arm64
+build/rexc examples/add.rx --target i386 -o build/add-i386.elf
+build/rexc examples/add.rx --target x86_64 -o build/add-x86_64.elf
+file build/add-arm64 build/add-i386.elf build/add-x86_64.elf
+```
 
 ### Build A Darwin arm64 Executable
 
@@ -218,7 +240,7 @@ at a Drunix checkout that has `user/user.ld`, `user/lib/crt0.o`, and
 `user/lib/libc.a`:
 
 ```sh
-build/rexc examples/add.rx --drunix-root /path/to/DrunixOS -o build/add.drunix
+build/rexc examples/add.rx --target i386 --drunix-root /path/to/DrunixOS -o build/add.drunix
 ```
 
 Drunix linking currently targets the i386 runtime path.
@@ -229,9 +251,9 @@ Rexc currently supports Linux-compatible x86 targets and a Darwin ARM64 target:
 
 | Target | CLI option | Assembler mode | Object class | Notes |
 | --- | --- | --- | --- | --- |
-| `i386` | omitted or `--target i386` | `--32` | `ELF32` | Default target; matches the current Drunix user runtime. |
+| `i386` | `--target i386` | `--32` | `ELF32` | Default on non-Darwin hosts; matches the current Drunix user runtime. |
 | `x86_64` | `--target x86_64` | `--64` | `ELF64` | Uses the Linux/System V x86_64 calling convention. |
-| `arm64-macos` | `--target arm64-macos` | Apple `as -arch arm64` | Mach-O 64-bit arm64 object | Uses Darwin symbol names and Apple ARM64 calling convention. |
+| `arm64-macos` | omitted on macOS or `--target arm64-macos` | Apple `as -arch arm64` | Mach-O 64-bit arm64 object | Uses Darwin symbol names and Apple ARM64 calling convention. |
 
 Both targets emit assembly for functions named in the Rexc source. Final
 executables still need a startup object such as `crt0.o`, a runtime library,
@@ -299,21 +321,26 @@ source .rx
    into existing local slots, and reports backend diagnostics when a type is
    unsupported by the selected target.
 
-7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64] -S -o
+7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64|arm64-macos] -S -o
    output.s` writes assembly only after code generation succeeds. Failed code
    generation reports diagnostics and does not write partial assembly.
 
-8. **Object assembly**: `build/rexc input.rx [--target i386|x86_64] -c -o
-   output.o` runs `x86_64-elf-as` when available, falling back to GNU `as`,
-   and writes an ELF object file. Manual assembly still works with
-   `x86_64-elf-as --32` or GNU `as --32` for i386 output and
-   `x86_64-elf-as --64` or GNU `as --64` for x86_64 output.
+8. **Object assembly**: `build/rexc input.rx [--target i386|x86_64|arm64-macos] -c -o
+   output.o` runs the target assembler and writes an object file. x86 targets
+   use `x86_64-elf-as` when available, falling back to GNU `as`; `arm64-macos`
+   uses Apple `as -arch arm64`.
 
-9. **ELF link**: `build/rexc input.rx --drunix-root /path/to/DrunixOS -o
-   output.drunix` assembles a temporary i386 object and links it with Drunix's
-   startup object, runtime archive, and user linker script. Drunix's current
-   checked-in userland runtime is i386-focused; x86_64 output needs an
-   x86_64-compatible runtime/startup path before it can be linked this way.
+9. **Executable link**: `build/rexc input.rx [--target target] -o output`
+   assembles a temporary object and links a command-line executable for the
+   selected target. On macOS, omitting `--target` selects `arm64-macos` and
+   produces a Mach-O executable. Passing `--target i386` or `--target x86_64`
+   cross-links ELF output with `x86_64-elf-as` and `x86_64-elf-ld`.
+
+10. **Drunix link**: `build/rexc input.rx --target i386 --drunix-root /path/to/DrunixOS -o
+    output.drunix` assembles a temporary i386 object and links it with Drunix's
+    startup object, runtime archive, and user linker script. Drunix's current
+    checked-in userland runtime is i386-focused; x86_64 output needs an
+    x86_64-compatible runtime/startup path before it can be linked this way.
 
 ## Core Types
 
@@ -406,8 +433,8 @@ innermost loop. Both are only valid inside loops.
 
 Rexc currently emits assembly for Linux-compatible `i386` and `x86_64`
 targets. To build a runnable Drunix userland executable with the current Drunix
-runtime, assemble the default `i386` output into a 32-bit object file, then link
-it with Drunix's user runtime and linker script.
+runtime, select the `i386` target, assemble a 32-bit object file, then link it
+with Drunix's user runtime and linker script.
 
 Set the Drunix checkout path:
 
@@ -431,14 +458,14 @@ make -C "$DRUNIX/user" lib/crt0.o lib/libc.a
 Compile and link the final Drunix ELF executable:
 
 ```sh
-build/rexc examples/add.rx --drunix-root "$DRUNIX" -o build/add.drunix
+build/rexc examples/add.rx --target i386 --drunix-root "$DRUNIX" -o build/add.drunix
 ```
 
 The command above is equivalent to compiling assembly, assembling an i386
 object, and linking it with the Drunix user runtime:
 
 ```sh
-build/rexc examples/add.rx -S -o build/add.s
+build/rexc examples/add.rx --target i386 -S -o build/add.s
 x86_64-elf-as --32 -o build/add.o build/add.s
 x86_64-elf-ld -m elf_i386 \
   -T "$DRUNIX/user/user.ld" \
