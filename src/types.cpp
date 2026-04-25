@@ -48,9 +48,9 @@ std::string format_type(PrimitiveType type)
 
 	switch (type.kind) {
 	case PrimitiveKind::SignedInteger:
-		return std::string("i") + std::to_string(type.bits);
+		return "i" + std::to_string(type.bits);
 	case PrimitiveKind::UnsignedInteger:
-		return std::string("u") + std::to_string(type.bits);
+		return "u" + std::to_string(type.bits);
 	case PrimitiveKind::Bool:
 		return "bool";
 	case PrimitiveKind::Char:

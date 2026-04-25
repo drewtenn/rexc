@@ -27,7 +27,7 @@ rexc::CodegenTarget parse_target(const std::string &target)
 		return rexc::CodegenTarget::I386;
 	if (target == "x86_64")
 		return rexc::CodegenTarget::X86_64;
-	throw std::runtime_error(std::string("unknown target: ") + target);
+	throw std::runtime_error("unknown target: " + target);
 }
 
 Options parse_options(int argc, char **argv)
@@ -63,7 +63,7 @@ std::string read_file(const std::string &path)
 {
 	std::ifstream input(path);
 	if (!input)
-		throw std::runtime_error(std::string("failed to open input file: ") + path);
+		throw std::runtime_error("failed to open input file: " + path);
 
 	std::ostringstream buffer;
 	buffer << input.rdbuf();
@@ -74,7 +74,7 @@ void write_file(const std::string &path, const std::string &text)
 {
 	std::ofstream output(path);
 	if (!output)
-		throw std::runtime_error(std::string("failed to open output file: ") + path);
+		throw std::runtime_error("failed to open output file: " + path);
 
 	output << text;
 }

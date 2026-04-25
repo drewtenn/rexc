@@ -76,8 +76,8 @@ std::string unsupported_codegen_message(ir::Type type, CodegenTarget target)
 {
 	if (target == CodegenTarget::I386 && is_integer(type) && type.bits == 64)
 		return "64-bit integer code generation is not implemented for i386";
-	return format_type(type) + std::string(" code generation is not implemented for ") +
-	       std::string(target == CodegenTarget::X86_64 ? "x86_64" : "i386");
+	return format_type(type) + " code generation is not implemented for " +
+	       (target == CodegenTarget::X86_64 ? "x86_64" : "i386");
 }
 
 class Emitter {
@@ -114,7 +114,7 @@ private:
 	void emit_function(const ir::Function &function)
 	{
 		Frame frame = build_frame(function);
-		std::string done_label = std::string(".L_return_") + function.name;
+		std::string done_label = ".L_return_" + function.name;
 
 		out_ << ".globl " << function.name << '\n';
 		out_ << function.name << ":\n";
@@ -463,8 +463,7 @@ private:
 			return;
 		case ir::Value::Kind::String: {
 			const auto &string = static_cast<const ir::StringValue &>(value);
-			string_labels_[&string] =
-			    std::string(".Lstr") + std::to_string(string_labels_.size());
+			string_labels_[&string] = ".Lstr" + std::to_string(string_labels_.size());
 			return;
 		}
 		case ir::Value::Kind::Unary: {

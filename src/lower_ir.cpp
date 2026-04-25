@@ -21,8 +21,7 @@ ir::Type lower_type(const ast::TypeName &type)
 {
 	auto primitive_type = parse_primitive_type(type.name);
 	if (!primitive_type)
-		throw std::runtime_error(std::string("unknown primitive type in IR lowering: ") +
-		                         type.name);
+		throw std::runtime_error("unknown primitive type in IR lowering: " + type.name);
 	return *primitive_type;
 }
 
@@ -87,8 +86,7 @@ private:
 			const auto &name = static_cast<const ast::NameExpr &>(expr);
 			auto it = locals.find(name.name);
 			if (it == locals.end())
-				throw std::runtime_error(std::string("unknown local in IR lowering: ") +
-				                         name.name);
+				throw std::runtime_error("unknown local in IR lowering: " + name.name);
 			return std::make_unique<ir::LocalValue>(name.name, it->second);
 		}
 		case ast::Expr::Kind::Binary: {

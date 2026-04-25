@@ -64,8 +64,7 @@ private:
 	{
 		for (const auto &function : module_.functions) {
 			if (functions_.find(function.name) != functions_.end()) {
-				diagnostics_.error(function.location,
-				                   std::string("duplicate function '") + function.name + "'");
+				diagnostics_.error(function.location, "duplicate function '" + function.name + "'");
 				continue;
 			}
 			functions_[function.name] = FunctionInfo{&function};
@@ -79,8 +78,7 @@ private:
 		for (const auto &parameter : function.parameters) {
 			PrimitiveType parameter_type = check_type(parameter.type);
 			if (!locals.emplace(parameter.name, parameter_type).second)
-				diagnostics_.error(parameter.location,
-				                   std::string("duplicate local '") + parameter.name + "'");
+				diagnostics_.error(parameter.location, "duplicate local '" + parameter.name + "'");
 		}
 
 		PrimitiveType return_type = check_type(function.return_type);
@@ -98,8 +96,7 @@ private:
 			PrimitiveType let_type = check_type(let.type);
 			bool duplicate = locals.find(let.name) != locals.end();
 			if (duplicate)
-				diagnostics_.error(let.location,
-				                   std::string("duplicate local '") + let.name + "'");
+				diagnostics_.error(let.location, "duplicate local '" + let.name + "'");
 			// The new binding is inserted after checking the initializer so
 			// `let x: i32 = x;` remains an unknown-name error.
 			auto initializer_type = check_expr(locals, *let.initializer, let_type);
@@ -148,8 +145,7 @@ private:
 			const auto &name = static_cast<const ast::NameExpr &>(expr);
 			auto it = locals.find(name.name);
 			if (it == locals.end()) {
-				diagnostics_.error(name.location,
-				                   std::string("unknown name '") + name.name + "'");
+				diagnostics_.error(name.location, "unknown name '" + name.name + "'");
 				return std::nullopt;
 			}
 			return it->second;
@@ -178,13 +174,11 @@ private:
 			const auto &call = static_cast<const ast::CallExpr &>(expr);
 			auto it = functions_.find(call.callee);
 			if (it == functions_.end()) {
-				diagnostics_.error(call.location,
-				                   std::string("unknown function '") + call.callee + "'");
+				diagnostics_.error(call.location, "unknown function '" + call.callee + "'");
 			} else {
 				std::size_t expected_count = it->second.function->parameters.size();
 				if (expected_count != call.arguments.size()) {
-					diagnostics_.error(call.location,
-					                   std::string("function '") + call.callee + "' expected " +
+					diagnostics_.error(call.location, "function '" + call.callee + "' expected " +
 					                   std::to_string(expected_count) + " arguments but got " +
 					                   std::to_string(call.arguments.size()));
 				}
@@ -258,17 +252,14 @@ private:
 		}
 
 		if (!fits)
-			diagnostics_.error(location,
-			                   std::string("integer literal does not fit type '") +
-			                       format_type(type) + "'");
+			diagnostics_.error(location, "integer literal does not fit type '" + format_type(type) + "'");
 	}
 
 	PrimitiveType check_type(const ast::TypeName &type)
 	{
 		auto primitive_type = parse_primitive_type(type.name);
 		if (!primitive_type) {
-			diagnostics_.error(type.location,
-			                   std::string("unknown type '") + type.name + "'");
+			diagnostics_.error(type.location, "unknown type '" + type.name + "'");
 			return i32_type();
 		}
 		return *primitive_type;
