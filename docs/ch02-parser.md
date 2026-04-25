@@ -24,7 +24,7 @@ names a function that exists outside the current Rexc source file, which lets
 Rexc-generated code call into a runtime or library supplied by the final link.
 
 Inside a function body, the parser builds statements. A statement is a piece of
-program structure that does something in sequence. Rexc currently has six
+program structure that does something in sequence. Rexc currently has seven
 statement shapes:
 
 | Statement | What it means |
