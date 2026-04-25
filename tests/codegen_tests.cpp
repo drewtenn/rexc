@@ -269,6 +269,33 @@ TEST_CASE(codegen_x86_64_emits_if_else_comparison_branch)
 	REQUIRE(assembly.find("jmp .L_return_main") != std::string::npos);
 }
 
+TEST_CASE(codegen_i386_emits_assignment_and_while_loop)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i32 { let mut x: i32 = 0; while x < 3 { x = x + 1; } return x; }\n");
+
+	REQUIRE(assembly.find(".L_while_start_") != std::string::npos);
+	REQUIRE(assembly.find(".L_while_end_") != std::string::npos);
+	REQUIRE(assembly.find("je .L_while_end_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_while_start_") != std::string::npos);
+	REQUIRE(assembly.find("movl %eax, -4(%ebp)") != std::string::npos);
+	REQUIRE_EQ(count_occurrences(assembly, "subl $4, %esp"), 1);
+}
+
+TEST_CASE(codegen_x86_64_emits_assignment_and_while_loop)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i64 { let mut x: i64 = 0; while x < 3 { x = x + 1; } return x; }\n",
+	    rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find(".L_while_start_") != std::string::npos);
+	REQUIRE(assembly.find(".L_while_end_") != std::string::npos);
+	REQUIRE(assembly.find("je .L_while_end_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_while_start_") != std::string::npos);
+	REQUIRE(assembly.find("movq %rax, -8(%rbp)") != std::string::npos);
+	REQUIRE_EQ(count_occurrences(assembly, "subq $16, %rsp"), 1);
+}
+
 TEST_CASE(codegen_x86_64_uses_system_v_argument_registers)
 {
 	auto assembly = compile_to_assembly(

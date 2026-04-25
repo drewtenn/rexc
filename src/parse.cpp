@@ -24,7 +24,9 @@ enum class TokenKind {
 	If,
 	Else,
 	Let,
+	Mut,
 	Return,
+	While,
 	LParen,
 	RParen,
 	LBrace,
@@ -204,8 +206,12 @@ private:
 			return {TokenKind::Else, text, start};
 		if (text == "let")
 			return {TokenKind::Let, text, start};
+		if (text == "mut")
+			return {TokenKind::Mut, text, start};
 		if (text == "return")
 			return {TokenKind::Return, text, start};
+		if (text == "while")
+			return {TokenKind::While, text, start};
 		if (text == "true" || text == "false")
 			return {TokenKind::Bool, text, start};
 		return {TokenKind::Identifier, text, start};
@@ -443,10 +449,14 @@ private:
 		while (!at(TokenKind::RBrace) && !at(TokenKind::End)) {
 			if (at(TokenKind::Let))
 				body.push_back(parse_let_statement());
+			else if (at(TokenKind::Identifier) && next().kind == TokenKind::Equal)
+				body.push_back(parse_assignment_statement());
 			else if (at(TokenKind::Return))
 				body.push_back(parse_return_statement());
 			else if (at(TokenKind::If))
 				body.push_back(parse_if_statement());
+			else if (at(TokenKind::While))
+				body.push_back(parse_while_statement());
 			else {
 				error_here("expected statement");
 				advance();
@@ -459,14 +469,30 @@ private:
 	std::unique_ptr<ast::Stmt> parse_let_statement()
 	{
 		Token start = expect(TokenKind::Let, "expected 'let'");
+		bool is_mutable = false;
+		if (at(TokenKind::Mut)) {
+			advance();
+			is_mutable = true;
+		}
 		Token name = expect(TokenKind::Identifier, "expected local name");
 		expect(TokenKind::Colon, "expected ':'");
 		auto type = parse_type();
 		expect(TokenKind::Equal, "expected '='");
 		auto initializer = parse_expression();
 		expect(TokenKind::Semicolon, "expected ';'");
-		return std::make_unique<ast::LetStmt>(source_.location_at(start.offset), name.text,
-		                                      std::move(type), std::move(initializer));
+		return std::make_unique<ast::LetStmt>(source_.location_at(start.offset), is_mutable,
+		                                      name.text, std::move(type),
+		                                      std::move(initializer));
+	}
+
+	std::unique_ptr<ast::Stmt> parse_assignment_statement()
+	{
+		Token name = expect(TokenKind::Identifier, "expected local name");
+		expect(TokenKind::Equal, "expected '='");
+		auto value = parse_expression();
+		expect(TokenKind::Semicolon, "expected ';'");
+		return std::make_unique<ast::AssignStmt>(source_.location_at(name.offset), name.text,
+		                                         std::move(value));
 	}
 
 	std::unique_ptr<ast::Stmt> parse_return_statement()
@@ -490,6 +516,15 @@ private:
 		return std::make_unique<ast::IfStmt>(source_.location_at(start.offset),
 		                                     std::move(condition), std::move(then_body),
 		                                     std::move(else_body));
+	}
+
+	std::unique_ptr<ast::Stmt> parse_while_statement()
+	{
+		Token start = expect(TokenKind::While, "expected 'while'");
+		auto condition = parse_expression();
+		auto body = parse_block();
+		return std::make_unique<ast::WhileStmt>(source_.location_at(start.offset),
+		                                        std::move(condition), std::move(body));
 	}
 
 	std::unique_ptr<ast::Expr> parse_expression()

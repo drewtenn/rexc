@@ -226,3 +226,29 @@ TEST_CASE(lowering_lowers_if_else_statement)
 	REQUIRE_EQ(if_stmt.then_body.size(), std::size_t(1));
 	REQUIRE_EQ(if_stmt.else_body.size(), std::size_t(1));
 }
+
+TEST_CASE(lowering_lowers_assignment_and_while_statement)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut x: i32 = 0; while x < 3 { x = x + 1; } return x; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &function = module.functions[0];
+	REQUIRE_EQ(function.body.size(), std::size_t(3));
+	REQUIRE_EQ(function.body[1]->kind, rexc::ir::Statement::Kind::While);
+
+	const auto &while_stmt = static_cast<const rexc::ir::WhileStatement &>(*function.body[1]);
+	REQUIRE_EQ(while_stmt.condition->type, rexc::PrimitiveType{rexc::PrimitiveKind::Bool});
+	REQUIRE_EQ(while_stmt.body.size(), std::size_t(1));
+	REQUIRE_EQ(while_stmt.body[0]->kind, rexc::ir::Statement::Kind::Assign);
+
+	const auto &assign = static_cast<const rexc::ir::AssignStatement &>(*while_stmt.body[0]);
+	REQUIRE_EQ(assign.name, std::string("x"));
+	REQUIRE_EQ(rexc::format_type(assign.value->type), std::string("i32"));
+}

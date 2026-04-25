@@ -59,10 +59,16 @@ Stmt::Stmt(Kind kind, SourceLocation location)
 {
 }
 
-LetStmt::LetStmt(SourceLocation location, std::string name, TypeName type,
+LetStmt::LetStmt(SourceLocation location, bool is_mutable, std::string name, TypeName type,
                  std::unique_ptr<Expr> initializer)
-	: Stmt(Kind::Let, std::move(location)), name(std::move(name)),
-	  type(std::move(type)), initializer(std::move(initializer))
+	: Stmt(Kind::Let, std::move(location)), is_mutable(is_mutable),
+	  name(std::move(name)), type(std::move(type)), initializer(std::move(initializer))
+{
+}
+
+AssignStmt::AssignStmt(SourceLocation location, std::string name, std::unique_ptr<Expr> value)
+	: Stmt(Kind::Assign, std::move(location)), name(std::move(name)),
+	  value(std::move(value))
 {
 }
 
@@ -76,6 +82,13 @@ IfStmt::IfStmt(SourceLocation location, std::unique_ptr<Expr> condition,
                std::vector<std::unique_ptr<Stmt>> else_body)
 	: Stmt(Kind::If, std::move(location)), condition(std::move(condition)),
 	  then_body(std::move(then_body)), else_body(std::move(else_body))
+{
+}
+
+WhileStmt::WhileStmt(SourceLocation location, std::unique_ptr<Expr> condition,
+                     std::vector<std::unique_ptr<Stmt>> body)
+	: Stmt(Kind::While, std::move(location)), condition(std::move(condition)),
+	  body(std::move(body))
 {
 }
 

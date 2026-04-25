@@ -123,3 +123,29 @@ TEST_CASE(parser_accepts_if_else_statements)
 	REQUIRE_EQ(if_stmt.then_body.size(), std::size_t(1));
 	REQUIRE_EQ(if_stmt.else_body.size(), std::size_t(1));
 }
+
+TEST_CASE(parser_accepts_mutable_locals_assignment_and_while)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut x: i32 = 0; while x < 3 { x = x + 1; } return x; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(3));
+
+	const auto &let = static_cast<const rexc::ast::LetStmt &>(*body[0]);
+	REQUIRE(let.is_mutable);
+
+	REQUIRE_EQ(body[1]->kind, rexc::ast::Stmt::Kind::While);
+	const auto &while_stmt = static_cast<const rexc::ast::WhileStmt &>(*body[1]);
+	REQUIRE_EQ(while_stmt.condition->kind, rexc::ast::Expr::Kind::Binary);
+	REQUIRE_EQ(while_stmt.body.size(), std::size_t(1));
+	REQUIRE_EQ(while_stmt.body[0]->kind, rexc::ast::Stmt::Kind::Assign);
+	const auto &assign = static_cast<const rexc::ast::AssignStmt &>(*while_stmt.body[0]);
+	REQUIRE_EQ(assign.name, std::string("x"));
+	REQUIRE_EQ(assign.value->kind, rexc::ast::Expr::Kind::Binary);
+}

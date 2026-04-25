@@ -75,35 +75,40 @@ source .rx
    frontend or backend stage fails.
 
 2. **Lexing and parsing**: `src/parse.cpp` tokenizes the source and parses
-   functions, extern declarations, `let`, `return`, and `if/else` statements,
-   expressions, primitive type names, and literals. The parser builds the AST
+   functions, extern declarations, immutable and mutable `let` declarations,
+   assignment, `return`, `if/else`, and `while` statements, expressions,
+   primitive type names, and literals. The parser builds the AST
    types declared in
    `include/rexc/ast.hpp`.
 
 3. **AST**: The AST preserves source-level structure: functions, parameters,
-   `let`, `return`, and `if/else` statements, names, calls, unary/binary
-   expressions, comparison expressions, and integer/bool/char/string literals.
-   Integer literals keep their original decimal text so later stages can
-   range-check large values without parser overflow.
+   `let`, assignment, `return`, `if/else`, and `while` statements, names,
+   calls, unary/binary expressions, comparison expressions, and
+   integer/bool/char/string literals. Integer literals keep their original
+   decimal text so later stages can range-check large values without parser
+   overflow.
 
 4. **Semantic analysis**: `src/sema.cpp` validates names, duplicate functions
-   and locals, function calls, return types, initializer types, arithmetic
-   operands, comparison operands, `if` condition types, unary operators, and
-   integer literal ranges. It uses the primitive type helpers in
+   and locals, function calls, return types, initializer and assignment types,
+   local mutability, arithmetic operands, comparison operands, `if` and
+   `while` condition types, unary operators, and integer literal ranges. It
+   uses the primitive type helpers in
    `src/types.cpp` so all frontend checks share one type model.
 
 5. **IR lowering**: `src/lower_ir.cpp` converts the checked AST into the typed
    IR in `include/rexc/ir.hpp`. The IR carries resolved primitive types on
-   functions, parameters, locals, calls, literals, unary expressions, binary
-   expressions, comparisons, and `if/else` branches. This gives the backend a
-   smaller, typed representation to emit.
+   functions, parameters, locals, assignments, calls, literals, unary
+   expressions, binary expressions, comparisons, `if/else` branches, and
+   `while` loops. This gives the backend a smaller, typed representation to
+   emit.
 
 6. **x86 code generation**: `src/codegen_x86.cpp` emits GNU assembler syntax
    for either `i386` or `x86_64`. It emits supported scalar values in target
    stack slots, emits strings in `.rodata` with `.LstrN` labels, uses signed or
    unsigned division and comparison condition codes based on IR type, emits
-   branch labels and jumps for `if/else`, and reports backend diagnostics when
-   a type is unsupported by the selected target.
+   branch labels and jumps for `if/else` and `while`, stores assignments into
+   existing local slots, and reports backend diagnostics when a type is
+   unsupported by the selected target.
 
 7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64] -S -o
    output.s` writes assembly only after code generation succeeds. Failed code
@@ -154,6 +159,22 @@ fn main() -> i32 {
 
 The `if` condition must be `bool`. Locals declared inside a branch are scoped to
 that branch and are not visible after the `if` statement.
+
+Mutable locals use `let mut` and can be updated with assignment statements.
+Plain `let` bindings and parameters are immutable.
+
+```rust
+fn count() -> i32 {
+    let mut value: i32 = 0;
+    while value < 10 {
+        value = value + 1;
+    }
+    return value;
+}
+```
+
+The `while` condition must be `bool`. Locals declared inside the loop body are
+scoped to that body and are not visible after the loop.
 
 ## Build For Drunix Userland
 

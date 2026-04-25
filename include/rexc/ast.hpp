@@ -86,7 +86,7 @@ struct CallExpr final : Expr {
 };
 
 struct Stmt {
-	enum class Kind { Let, Return, If };
+	enum class Kind { Let, Assign, Return, If, While };
 
 	Stmt(Kind kind, SourceLocation location);
 	virtual ~Stmt() = default;
@@ -96,12 +96,20 @@ struct Stmt {
 };
 
 struct LetStmt final : Stmt {
-	LetStmt(SourceLocation location, std::string name, TypeName type,
+	LetStmt(SourceLocation location, bool is_mutable, std::string name, TypeName type,
 	        std::unique_ptr<Expr> initializer);
 
+	bool is_mutable = false;
 	std::string name;
 	TypeName type;
 	std::unique_ptr<Expr> initializer;
+};
+
+struct AssignStmt final : Stmt {
+	AssignStmt(SourceLocation location, std::string name, std::unique_ptr<Expr> value);
+
+	std::string name;
+	std::unique_ptr<Expr> value;
 };
 
 struct ReturnStmt final : Stmt {
@@ -118,6 +126,14 @@ struct IfStmt final : Stmt {
 	std::unique_ptr<Expr> condition;
 	std::vector<std::unique_ptr<Stmt>> then_body;
 	std::vector<std::unique_ptr<Stmt>> else_body;
+};
+
+struct WhileStmt final : Stmt {
+	WhileStmt(SourceLocation location, std::unique_ptr<Expr> condition,
+	          std::vector<std::unique_ptr<Stmt>> body);
+
+	std::unique_ptr<Expr> condition;
+	std::vector<std::unique_ptr<Stmt>> body;
 };
 
 struct Function {

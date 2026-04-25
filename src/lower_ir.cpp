@@ -164,6 +164,15 @@ private:
 			return std::make_unique<ir::LetStatement>(let.name, std::move(initializer));
 		}
 
+		if (statement.kind == ast::Stmt::Kind::Assign) {
+			const auto &assign = static_cast<const ast::AssignStmt &>(statement);
+			auto it = locals.find(assign.name);
+			if (it == locals.end())
+				throw std::runtime_error("unknown local in IR lowering: " + assign.name);
+			return std::make_unique<ir::AssignStatement>(
+				assign.name, lower_expr(*assign.value, locals, it->second));
+		}
+
 		if (statement.kind == ast::Stmt::Kind::If) {
 			const auto &if_stmt = static_cast<const ast::IfStmt &>(statement);
 			auto condition = lower_expr(*if_stmt.condition, locals, bool_type());
@@ -171,6 +180,14 @@ private:
 				std::move(condition),
 				lower_statements(if_stmt.then_body, function_return_type, locals),
 				lower_statements(if_stmt.else_body, function_return_type, locals));
+		}
+
+		if (statement.kind == ast::Stmt::Kind::While) {
+			const auto &while_stmt = static_cast<const ast::WhileStmt &>(statement);
+			auto condition = lower_expr(*while_stmt.condition, locals, bool_type());
+			return std::make_unique<ir::WhileStatement>(
+				std::move(condition),
+				lower_statements(while_stmt.body, function_return_type, locals));
 		}
 
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);

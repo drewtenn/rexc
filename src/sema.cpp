@@ -51,6 +51,11 @@ struct FunctionInfo {
 	const ast::Function *function = nullptr;
 };
 
+struct LocalInfo {
+	PrimitiveType type;
+	bool is_mutable = false;
+};
+
 class Analyzer {
 public:
 	Analyzer(const ast::Module &module, Diagnostics &diagnostics)
@@ -84,11 +89,11 @@ private:
 
 	void analyze_function(const ast::Function &function)
 	{
-		std::unordered_map<std::string, PrimitiveType> locals;
+		std::unordered_map<std::string, LocalInfo> locals;
 
 		for (const auto &parameter : function.parameters) {
 			PrimitiveType parameter_type = check_type(parameter.type);
-			if (!locals.emplace(parameter.name, parameter_type).second)
+			if (!locals.emplace(parameter.name, LocalInfo{parameter_type, false}).second)
 				diagnostics_.error(parameter.location, "duplicate local '" + parameter.name + "'");
 		}
 
@@ -99,7 +104,7 @@ private:
 	}
 
 	void analyze_statement(PrimitiveType function_return_type,
-	                       std::unordered_map<std::string, PrimitiveType> &locals,
+	                       std::unordered_map<std::string, LocalInfo> &locals,
 	                       const ast::Stmt &statement)
 	{
 		if (statement.kind == ast::Stmt::Kind::Let) {
@@ -117,7 +122,27 @@ private:
 				                   format_type(*initializer_type) + "'");
 			}
 			if (!duplicate)
-				locals.emplace(let.name, let_type);
+				locals.emplace(let.name, LocalInfo{let_type, let.is_mutable});
+			return;
+		}
+
+		if (statement.kind == ast::Stmt::Kind::Assign) {
+			const auto &assign = static_cast<const ast::AssignStmt &>(statement);
+			auto it = locals.find(assign.name);
+			if (it == locals.end()) {
+				diagnostics_.error(assign.location, "unknown name '" + assign.name + "'");
+				check_expr(locals, *assign.value);
+				return;
+			}
+			if (!it->second.is_mutable)
+				diagnostics_.error(assign.location,
+				                   "cannot assign to immutable local '" + assign.name + "'");
+			auto value_type = check_expr(locals, *assign.value, it->second.type);
+			if (value_type && *value_type != it->second.type) {
+				diagnostics_.error(assign.location, "assignment type mismatch: expected '" +
+				                   format_type(it->second.type) + "' but got '" +
+				                   format_type(*value_type) + "'");
+			}
 			return;
 		}
 
@@ -137,6 +162,18 @@ private:
 			return;
 		}
 
+		if (statement.kind == ast::Stmt::Kind::While) {
+			const auto &while_stmt = static_cast<const ast::WhileStmt &>(statement);
+			auto condition_type = check_expr(locals, *while_stmt.condition, bool_type());
+			if (condition_type && *condition_type != bool_type())
+				diagnostics_.error(while_stmt.condition->location, "while condition must be bool");
+
+			auto body_locals = locals;
+			for (const auto &body_statement : while_stmt.body)
+				analyze_statement(function_return_type, body_locals, *body_statement);
+			return;
+		}
+
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
 		auto value_type = check_expr(locals, *ret.value, function_return_type);
 		if (value_type && *value_type != function_return_type) {
@@ -147,7 +184,7 @@ private:
 	}
 
 	std::optional<PrimitiveType> check_expr(
-		const std::unordered_map<std::string, PrimitiveType> &locals, const ast::Expr &expr,
+		const std::unordered_map<std::string, LocalInfo> &locals, const ast::Expr &expr,
 		std::optional<PrimitiveType> expected = std::nullopt)
 	{
 		// Expected types let unadorned integer literals inherit context from
@@ -175,7 +212,7 @@ private:
 				diagnostics_.error(name.location, "unknown name '" + name.name + "'");
 				return std::nullopt;
 			}
-			return it->second;
+			return it->second.type;
 		}
 		case ast::Expr::Kind::Binary: {
 			const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
@@ -245,7 +282,7 @@ private:
 	}
 
 	std::optional<PrimitiveType> check_unary_expr(
-		const std::unordered_map<std::string, PrimitiveType> &locals, const ast::UnaryExpr &unary,
+		const std::unordered_map<std::string, LocalInfo> &locals, const ast::UnaryExpr &unary,
 		std::optional<PrimitiveType> expected)
 	{
 		if (unary.op != "-")

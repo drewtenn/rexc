@@ -19,7 +19,8 @@ AST, and direct enough for assembly emission.
 The IR keeps the facts the backend needs. Functions have names, parameters,
 return types, and statement bodies. Values carry resolved primitive types.
 Integer literals keep their decimal text. Calls carry the callee name and the
-lowered argument values. Branches carry a typed condition and lowered statement
+lowered argument values. Assignments carry a target local name and a typed
+value to store. Branches and loops carry typed conditions and lowered statement
 bodies.
 
 The main shift is that source type names disappear. Once semantic analysis has
@@ -41,7 +42,7 @@ has already decided whether the program is valid. Lowering follows the same
 expected-type paths so the IR preserves the resolved type decisions that sema
 already made.
 
-### Branches Become Backend-Friendly
+### Control Flow Becomes Backend-Friendly
 
 An `if/else` node in the AST is still a source-level statement. In the IR it
 becomes a branch statement with three direct pieces: the condition value, the
@@ -49,19 +50,36 @@ then body, and the else body. The condition's type is `bool`, not just "whatever
 expression the source wrote." That is the contract code generation relies on
 when it later emits a compare-against-zero and a conditional jump.
 
+`while` lowers in the same spirit. The IR loop node carries a boolean condition
+value and a lowered body. The backend does not need to rediscover that the
+condition is legal or that the body is scoped; semantic analysis already proved
+those facts, and lowering preserved them.
+
 The IR also keeps branch-local statements contained in their branch bodies.
-That matches semantic analysis and makes stack-slot assignment possible later:
-each `let` statement can be assigned its own storage even if another branch
-uses the same source name.
+Loop-local statements stay contained in loop bodies for the same reason. That
+matches semantic analysis and makes stack-slot assignment possible later: each
+`let` statement can be assigned its own storage even if another branch or loop
+body uses the same source name.
+
+### Mutation Targets Existing Storage
+
+The IR does not need a separate "mutable local" flag. Mutability is a source
+language rule, and semantic analysis has already enforced it. By the time
+lowering creates an assignment statement, the target is known to be a visible
+mutable local and the assigned value is known to have the target's type.
+
+That leaves the backend with a small instruction-level job: evaluate the right
+side and store the accumulator back into the existing stack slot for that local.
+Declarations allocate slots; assignments reuse them.
 
 ### Where the Compiler Is by the End of Chapter 4
 
 Rexc now holds a typed IR module. The source has been parsed, checked, and
 lowered into a backend-facing representation. Every value has a primitive type.
-Every branch condition is already known to be boolean. Every function body is a
-sequence of typed IR statements.
+Every branch and loop condition is already known to be boolean. Every
+assignment targets an existing local with a value of the right type. Every
+function body is a sequence of typed IR statements.
 
 The compiler is ready to leave source-language territory. The next stage must
 take this typed IR and make it concrete for a CPU: stack frames, registers,
 instructions, labels, calls, and returns.
-

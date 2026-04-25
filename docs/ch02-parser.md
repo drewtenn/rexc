@@ -24,15 +24,18 @@ names a function that exists outside the current Rexc source file, which lets
 Rexc-generated code call into a runtime or library supplied by the final link.
 
 Inside a function body, the parser builds statements. A statement is a piece of
-program structure that does something in sequence. Rexc currently has four
+program structure that does something in sequence. Rexc currently has six
 statement shapes:
 
 | Statement | What it means |
 | --- | --- |
-| `let` | create a local value with an explicit type |
+| `let` | create an immutable local value with an explicit type |
+| `let mut` | create a mutable local value with an explicit type |
+| assignment | update an existing mutable local |
 | `return` | produce the function result |
 | `if` | conditionally run one block |
 | `if/else` | choose between two blocks |
+| `while` | repeat a block while a condition is true |
 
 When the parser sees braces, it enters a block. A block is a sequence of
 statements surrounded by `{` and `}`. The parser does not yet decide whether a
@@ -86,12 +89,12 @@ then stops.
 ### Where the Compiler Is by the End of Chapter 2
 
 Rexc can now turn a valid token stream into a syntax tree. It understands
-function definitions, extern declarations, typed parameters, typed locals,
-returns, conditionals, calls, literals, unary expressions, binary arithmetic,
-and comparisons.
+function definitions, extern declarations, typed parameters, immutable and
+mutable typed locals, assignments, returns, conditionals, while loops, calls,
+literals, unary expressions, binary arithmetic, and comparisons.
 
 The compiler still has not proved the program is meaningful. The tree might
 refer to an unknown function. A return statement might produce the wrong type.
-An `if` condition might be an integer instead of a boolean. Those are semantic
-questions, and the next stage is where Rexc begins to answer them.
-
+An assignment might target an immutable local. An `if` or `while` condition
+might be an integer instead of a boolean. Those are semantic questions, and the
+next stage is where Rexc begins to answer them.

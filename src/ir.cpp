@@ -56,6 +56,11 @@ LetStatement::LetStatement(std::string name, std::unique_ptr<Value> value)
 {
 }
 
+AssignStatement::AssignStatement(std::string name, std::unique_ptr<Value> value)
+	: Statement(Kind::Assign), name(std::move(name)), value(std::move(value))
+{
+}
+
 ReturnStatement::ReturnStatement(std::unique_ptr<Value> value)
 	: Statement(Kind::Return), value(std::move(value))
 {
@@ -66,6 +71,12 @@ IfStatement::IfStatement(std::unique_ptr<Value> condition,
                          std::vector<std::unique_ptr<Statement>> else_body)
 	: Statement(Kind::If), condition(std::move(condition)),
 	  then_body(std::move(then_body)), else_body(std::move(else_body))
+{
+}
+
+WhileStatement::WhileStatement(std::unique_ptr<Value> condition,
+                               std::vector<std::unique_ptr<Statement>> body)
+	: Statement(Kind::While), condition(std::move(condition)), body(std::move(body))
 {
 }
 

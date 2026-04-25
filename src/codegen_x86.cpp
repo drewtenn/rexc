@@ -29,6 +29,9 @@ int count_locals(const std::vector<std::unique_ptr<ir::Statement>> &statements)
 	for (const auto &statement : statements) {
 		if (statement->kind == ir::Statement::Kind::Let) {
 			++count;
+		} else if (statement->kind == ir::Statement::Kind::While) {
+			const auto &while_statement = static_cast<const ir::WhileStatement &>(*statement);
+			count += count_locals(while_statement.body);
 		} else if (statement->kind == ir::Statement::Kind::If) {
 			const auto &if_statement = static_cast<const ir::IfStatement &>(*statement);
 			count += count_locals(if_statement.then_body);
@@ -210,6 +213,11 @@ private:
 				frame.let_slots[&let] = -4 * local_index;
 				continue;
 			}
+			if (statement->kind == ir::Statement::Kind::While) {
+				const auto &while_statement = static_cast<const ir::WhileStatement &>(*statement);
+				assign_i386_local_slots(while_statement.body, frame, local_index);
+				continue;
+			}
 			if (statement->kind == ir::Statement::Kind::If) {
 				const auto &if_statement = static_cast<const ir::IfStatement &>(*statement);
 				assign_i386_local_slots(if_statement.then_body, frame, local_index);
@@ -227,6 +235,11 @@ private:
 				const auto &let = static_cast<const ir::LetStatement &>(*statement);
 				++slot_index;
 				frame.let_slots[&let] = -8 * slot_index;
+				continue;
+			}
+			if (statement->kind == ir::Statement::Kind::While) {
+				const auto &while_statement = static_cast<const ir::WhileStatement &>(*statement);
+				assign_x86_64_local_slots(while_statement.body, frame, slot_index);
 				continue;
 			}
 			if (statement->kind == ir::Statement::Kind::If) {
@@ -264,6 +277,11 @@ private:
 			return validate_value(*let.value);
 		}
 
+		if (statement.kind == ir::Statement::Kind::Assign) {
+			const auto &assign = static_cast<const ir::AssignStatement &>(statement);
+			return validate_value(*assign.value);
+		}
+
 		if (statement.kind == ir::Statement::Kind::If) {
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			bool ok = validate_value(*if_statement.condition);
@@ -271,6 +289,14 @@ private:
 				ok = validate_statement(*branch_statement) && ok;
 			for (const auto &branch_statement : if_statement.else_body)
 				ok = validate_statement(*branch_statement) && ok;
+			return ok;
+		}
+
+		if (statement.kind == ir::Statement::Kind::While) {
+			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
+			bool ok = validate_value(*while_statement.condition);
+			for (const auto &body_statement : while_statement.body)
+				ok = validate_statement(*body_statement) && ok;
 			return ok;
 		}
 
@@ -336,9 +362,23 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Assign) {
+			const auto &assign = static_cast<const ir::AssignStatement &>(statement);
+			emit_value(*assign.value, frame, slots);
+			out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
+			     << slots.at(assign.name) << "(" << frame_pointer_register() << ")\n";
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::If) {
 			emit_if_statement(static_cast<const ir::IfStatement &>(statement), frame,
 			                  done_label, slots);
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::While) {
+			emit_while_statement(static_cast<const ir::WhileStatement &>(statement), frame,
+			                     done_label, slots);
 			return;
 		}
 
@@ -367,6 +407,24 @@ private:
 		for (const auto &statement : if_statement.else_body)
 			emit_statement(*statement, frame, done_label, else_slots);
 
+		out_ << end_label << ":\n";
+	}
+
+	void emit_while_statement(const ir::WhileStatement &while_statement, const Frame &frame,
+	                          const std::string &done_label, const SlotMap &slots)
+	{
+		std::string start_label = make_label(".L_while_start_");
+		std::string end_label = make_label(".L_while_end_");
+
+		out_ << start_label << ":\n";
+		emit_value(*while_statement.condition, frame, slots);
+		out_ << "\tcmpb $0, %al\n";
+		out_ << "\tje " << end_label << "\n";
+
+		SlotMap body_slots = slots;
+		for (const auto &statement : while_statement.body)
+			emit_statement(*statement, frame, done_label, body_slots);
+		out_ << "\tjmp " << start_label << "\n";
 		out_ << end_label << ":\n";
 	}
 
@@ -540,6 +598,12 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Assign) {
+			const auto &assign = static_cast<const ir::AssignStatement &>(statement);
+			collect_string_labels(*assign.value);
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::If) {
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			collect_string_labels(*if_statement.condition);
@@ -547,6 +611,14 @@ private:
 				collect_string_labels(*branch_statement);
 			for (const auto &branch_statement : if_statement.else_body)
 				collect_string_labels(*branch_statement);
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::While) {
+			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
+			collect_string_labels(*while_statement.condition);
+			for (const auto &body_statement : while_statement.body)
+				collect_string_labels(*body_statement);
 			return;
 		}
 
@@ -609,6 +681,12 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Assign) {
+			const auto &assign = static_cast<const ir::AssignStatement &>(statement);
+			emit_string_literals(*assign.value);
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::If) {
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			emit_string_literals(*if_statement.condition);
@@ -616,6 +694,14 @@ private:
 				emit_string_literals(*branch_statement);
 			for (const auto &branch_statement : if_statement.else_body)
 				emit_string_literals(*branch_statement);
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::While) {
+			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
+			emit_string_literals(*while_statement.condition);
+			for (const auto &body_statement : while_statement.body)
+				emit_string_literals(*body_statement);
 			return;
 		}
 

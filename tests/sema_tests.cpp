@@ -222,3 +222,56 @@ TEST_CASE(sema_rejects_non_bool_if_condition)
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("if condition must be bool") != std::string::npos);
 }
+
+TEST_CASE(sema_accepts_assignment_to_mutable_local_in_while_loop)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut x: i32 = 0; while x < 3 { x = x + 1; } return x; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_assignment_to_immutable_local)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: i32 = 0; x = 1; return x; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("cannot assign to immutable local 'x'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_assignment_to_parameter)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main(x: i32) -> i32 { x = 1; return x; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("cannot assign to immutable local 'x'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_assignment_type_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let mut x: i32 = 0; x = true; return x; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("assignment type mismatch: expected 'i32' but got 'bool'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_non_bool_while_condition)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { while 1 { return 1; } return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("while condition must be bool") != std::string::npos);
+}
+
+TEST_CASE(sema_keeps_while_body_locals_scoped_to_body)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut x: i32 = 0; while x < 1 { let y: i32 = 2; x = y; } return y; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown name 'y'") != std::string::npos);
+}

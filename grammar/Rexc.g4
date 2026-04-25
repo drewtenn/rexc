@@ -50,19 +50,38 @@ block
 
 statement
 	: letStatement
+	| assignStatement
 	| returnStatement
+	| ifStatement
+	| whileStatement
 	;
 
 letStatement
-	: 'let' IDENT ':' type '=' expression ';'
+	: 'let' 'mut'? IDENT ':' type '=' expression ';'
+	;
+
+assignStatement
+	: IDENT '=' expression ';'
 	;
 
 returnStatement
 	: 'return' expression ';'
 	;
 
+ifStatement
+	: 'if' expression block ('else' block)?
+	;
+
+whileStatement
+	: 'while' expression block
+	;
+
 expression
-	: additive
+	: comparison
+	;
+
+comparison
+	: additive (('==' | '!=' | '<' | '<=' | '>' | '>=') additive)*
 	;
 
 additive

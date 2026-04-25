@@ -36,12 +36,31 @@ values use signed CPU instructions and signed condition codes. Unsigned values
 use unsigned ones. Semantic analysis records enough type information for the
 backend to choose correctly without reinterpreting source text.
 
-### Names, Locals, and Branch Scopes
+### Names, Locals, and Local Mutation
 
 The analyzer walks each function with a table of visible local names. Function
-parameters enter the table first. A `let` statement checks its initializer
-before inserting the new name, so a declaration such as `let x: i32 = x;` is
-still an unknown-name error rather than a self-reference that silently works.
+parameters enter the table first. They are visible in the function body, but
+they are not assignable. A `let` statement checks its initializer before
+inserting the new name, so a declaration such as `let x: i32 = x;` is still an
+unknown-name error rather than a self-reference that silently works.
+
+Rexc separates declaration from mutation. A plain `let` creates an immutable
+local. A `let mut` creates a mutable local. Assignment is only valid when the
+target name already exists and was declared mutable:
+
+```rust
+fn count() -> i32 {
+    let mut value: i32 = 0;
+    value = value + 1;
+    return value;
+}
+```
+
+The right side of an assignment is checked against the target local's declared
+type. Assigning a `bool` into an `i32`, assigning to a plain `let`, assigning
+to a parameter, or assigning to an unknown name all produce diagnostics.
+
+### Block Scopes
 
 Branches get their own copies of the local table. When Rexc analyzes an `if`
 statement, it checks the condition, then analyzes the `then` body with one
@@ -50,6 +69,13 @@ is visible later in that same branch, but it does not leak out to the code
 after the `if`. That rule keeps the current language simple and prevents a
 later statement from depending on a local that might not have been declared at
 runtime.
+
+Loops use the same scoping idea. A `while` condition is checked in the
+surrounding local table, and the loop body is analyzed with a copy of that
+table. Locals declared inside the loop body are visible later in that body, but
+they do not leak out after the loop. Mutations to already-visible mutable
+locals are allowed because assignment changes an existing slot rather than
+introducing a new name.
 
 ### Expressions Must Produce the Promised Type
 
@@ -66,17 +92,17 @@ done without accidental host-side overflow.
 
 Arithmetic operators require integer operands of the same type and produce that
 same type. Comparison operators also require same-typed integer operands, but
-they produce `bool`. An `if` condition must already be `bool`; Rexc does not
-silently treat integers as truthy or falsy.
+they produce `bool`. An `if` or `while` condition must already be `bool`; Rexc
+does not silently treat integers as truthy or falsy.
 
 ### Where the Compiler Is by the End of Chapter 3
 
 Rexc can now reject programs that are grammatically valid but semantically
 wrong. It knows which functions exist, which locals are visible, which primitive
 types are valid, which calls match their signatures, and which expressions
-produce which types.
+produce which types. It also knows which locals are mutable, which assignments
+are legal, and which branch and loop conditions are boolean.
 
 The compiler has not emitted anything yet. It still holds the source-shaped AST,
 now checked for meaning. The next step is to lower that tree into a smaller
 typed representation built for the backend rather than for the parser.
-

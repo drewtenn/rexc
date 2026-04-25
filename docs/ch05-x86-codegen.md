@@ -7,7 +7,8 @@
 Code generation begins with an important advantage: it does not have to guess.
 The backend receives typed IR. It knows whether a value is signed or unsigned,
 whether a comparison produces `bool`, whether a local is a string pointer or an
-integer-sized scalar, and whether the selected target is i386 or x86_64.
+integer-sized scalar, whether an assignment targets existing local storage, and
+whether the selected target is i386 or x86_64.
 
 The backend's job is to turn those facts into assembly. Assembly is a textual
 form of machine instructions. Rexc emits GNU assembler syntax, which means the
@@ -20,6 +21,12 @@ stack memory a function uses for its saved frame pointer, parameters, locals,
 and temporary call state. Rexc keeps the current model deliberately simple:
 locals live in fixed stack slots, and expression results flow through the
 accumulator register.
+
+A `let` statement reserves one of those local slots and stores the initializer
+there. An assignment does not reserve a new slot. Rexc emits the right side into
+the accumulator, then writes that value back to the slot already associated
+with the target local. That distinction is why semantic analysis had to reject
+assignments to immutable locals before code generation began.
 
 On i386, Rexc uses 32-bit slots for the currently supported scalar values. On
 x86_64, Rexc uses 64-bit slots and aligns the local frame to preserve the
@@ -58,7 +65,7 @@ is false. The result is then zero-extended back into the accumulator-sized
 register. Signed comparisons use signed condition codes; unsigned comparisons
 use unsigned ones.
 
-### Branches Become Labels and Jumps
+### Control Flow Becomes Labels and Jumps
 
 An `if/else` statement arrives in IR as a boolean condition plus two statement
 bodies. Assembly has no tree-shaped branch node, so the backend turns that
@@ -81,16 +88,28 @@ The interesting part is that this is the same idea on both targets. The exact
 register names and instruction suffixes differ, but the control-flow shape is
 shared.
 
+A `while` loop uses the same pieces with a different label layout. Rexc emits a
+start label, emits the loop condition, and jumps to the end label when the
+condition is false. If the condition is true, execution falls through into the
+body. After the body, an unconditional jump returns to the start label so the
+condition can be tested again.
+
+That creates the usual loop shape:
+
+| Runtime condition | Instruction path |
+| --- | --- |
+| condition is false | jump to loop end |
+| condition is true | run body, then jump back to loop start |
+
 ### Where the Compiler Is by the End of Chapter 5
 
 Rexc can now emit assembly for typed functions, locals, returns, calls,
-arithmetic, division, comparisons, strings, and `if/else` branches. The i386
-target is the default path for the current Drunix user runtime. The x86_64
-target emits 64-bit Linux-compatible assembly using the System V calling
-convention.
+arithmetic, division, comparisons, strings, assignment, `if/else` branches, and
+`while` loops. The i386 target is the default path for the current Drunix user
+runtime. The x86_64 target emits 64-bit Linux-compatible assembly using the
+System V calling convention.
 
 The compiler still has not produced an executable by itself. Assembly is the
 input to the assembler, and the assembler produces an object file. To become a
 Drunix program, that object must be linked with the user runtime and the right
 linker script.
-
