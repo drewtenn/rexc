@@ -74,23 +74,52 @@ TEST_CASE(sema_rejects_unknown_local_inside_unary)
 	REQUIRE(diagnostics.format().find("unknown name 'missing'") != std::string::npos);
 }
 
-TEST_CASE(sema_rejects_literals_without_semantic_support)
+TEST_CASE(sema_accepts_core_primitive_literals)
 {
-	rexc::Diagnostics bool_diagnostics;
-	auto bool_result = analyze("fn main() -> i32 { return true; }\n", bool_diagnostics);
-	REQUIRE(!bool_result.ok());
-	REQUIRE(bool_diagnostics.format().find("literal type is not supported by semantic analysis yet") !=
-	        std::string::npos);
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { let a: i8 = -1; let b: u8 = 255; let c: bool = false; let d: char = 'x'; let e: str = \"ok\"; return 0; }\n",
+		diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
 
-	rexc::Diagnostics char_diagnostics;
-	auto char_result = analyze("fn main() -> i32 { return 'x'; }\n", char_diagnostics);
-	REQUIRE(!char_result.ok());
-	REQUIRE(char_diagnostics.format().find("literal type is not supported by semantic analysis yet") !=
-	        std::string::npos);
+TEST_CASE(sema_rejects_initializer_type_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let ok: bool = 1; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("initializer type mismatch: expected 'bool' but got 'i32'") != std::string::npos);
+}
 
-	rexc::Diagnostics string_diagnostics;
-	auto string_result = analyze("fn main() -> i32 { return \"x\"; }\n", string_diagnostics);
-	REQUIRE(!string_result.ok());
-	REQUIRE(string_diagnostics.format().find("literal type is not supported by semantic analysis yet") !=
-	        std::string::npos);
+TEST_CASE(sema_rejects_arithmetic_on_bool)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: bool = true + false; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("arithmetic requires integer operands") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_mixed_integer_arithmetic)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let a: i16 = 1; let b: i32 = 2; return a + b; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("arithmetic operands must have the same type") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_unsigned_unary_negation)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: u8 = -1; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unary '-' requires a signed integer operand") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_out_of_range_integer_literals)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let x: u8 = 256; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("integer literal does not fit type 'u8'") != std::string::npos);
 }
