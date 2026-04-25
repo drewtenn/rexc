@@ -95,6 +95,10 @@ private:
 			check_expr(locals, *binary.rhs);
 			return "i32";
 		}
+		case ast::Expr::Kind::Unary: {
+			const auto &unary = static_cast<const ast::UnaryExpr &>(expr);
+			return check_expr(locals, *unary.operand);
+		}
 		case ast::Expr::Kind::Call: {
 			const auto &call = static_cast<const ast::CallExpr &>(expr);
 			auto it = functions_.find(call.callee);
