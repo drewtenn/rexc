@@ -83,6 +83,12 @@ private:
 		switch (expr.kind) {
 		case ast::Expr::Kind::Integer:
 			return "i32";
+		case ast::Expr::Kind::Bool:
+		case ast::Expr::Kind::Char:
+		case ast::Expr::Kind::String:
+			diagnostics_.error(expr.location,
+			                   "literal type is not supported by semantic analysis yet");
+			return "i32";
 		case ast::Expr::Kind::Name: {
 			const auto &name = static_cast<const ast::NameExpr &>(expr);
 			if (locals.find(name.name) == locals.end())

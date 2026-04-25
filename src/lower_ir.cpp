@@ -1,6 +1,7 @@
 #include "rexc/lower_ir.hpp"
 
 #include <memory>
+#include <stdexcept>
 #include <utility>
 
 namespace rexc {
@@ -18,6 +19,10 @@ std::unique_ptr<ir::Value> lower_expr(const ast::Expr &expr)
 		const auto &integer = static_cast<const ast::IntegerExpr &>(expr);
 		return std::make_unique<ir::IntegerValue>(integer.value);
 	}
+	case ast::Expr::Kind::Bool:
+	case ast::Expr::Kind::Char:
+	case ast::Expr::Kind::String:
+		throw std::logic_error("unsupported literal reached IR lowering");
 	case ast::Expr::Kind::Name: {
 		const auto &name = static_cast<const ast::NameExpr &>(expr);
 		return std::make_unique<ir::LocalValue>(name.name);

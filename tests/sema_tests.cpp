@@ -73,3 +73,24 @@ TEST_CASE(sema_rejects_unknown_local_inside_unary)
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("unknown name 'missing'") != std::string::npos);
 }
+
+TEST_CASE(sema_rejects_literals_without_semantic_support)
+{
+	rexc::Diagnostics bool_diagnostics;
+	auto bool_result = analyze("fn main() -> i32 { return true; }\n", bool_diagnostics);
+	REQUIRE(!bool_result.ok());
+	REQUIRE(bool_diagnostics.format().find("literal type is not supported by semantic analysis yet") !=
+	        std::string::npos);
+
+	rexc::Diagnostics char_diagnostics;
+	auto char_result = analyze("fn main() -> i32 { return 'x'; }\n", char_diagnostics);
+	REQUIRE(!char_result.ok());
+	REQUIRE(char_diagnostics.format().find("literal type is not supported by semantic analysis yet") !=
+	        std::string::npos);
+
+	rexc::Diagnostics string_diagnostics;
+	auto string_result = analyze("fn main() -> i32 { return \"x\"; }\n", string_diagnostics);
+	REQUIRE(!string_result.ok());
+	REQUIRE(string_diagnostics.format().find("literal type is not supported by semantic analysis yet") !=
+	        std::string::npos);
+}
