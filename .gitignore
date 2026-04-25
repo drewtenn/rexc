@@ -1,0 +1,48 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+.worktrees/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+Testing/
+compile_commands.json
+
+# Native build outputs
+*.a
+*.dylib
+*.dll
+*.elf
+*.exe
+*.o
+*.obj
+*.so
+*.s
+
+# Generated compiler/parser files
+generated/
+*.tokens
+*.interp
+
+# Local test and run artifacts
+*.log
+*.tmp
+*.out
+*.profraw
+*.profdata
+
+# Editor and tool state
+.cache/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
