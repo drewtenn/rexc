@@ -1,0 +1,36 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "macos-arm64-release",
+      "displayName": "macOS arm64 Release",
+      "description": "Build the rexc CLI as a native Apple Silicon macOS executable.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-arm64-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "macos-arm64-release",
+      "configurePreset": "macos-arm64-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "macos-arm64-release",
+      "configurePreset": "macos-arm64-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

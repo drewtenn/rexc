@@ -11,31 +11,48 @@ mkdir -p "$tmp_dir"
 "${build_dir}/rexc" "${repo_dir}/examples/branch.rx" --target i386 -S -o "${tmp_dir}/branch32.s"
 "${build_dir}/rexc" "${repo_dir}/examples/wide.rx" --target x86_64 -S -o "${tmp_dir}/wide64.s"
 "${build_dir}/rexc" "${repo_dir}/examples/branch.rx" --target x86_64 -S -o "${tmp_dir}/branch64.s"
+"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target arm64-macos -S -o "${tmp_dir}/add-arm64.s"
 
+gnu_as=
 if command -v x86_64-elf-as >/dev/null 2>&1; then
-	x86_64-elf-as --32 -o "${tmp_dir}/add.o" "${tmp_dir}/add.s"
-	x86_64-elf-as --32 -o "${tmp_dir}/branch32.o" "${tmp_dir}/branch32.s"
-	x86_64-elf-as --64 -o "${tmp_dir}/wide64.o" "${tmp_dir}/wide64.s"
-	x86_64-elf-as --64 -o "${tmp_dir}/branch64.o" "${tmp_dir}/branch64.s"
-elif command -v as >/dev/null 2>&1; then
-	as --32 -o "${tmp_dir}/add.o" "${tmp_dir}/add.s"
-	as --32 -o "${tmp_dir}/branch32.o" "${tmp_dir}/branch32.s"
-	as --64 -o "${tmp_dir}/wide64.o" "${tmp_dir}/wide64.s"
-	as --64 -o "${tmp_dir}/branch64.o" "${tmp_dir}/branch64.s"
-else
-	echo "SKIP: no GNU assembler found"
-	exit 0
+	gnu_as=x86_64-elf-as
+elif command -v as >/dev/null 2>&1 && as --version 2>/dev/null | grep -qi 'gnu assembler'; then
+	gnu_as=as
 fi
 
-test -s "${tmp_dir}/add.o"
-test -s "${tmp_dir}/branch32.o"
-test -s "${tmp_dir}/wide64.o"
-test -s "${tmp_dir}/branch64.o"
+if [ -n "$gnu_as" ]; then
+	"$gnu_as" --32 -o "${tmp_dir}/add.o" "${tmp_dir}/add.s"
+	"$gnu_as" --32 -o "${tmp_dir}/branch32.o" "${tmp_dir}/branch32.s"
+	"$gnu_as" --64 -o "${tmp_dir}/wide64.o" "${tmp_dir}/wide64.s"
+	"$gnu_as" --64 -o "${tmp_dir}/branch64.o" "${tmp_dir}/branch64.s"
+	test -s "${tmp_dir}/add.o"
+	test -s "${tmp_dir}/branch32.o"
+	test -s "${tmp_dir}/wide64.o"
+	test -s "${tmp_dir}/branch64.o"
 
-"${build_dir}/rexc" "${repo_dir}/examples/add.rx" -c -o "${tmp_dir}/add-cli.o"
-"${build_dir}/rexc" "${repo_dir}/examples/wide.rx" --target x86_64 -c -o "${tmp_dir}/wide64-cli.o"
-test -s "${tmp_dir}/add-cli.o"
-test -s "${tmp_dir}/wide64-cli.o"
+	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" -c -o "${tmp_dir}/add-cli.o"
+	"${build_dir}/rexc" "${repo_dir}/examples/wide.rx" --target x86_64 -c -o "${tmp_dir}/wide64-cli.o"
+	test -s "${tmp_dir}/add-cli.o"
+	test -s "${tmp_dir}/wide64-cli.o"
+else
+	echo "SKIP: no GNU assembler found"
+fi
+
+if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+	as -arch arm64 -o "${tmp_dir}/add-arm64.o" "${tmp_dir}/add-arm64.s"
+	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target arm64-macos -c -o "${tmp_dir}/add-arm64-cli.o"
+	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target arm64-macos -o "${tmp_dir}/add-arm64"
+	test -s "${tmp_dir}/add-arm64.o"
+	test -s "${tmp_dir}/add-arm64-cli.o"
+	test -x "${tmp_dir}/add-arm64"
+	set +e
+	"${tmp_dir}/add-arm64"
+	exit_code=$?
+	set -e
+	test "$exit_code" -eq 42
+else
+	echo "SKIP: arm64-macos object smoke requires Apple Silicon macOS"
+fi
 
 if command -v x86_64-elf-as >/dev/null 2>&1 &&
 	command -v x86_64-elf-ld >/dev/null 2>&1; then

@@ -23,6 +23,7 @@ compile_commands.json
 *.obj
 *.so
 *.s
+dist/
 
 # Generated compiler/parser files
 generated/

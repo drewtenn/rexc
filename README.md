@@ -108,6 +108,31 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+## Build A macOS arm64 Compiler
+
+On Apple Silicon macOS, build and verify a native `arm64` `rexc` executable:
+
+```sh
+cmake --preset macos-arm64-release
+cmake --build --preset macos-arm64-release
+ctest --preset macos-arm64-release --output-on-failure
+file build/macos-arm64-release/rexc
+lipo -archs build/macos-arm64-release/rexc
+```
+
+Package it with:
+
+```sh
+make package-macos-arm64
+```
+
+The archive and checksum are written to:
+
+```text
+dist/rexc-macos-arm64.tar.gz
+dist/rexc-macos-arm64.tar.gz.sha256
+```
+
 ## Compile, Assemble, And Link
 
 ```sh
@@ -116,11 +141,77 @@ build/rexc examples/add.rx -c -o build/add.o
 build/rexc examples/branch.rx --target i386 -S -o build/branch32.s
 build/rexc examples/wide.rx --target x86_64 -S -o build/wide64.s
 build/rexc examples/wide.rx --target x86_64 -c -o build/wide64.o
+build/rexc examples/add.rx --target arm64-macos -S -o build/add-arm64.s
+build/rexc examples/add.rx --target arm64-macos -c -o build/add-arm64.o
+build/rexc examples/add.rx --target arm64-macos -o build/add-arm64
 ```
 
 The default target is `i386`. Use `--target x86_64` to emit 64-bit
-Linux-compatible x86_64 assembly or object files. `-S` writes assembly, while
-`-c` runs the assembler and writes an ELF object file.
+Linux-compatible x86_64 assembly or object files. Use `--target arm64-macos`
+on Apple Silicon macOS to emit Darwin ARM64 assembly or Mach-O object files.
+`-S` writes assembly, while `-c` runs the target assembler and writes an object
+file.
+
+### Build A Darwin arm64 Executable
+
+On Apple Silicon macOS, Rexc can build a Mach-O `arm64` command-line
+executable in one invocation:
+
+```sh
+cmake --preset macos-arm64-release
+cmake --build --preset macos-arm64-release
+build/macos-arm64-release/rexc examples/add.rx \
+    --target arm64-macos \
+    -o build/macos-arm64-release/add-arm64
+file build/macos-arm64-release/add-arm64
+build/macos-arm64-release/add-arm64
+echo $?
+```
+
+Expected `file` output includes:
+
+```text
+Mach-O 64-bit executable arm64
+```
+
+The final `echo $?` prints the Rexc `main` return value. For
+`examples/add.rx`, that value is `42`.
+
+Under the hood, Rexc emits temporary Darwin ARM64 assembly, assembles it with
+Apple `as -arch arm64`, then links the object with `clang -arch arm64` and the
+normal macOS runtime startup. Use `-S` when you only want assembly, and `-c`
+when you only want the Mach-O object.
+
+This flow creates a Darwin command-line executable, not a `.app` bundle. To put
+the executable inside a minimal app bundle manually:
+
+```sh
+mkdir -p build/AddRexc.app/Contents/MacOS
+cp build/macos-arm64-release/add-arm64 build/AddRexc.app/Contents/MacOS/AddRexc
+cat > build/AddRexc.app/Contents/Info.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>AddRexc</string>
+  <key>CFBundleIdentifier</key>
+  <string>dev.rexc.add</string>
+  <key>CFBundleName</key>
+  <string>AddRexc</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+</dict>
+</plist>
+PLIST
+```
+
+The current Rexc examples are console-style programs, so launching the bundle
+from Finder will not show a window. For visible GUI apps, Rexc would need
+bindings or runtime support for Cocoa/AppKit entry points.
 
 To build a linked Drunix i386 executable in one compiler invocation, point Rexc
 at a Drunix checkout that has `user/user.ld`, `user/lib/crt0.o`, and
@@ -134,12 +225,13 @@ Drunix linking currently targets the i386 runtime path.
 
 ## Targets
 
-Rexc currently supports two Linux-compatible x86 assembly targets:
+Rexc currently supports Linux-compatible x86 targets and a Darwin ARM64 target:
 
-| Target | CLI option | Assembler mode | ELF object class | Notes |
+| Target | CLI option | Assembler mode | Object class | Notes |
 | --- | --- | --- | --- | --- |
 | `i386` | omitted or `--target i386` | `--32` | `ELF32` | Default target; matches the current Drunix user runtime. |
 | `x86_64` | `--target x86_64` | `--64` | `ELF64` | Uses the Linux/System V x86_64 calling convention. |
+| `arm64-macos` | `--target arm64-macos` | Apple `as -arch arm64` | Mach-O 64-bit arm64 object | Uses Darwin symbol names and Apple ARM64 calling convention. |
 
 Both targets emit assembly for functions named in the Rexc source. Final
 executables still need a startup object such as `crt0.o`, a runtime library,

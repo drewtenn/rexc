@@ -74,6 +74,7 @@ add_library(rexc_core
 	src/ir.cpp
 	src/lower_ir.cpp
 	src/codegen_x86.cpp
+	src/codegen_arm64.cpp
 	src/types.cpp
 	${REXC_ANTLR_GENERATED_SOURCES}
 )
@@ -92,6 +93,7 @@ add_executable(rexc_tests
 	tests/sema_tests.cpp
 	tests/ir_tests.cpp
 	tests/codegen_tests.cpp
+	tests/codegen_arm64_tests.cpp
 	tests/types_tests.cpp
 )
 

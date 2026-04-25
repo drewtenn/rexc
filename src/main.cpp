@@ -4,6 +4,7 @@
 // sequencing, diagnostic printing, and exit status. The actual compiler work is
 // delegated to parse, sema, IR lowering, and x86 codegen so the CLI remains a
 // thin coordinator from .rx source text to emitted assembly.
+#include "rexc/codegen_arm64.hpp"
 #include "rexc/codegen_x86.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"
@@ -24,6 +25,7 @@ namespace {
 enum class OutputMode {
 	Assembly,
 	Object,
+	DarwinExecutable,
 	DrunixExecutable,
 };
 
@@ -42,6 +44,8 @@ rexc::CodegenTarget parse_target(const std::string &target)
 		return rexc::CodegenTarget::I386;
 	if (target == "x86_64")
 		return rexc::CodegenTarget::X86_64;
+	if (target == "arm64-macos" || target == "aarch64-apple-darwin")
+		return rexc::CodegenTarget::ARM64_MACOS;
 	throw std::runtime_error("unknown target: " + target);
 }
 
@@ -86,9 +90,17 @@ Options parse_options(int argc, char **argv)
 		throw std::runtime_error("usage");
 	}
 
-	if (options.input_path.empty() || options.output_path.empty() ||
-	    !options.output_mode_selected)
+	if (options.input_path.empty() || options.output_path.empty())
 		throw std::runtime_error("usage");
+
+	if (!options.output_mode_selected) {
+		if (options.target == rexc::CodegenTarget::ARM64_MACOS) {
+			options.output_mode = OutputMode::DarwinExecutable;
+			options.output_mode_selected = true;
+		} else {
+			throw std::runtime_error("usage");
+		}
+	}
 	return options;
 }
 
@@ -130,6 +142,11 @@ bool command_exists(const std::string &name)
 	return std::system(("command -v " + name + " >/dev/null 2>&1").c_str()) == 0;
 }
 
+bool command_succeeds(const std::string &command)
+{
+	return std::system((command + " >/dev/null 2>&1").c_str()) == 0;
+}
+
 std::string find_tool(const std::string &primary, const std::string &fallback,
                       const std::string &description)
 {
@@ -156,7 +173,25 @@ void require_file(const std::string &path, const std::string &description)
 void assemble_object(const std::string &assembly_path, const std::string &object_path,
                      rexc::CodegenTarget target)
 {
-	std::string assembler = find_tool("x86_64-elf-as", "as", "GNU assembler");
+	if (target == rexc::CodegenTarget::ARM64_MACOS) {
+		if (!command_exists("as"))
+			throw std::runtime_error("no Apple assembler found");
+		std::string command = "as -arch arm64 -o " + shell_quote(object_path) +
+		                      " " + shell_quote(assembly_path);
+		run_tool(command, "assembler failed");
+		return;
+	}
+
+	std::string assembler;
+	if (command_exists("x86_64-elf-as")) {
+		assembler = "x86_64-elf-as";
+	} else if (command_exists("as") &&
+	           command_succeeds("as --version 2>/dev/null | grep -qi 'gnu assembler'")) {
+		assembler = "as";
+	} else {
+		throw std::runtime_error("no GNU assembler found");
+	}
+
 	std::string mode = target == rexc::CodegenTarget::I386 ? "--32" : "--64";
 	std::string command = assembler + " " + mode + " -o " +
 	                      shell_quote(object_path) + " " +
@@ -187,6 +222,20 @@ void link_drunix_object(const std::string &object_path, const std::string &outpu
 	run_tool(command, "Drunix link failed");
 }
 
+void link_darwin_arm64_object(const std::string &object_path,
+                              const std::string &output_path,
+                              rexc::CodegenTarget target)
+{
+	if (target != rexc::CodegenTarget::ARM64_MACOS)
+		throw std::runtime_error("Darwin linking currently supports only the arm64-macos target");
+	if (!command_exists("clang"))
+		throw std::runtime_error("no clang linker driver found");
+
+	std::string command = "clang -arch arm64 " + shell_quote(object_path) +
+	                      " -o " + shell_quote(output_path);
+	run_tool(command, "Darwin link failed");
+}
+
 void remove_if_present(const std::string &path)
 {
 	std::remove(path.c_str());
@@ -214,7 +263,10 @@ int main(int argc, char **argv)
 		}
 
 		auto ir = rexc::lower_to_ir(parsed.module());
-		auto codegen = rexc::emit_x86_assembly(ir, diagnostics, options.target);
+		rexc::CodegenResult codegen =
+			options.target == rexc::CodegenTarget::ARM64_MACOS
+				? rexc::emit_arm64_macos_assembly(ir, diagnostics)
+				: rexc::emit_x86_assembly(ir, diagnostics, options.target);
 		if (!codegen.ok()) {
 			std::cerr << diagnostics.format();
 			return 1;
@@ -239,6 +291,25 @@ int main(int argc, char **argv)
 			return 0;
 		}
 
+		if (options.output_mode == OutputMode::DarwinExecutable) {
+			std::string assembly_path = options.output_path + ".s.tmp";
+			std::string object_path = options.output_path + ".o.tmp";
+			write_file(assembly_path, codegen.assembly());
+			try {
+				assemble_object(assembly_path, object_path, options.target);
+				link_darwin_arm64_object(object_path, options.output_path,
+				                         options.target);
+			} catch (...) {
+				remove_if_present(assembly_path);
+				remove_if_present(object_path);
+				remove_if_present(options.output_path);
+				throw;
+			}
+			remove_if_present(assembly_path);
+			remove_if_present(object_path);
+			return 0;
+		}
+
 		std::string assembly_path = options.output_path + ".s.tmp";
 		std::string object_path = options.output_path + ".o.tmp";
 		write_file(assembly_path, codegen.assembly());
@@ -257,8 +328,8 @@ int main(int argc, char **argv)
 		return 0;
 	} catch (const std::exception &err) {
 		if (std::string(err.what()) == "usage") {
-			std::cerr << "usage: rexc input.rx [--target i386|x86_64] "
-			             "(-S|-c|--drunix-root path) -o output\n";
+			std::cerr << "usage: rexc input.rx [--target i386|x86_64|arm64-macos] "
+			             "[-S|-c|--drunix-root path] -o output\n";
 			return 2;
 		}
 		std::cerr << "rexc: " << err.what() << '\n';
