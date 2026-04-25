@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace rexc {
@@ -83,6 +84,10 @@ public:
 	{
 		std::size_t starting_diagnostics = diagnostics_.items().size();
 
+		validate_module(module);
+		if (diagnostics_.items().size() != starting_diagnostics)
+			return CodegenResult(false, "");
+
 		collect_string_labels(module);
 		emit_string_section(module);
 
@@ -90,13 +95,10 @@ public:
 		for (const auto &function : module.functions) {
 			if (function.is_extern)
 				continue;
-			if (!validate_function(function))
-				continue;
 			emit_function(function);
 		}
 
-		return CodegenResult(diagnostics_.items().size() == starting_diagnostics,
-		                     out_.str());
+		return CodegenResult(true, out_.str());
 	}
 
 private:
@@ -139,6 +141,14 @@ private:
 		}
 		frame.local_bytes = count_locals(function) * 4;
 		return frame;
+	}
+
+	bool validate_module(const ir::Module &module)
+	{
+		bool ok = true;
+		for (const auto &function : module.functions)
+			ok = validate_function(function) && ok;
+		return ok;
 	}
 
 	bool validate_function(const ir::Function &function)
@@ -198,7 +208,9 @@ private:
 	{
 		if (is_i386_codegen_supported(type))
 			return true;
-		diagnostics_.error({}, unsupported_codegen_message(type));
+		std::string message = unsupported_codegen_message(type);
+		if (unsupported_diagnostics_.insert(message).second)
+			diagnostics_.error({}, std::move(message));
 		return false;
 	}
 
@@ -418,6 +430,7 @@ private:
 	Diagnostics &diagnostics_;
 	std::ostringstream out_;
 	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
+	std::unordered_set<std::string> unsupported_diagnostics_;
 };
 
 } // namespace

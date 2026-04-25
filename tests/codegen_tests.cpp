@@ -33,6 +33,17 @@ static std::string compile_to_assembly(const std::string &text)
 	return attempt.result.assembly();
 }
 
+static int count_occurrences(const std::string &text, const std::string &needle)
+{
+	int count = 0;
+	std::size_t offset = 0;
+	while ((offset = text.find(needle, offset)) != std::string::npos) {
+		++count;
+		offset += needle.size();
+	}
+	return count;
+}
+
 TEST_CASE(codegen_emits_main_returning_integer)
 {
 	auto assembly = compile_to_assembly("fn main() -> i32 { return 42; }\n");
@@ -104,6 +115,39 @@ TEST_CASE(codegen_reports_unsupported_64_bit_integer_signatures_as_diagnostics)
 	REQUIRE(attempt.diagnostics.has_errors());
 	REQUIRE(attempt.diagnostics.format().find("64-bit integer code generation is not implemented for i386") !=
 	        std::string::npos);
+}
+
+TEST_CASE(codegen_reports_unsupported_64_bit_extern_signatures_as_diagnostics)
+{
+	auto attempt = compile_to_codegen_result(
+		"extern fn f(x: i64) -> u64;\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(!attempt.result.ok());
+	REQUIRE(attempt.diagnostics.has_errors());
+	REQUIRE(attempt.diagnostics.format().find("64-bit integer code generation is not implemented for i386") !=
+	        std::string::npos);
+}
+
+TEST_CASE(codegen_returns_empty_assembly_when_module_validation_fails)
+{
+	auto attempt = compile_to_codegen_result(
+		"fn bad() -> i64 { return 1; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(!attempt.result.ok());
+	REQUIRE(attempt.result.assembly().empty());
+	REQUIRE(attempt.result.assembly().find(".globl main") == std::string::npos);
+}
+
+TEST_CASE(codegen_deduplicates_unsupported_64_bit_diagnostics)
+{
+	auto attempt = compile_to_codegen_result(
+		"fn main() -> i64 { let x: i64 = 1; return x; }\n");
+	const std::string message = "64-bit integer code generation is not implemented for i386";
+
+	REQUIRE(!attempt.result.ok());
+	REQUIRE_EQ(count_occurrences(attempt.diagnostics.format(), message), 1);
 }
 
 TEST_CASE(codegen_emits_unsigned_division)
