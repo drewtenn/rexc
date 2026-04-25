@@ -34,6 +34,8 @@ std::unique_ptr<ir::Value> lower_expr(const ast::Expr &expr)
 			call->arguments.push_back(lower_expr(*argument));
 		return call;
 	}
+	default:
+		break;
 	}
 
 	return std::make_unique<ir::IntegerValue>(0);

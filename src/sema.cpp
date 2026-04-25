@@ -112,6 +112,8 @@ private:
 				check_expr(locals, *argument);
 			return "i32";
 		}
+		default:
+			break;
 		}
 
 		return "i32";

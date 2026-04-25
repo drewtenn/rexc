@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -14,11 +15,13 @@ enum class TokenKind {
 	End,
 	Identifier,
 	Integer,
+	Bool,
+	Char,
+	String,
 	Extern,
 	Fn,
 	Let,
 	Return,
-	I32,
 	LParen,
 	RParen,
 	LBrace,
@@ -68,6 +71,16 @@ public:
 
 			if (std::isdigit(static_cast<unsigned char>(ch))) {
 				tokens.push_back(integer());
+				continue;
+			}
+
+			if (ch == '\'') {
+				tokens.push_back(character(diagnostics));
+				continue;
+			}
+
+			if (ch == '"') {
+				tokens.push_back(string(diagnostics));
 				continue;
 			}
 
@@ -151,8 +164,8 @@ private:
 			return {TokenKind::Let, text, start};
 		if (text == "return")
 			return {TokenKind::Return, text, start};
-		if (text == "i32")
-			return {TokenKind::I32, text, start};
+		if (text == "true" || text == "false")
+			return {TokenKind::Bool, text, start};
 		return {TokenKind::Identifier, text, start};
 	}
 
@@ -163,6 +176,92 @@ private:
 		       std::isdigit(static_cast<unsigned char>(source_.text()[offset_])))
 			++offset_;
 		return {TokenKind::Integer, source_.text().substr(start, offset_ - start), start};
+	}
+
+	char decode_escape(Diagnostics &diagnostics, std::size_t escape_offset)
+	{
+		if (offset_ >= source_.text().size()) {
+			diagnostics.error(source_.location_at(escape_offset), "unterminated escape sequence");
+			return '\0';
+		}
+
+		char escaped = source_.text()[offset_++];
+		switch (escaped) {
+		case 'n':
+			return '\n';
+		case 'r':
+			return '\r';
+		case 't':
+			return '\t';
+		case '\'':
+			return '\'';
+		case '"':
+			return '"';
+		case '\\':
+			return '\\';
+		default:
+			diagnostics.error(source_.location_at(escape_offset),
+			                  std::string("unknown escape sequence '\\") + escaped + "'");
+			return escaped;
+		}
+	}
+
+	Token character(Diagnostics &diagnostics)
+	{
+		std::size_t start = offset_++;
+		std::string value;
+
+		if (offset_ >= source_.text().size()) {
+			diagnostics.error(source_.location_at(start), "unterminated character literal");
+			return {TokenKind::Char, value, start};
+		}
+
+		if (source_.text()[offset_] == '\\') {
+			std::size_t escape_offset = offset_++;
+			value.push_back(decode_escape(diagnostics, escape_offset));
+		} else if (source_.text()[offset_] == '\'' || source_.text()[offset_] == '\n' ||
+		           source_.text()[offset_] == '\r') {
+			diagnostics.error(source_.location_at(offset_), "expected character literal value");
+		} else {
+			value.push_back(source_.text()[offset_++]);
+		}
+
+		if (offset_ < source_.text().size() && source_.text()[offset_] == '\'') {
+			++offset_;
+		} else {
+			diagnostics.error(source_.location_at(offset_), "unterminated character literal");
+			while (offset_ < source_.text().size() && source_.text()[offset_] != '\'' &&
+			       source_.text()[offset_] != '\n' && source_.text()[offset_] != '\r')
+				++offset_;
+			if (offset_ < source_.text().size() && source_.text()[offset_] == '\'')
+				++offset_;
+		}
+
+		return {TokenKind::Char, value, start};
+	}
+
+	Token string(Diagnostics &diagnostics)
+	{
+		std::size_t start = offset_++;
+		std::string value;
+
+		while (offset_ < source_.text().size()) {
+			char ch = source_.text()[offset_++];
+			if (ch == '"')
+				return {TokenKind::String, value, start};
+			if (ch == '\n' || ch == '\r') {
+				diagnostics.error(source_.location_at(offset_ - 1), "unterminated string literal");
+				return {TokenKind::String, value, start};
+			}
+			if (ch == '\\') {
+				value.push_back(decode_escape(diagnostics, offset_ - 1));
+				continue;
+			}
+			value.push_back(ch);
+		}
+
+		diagnostics.error(source_.location_at(start), "unterminated string literal");
+		return {TokenKind::String, value, start};
 	}
 
 	const SourceFile &source_;
@@ -284,8 +383,15 @@ private:
 
 	ast::TypeName parse_type()
 	{
-		Token token = expect(TokenKind::I32, "expected type");
-		return ast::TypeName{token.text.empty() ? "i32" : token.text, source_.location_at(token.offset)};
+		if (!at(TokenKind::Identifier)) {
+			Token token = expect(TokenKind::Identifier, "expected type");
+			return ast::TypeName{token.text, source_.location_at(token.offset)};
+		}
+
+		Token token = advance();
+		if (!is_primitive_type_name(token.text))
+			diagnostics_.error(source_.location_at(token.offset), "expected primitive type");
+		return ast::TypeName{token.text, source_.location_at(token.offset)};
 	}
 
 	std::vector<std::unique_ptr<ast::Stmt>> parse_block()
@@ -332,6 +438,13 @@ private:
 		return parse_additive();
 	}
 
+	bool is_primitive_type_name(const std::string &name) const
+	{
+		return name == "i8" || name == "i16" || name == "i32" || name == "i64" ||
+		       name == "u8" || name == "u16" || name == "u32" || name == "u64" ||
+		       name == "bool" || name == "char" || name == "str";
+	}
+
 	std::unique_ptr<ast::Expr> parse_additive()
 	{
 		auto lhs = parse_multiplicative();
@@ -346,14 +459,25 @@ private:
 
 	std::unique_ptr<ast::Expr> parse_multiplicative()
 	{
-		auto lhs = parse_primary();
+		auto lhs = parse_unary();
 		while (at(TokenKind::Star) || at(TokenKind::Slash)) {
 			Token op = advance();
-			auto rhs = parse_primary();
+			auto rhs = parse_unary();
 			lhs = std::make_unique<ast::BinaryExpr>(source_.location_at(op.offset), op.text,
 			                                        std::move(lhs), std::move(rhs));
 		}
 		return lhs;
+	}
+
+	std::unique_ptr<ast::Expr> parse_unary()
+	{
+		if (at(TokenKind::Minus)) {
+			Token op = advance();
+			return std::make_unique<ast::UnaryExpr>(source_.location_at(op.offset), op.text,
+			                                       parse_unary());
+		}
+
+		return parse_primary();
 	}
 
 	std::unique_ptr<ast::Expr> parse_primary()
@@ -361,7 +485,26 @@ private:
 		if (at(TokenKind::Integer)) {
 			Token token = advance();
 			return std::make_unique<ast::IntegerExpr>(source_.location_at(token.offset),
-			                                          std::atoi(token.text.c_str()));
+			                                          std::strtoll(token.text.c_str(), nullptr, 10));
+		}
+
+		if (at(TokenKind::Bool)) {
+			Token token = advance();
+			return std::make_unique<ast::BoolExpr>(source_.location_at(token.offset),
+			                                       token.text == "true");
+		}
+
+		if (at(TokenKind::Char)) {
+			Token token = advance();
+			char32_t value = token.text.empty()
+			                     ? U'\0'
+			                     : static_cast<unsigned char>(token.text.front());
+			return std::make_unique<ast::CharExpr>(source_.location_at(token.offset), value);
+		}
+
+		if (at(TokenKind::String)) {
+			Token token = advance();
+			return std::make_unique<ast::StringExpr>(source_.location_at(token.offset), token.text);
 		}
 
 		if (at(TokenKind::Identifier)) {
