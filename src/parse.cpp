@@ -175,6 +175,8 @@ private:
 			return build_assign_statement(assign);
 		if (auto *indirect_assign = context->indirectAssignStatement())
 			return build_indirect_assign_statement(indirect_assign);
+		if (auto *call_statement = context->callStatement())
+			return build_call_statement(call_statement);
 		if (auto *ret = context->returnStatement())
 			return build_return_statement(ret);
 		if (auto *if_statement = context->ifStatement())
@@ -222,6 +224,12 @@ private:
 		return std::make_unique<ast::IndirectAssignStmt>(
 		    location(context), build_unary(context->unary()),
 		    build_expression(context->expression()));
+	}
+
+	std::unique_ptr<ast::Stmt> build_call_statement(RexcParser::CallStatementContext *context)
+	{
+		return std::make_unique<ast::ExprStmt>(
+		    location(context), build_call_expression(context->callExpression()));
 	}
 
 	std::unique_ptr<ast::Stmt> build_return_statement(

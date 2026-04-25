@@ -53,6 +53,7 @@ statement
 	: letStatement
 	| assignStatement
 	| indirectAssignStatement
+	| callStatement
 	| returnStatement
 	| ifStatement
 	| whileStatement
@@ -70,6 +71,10 @@ assignStatement
 
 indirectAssignStatement
 	: '*' unary '=' expression ';'
+	;
+
+callStatement
+	: callExpression ';'
 	;
 
 returnStatement

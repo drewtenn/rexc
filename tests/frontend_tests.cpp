@@ -280,3 +280,32 @@ TEST_CASE(parser_accepts_break_and_continue_statements)
 	REQUIRE_EQ(while_stmt.body[0]->kind, rexc::ast::Stmt::Kind::Continue);
 	REQUIRE_EQ(while_stmt.body[1]->kind, rexc::ast::Stmt::Kind::Break);
 }
+
+TEST_CASE(parser_accepts_call_statement)
+{
+	rexc::SourceFile source("test.rx",
+		"fn main() -> i32 { println(\"hello\"); return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(2));
+	REQUIRE_EQ(body[0]->kind, rexc::ast::Stmt::Kind::Expr);
+	const auto &stmt = static_cast<const rexc::ast::ExprStmt &>(*body[0]);
+	REQUIRE_EQ(stmt.value->kind, rexc::ast::Expr::Kind::Call);
+	const auto &call = static_cast<const rexc::ast::CallExpr &>(*stmt.value);
+	REQUIRE_EQ(call.callee, std::string("println"));
+}
+
+TEST_CASE(parser_rejects_non_call_expression_statement)
+{
+	rexc::SourceFile source("test.rx", "fn main() -> i32 { 1 + 2; return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.has_errors());
+}
