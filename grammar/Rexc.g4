@@ -27,7 +27,6 @@ parameter
 
 type
 	: primitiveType
-	| IDENT
 	;
 
 primitiveType
