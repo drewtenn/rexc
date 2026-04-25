@@ -122,12 +122,6 @@ private:
 		const ast::UnaryExpr &unary, const Locals &locals,
 		std::optional<ir::Type> expected)
 	{
-		if (unary.op == "-" && unary.operand->kind == ast::Expr::Kind::Integer && expected &&
-		    is_signed_integer(*expected)) {
-			const auto &integer = static_cast<const ast::IntegerExpr &>(*unary.operand);
-			return std::make_unique<ir::IntegerValue>(*expected, integer.literal, true);
-		}
-
 		auto operand = lower_expr(*unary.operand, locals, expected);
 		ir::Type type = operand->type;
 		return std::make_unique<ir::UnaryValue>(unary.op, std::move(operand), type);

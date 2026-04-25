@@ -1,5 +1,7 @@
 #include "rexc/codegen_x86.hpp"
+#include "rexc/types.hpp"
 
+#include <stdexcept>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -20,6 +22,14 @@ int count_locals(const ir::Function &function)
 			++count;
 	}
 	return count;
+}
+
+std::string canonical_decimal_literal(const std::string &literal)
+{
+	std::size_t first_non_zero = literal.find_first_not_of('0');
+	if (first_non_zero == std::string::npos)
+		return "0";
+	return literal.substr(first_non_zero);
 }
 
 class Emitter {
@@ -93,13 +103,15 @@ private:
 
 	void emit_value(const ir::Value &value, const Frame &frame)
 	{
+		guard_supported_value(value);
+
 		switch (value.kind) {
 		case ir::Value::Kind::Integer: {
 			const auto &integer = static_cast<const ir::IntegerValue &>(value);
 			out_ << "\tmovl $";
 			if (integer.is_negative)
 				out_ << '-';
-			out_ << integer.literal << ", %eax\n";
+			out_ << canonical_decimal_literal(integer.literal) << ", %eax\n";
 			return;
 		}
 		case ir::Value::Kind::Bool: {
@@ -113,8 +125,7 @@ private:
 			return;
 		}
 		case ir::Value::Kind::String:
-			out_ << "\tmovl $0, %eax\n";
-			return;
+			throw std::runtime_error("string code generation is not implemented");
 		case ir::Value::Kind::Unary:
 			emit_unary(static_cast<const ir::UnaryValue &>(value), frame);
 			return;
@@ -130,6 +141,14 @@ private:
 			emit_call(static_cast<const ir::CallValue &>(value), frame);
 			return;
 		}
+	}
+
+	void guard_supported_value(const ir::Value &value)
+	{
+		if (is_integer(value.type) && value.type.bits == 64)
+			throw std::runtime_error("64-bit integer code generation is not implemented");
+		if (value.type.kind == PrimitiveKind::Str)
+			throw std::runtime_error("string code generation is not implemented");
 	}
 
 	void emit_unary(const ir::UnaryValue &unary, const Frame &frame)

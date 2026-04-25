@@ -29,7 +29,7 @@ TEST_CASE(lowering_preserves_function_signature)
 
 TEST_CASE(lowering_lowers_unary_minus_as_typed_unary_value)
 {
-	rexc::SourceFile source("test.rx", "fn neg(x: i32) -> i32 { return -x; }\n");
+	rexc::SourceFile source("test.rx", "fn main() -> i32 { return -1; }\n");
 	rexc::Diagnostics diagnostics;
 	auto parsed = rexc::parse_source(source, diagnostics);
 
@@ -43,10 +43,11 @@ TEST_CASE(lowering_lowers_unary_minus_as_typed_unary_value)
 	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("i32"));
 	const auto &unary = static_cast<const rexc::ir::UnaryValue &>(*ret.value);
 	REQUIRE_EQ(unary.op, std::string("-"));
-	REQUIRE_EQ(unary.operand->kind, rexc::ir::Value::Kind::Local);
-	const auto &local = static_cast<const rexc::ir::LocalValue &>(*unary.operand);
-	REQUIRE_EQ(local.name, std::string("x"));
-	REQUIRE_EQ(rexc::format_type(local.type), std::string("i32"));
+	REQUIRE_EQ(unary.operand->kind, rexc::ir::Value::Kind::Integer);
+	const auto &integer = static_cast<const rexc::ir::IntegerValue &>(*unary.operand);
+	REQUIRE_EQ(integer.literal, std::string("1"));
+	REQUIRE(!integer.is_negative);
+	REQUIRE_EQ(rexc::format_type(integer.type), std::string("i32"));
 }
 
 TEST_CASE(lowering_allows_i32_min_integer_literal)
@@ -109,6 +110,31 @@ TEST_CASE(lowering_preserves_non_i32_types_and_literals)
 	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("u32"));
 }
 
+TEST_CASE(lowering_preserves_non_i32_parameter_types)
+{
+	rexc::SourceFile source("test.rx", "fn id(x: u64, ok: bool) -> u64 { return x; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	REQUIRE_EQ(module.functions.size(), 1u);
+	const auto &function = module.functions[0];
+	REQUIRE_EQ(rexc::format_type(function.return_type), std::string("u64"));
+	REQUIRE_EQ(function.parameters.size(), 2u);
+	REQUIRE_EQ(function.parameters[0].name, std::string("x"));
+	REQUIRE_EQ(rexc::format_type(function.parameters[0].type), std::string("u64"));
+	REQUIRE_EQ(function.parameters[1].name, std::string("ok"));
+	REQUIRE_EQ(rexc::format_type(function.parameters[1].type), std::string("bool"));
+
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*function.body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Local);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("u64"));
+}
+
 TEST_CASE(lowering_preserves_integer_literal_text_that_exceeds_i32_storage)
 {
 	rexc::SourceFile source(
@@ -129,10 +155,15 @@ TEST_CASE(lowering_preserves_integer_literal_text_that_exceeds_i32_storage)
 	REQUIRE(!max_value.is_negative);
 
 	const auto &min = static_cast<const rexc::ir::LetStatement &>(*module.functions[0].body[1]);
-	const auto &min_value = static_cast<const rexc::ir::IntegerValue &>(*min.value);
-	REQUIRE_EQ(rexc::format_type(min_value.type), std::string("i64"));
-	REQUIRE_EQ(min_value.literal, std::string("9223372036854775808"));
-	REQUIRE(min_value.is_negative);
+	REQUIRE_EQ(min.value->kind, rexc::ir::Value::Kind::Unary);
+	REQUIRE_EQ(rexc::format_type(min.value->type), std::string("i64"));
+	const auto &min_value = static_cast<const rexc::ir::UnaryValue &>(*min.value);
+	REQUIRE_EQ(min_value.op, std::string("-"));
+	REQUIRE_EQ(min_value.operand->kind, rexc::ir::Value::Kind::Integer);
+	const auto &min_integer = static_cast<const rexc::ir::IntegerValue &>(*min_value.operand);
+	REQUIRE_EQ(rexc::format_type(min_integer.type), std::string("i64"));
+	REQUIRE_EQ(min_integer.literal, std::string("9223372036854775808"));
+	REQUIRE(!min_integer.is_negative);
 }
 
 TEST_CASE(lowering_rejects_invalid_type_names)
