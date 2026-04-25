@@ -2,6 +2,82 @@
 
 Rexc is an experimental systems-language compiler for Drunix userland.
 
+## Prerequisites
+
+### Core compiler build
+
+- CMake 3.20+
+- A C++17 compiler toolchain (`c++`, `clang++`, or `g++`)
+- Java runtime (required for ANTLR code generation)
+- Network access during configure so CMake can download:
+    - `antlr-4.13.2-complete.jar`
+    - `antlr4-cpp-runtime-4.13.2-source.zip`
+
+Optional but commonly used:
+
+- Ninja (if you configure with `-G Ninja`)
+
+### Test and object/ELF workflows
+
+- POSIX shell tools used by test scripts (`sh`/`bash`, `grep`)
+- GNU assembler for `-c` workflows and assemble smoke tests:
+    - preferred: `x86_64-elf-as`
+    - fallback: system `as`
+- For Drunix link flows and ELF inspection examples:
+    - `x86_64-elf-ld`
+    - `x86_64-elf-readelf`
+    - `file` and `xxd`
+
+### Book/docs build (`make docs`)
+
+- `pandoc`
+- `typst`
+- `perl`
+- `zip` and `unzip`
+- `python3`
+- Python package `Pillow` (used by `docs/generate_cover.py`)
+- Diagram rasterizer, one of:
+    - `rsvg-convert`
+    - Python package `cairosvg`
+
+### Install all dependencies by OS
+
+macOS (Homebrew, single line):
+
+```sh
+brew install cmake ninja llvm openjdk pandoc typst perl zip unzip x86_64-elf-binutils file librsvg python && python3 -m pip install --user Pillow cairosvg
+```
+
+On macOS, Homebrew `openjdk` is not always first on `PATH` by default. If CMake
+reports it cannot find Java, add:
+
+```sh
+echo 'export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"' >> ~/.zprofile && echo 'export JAVA_HOME="/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home"' >> ~/.zprofile && source ~/.zprofile
+```
+
+Or configure with an explicit Java executable (works even without changing shell startup files):
+
+```sh
+cmake -S . -B build -DJava_JAVA_EXECUTABLE="$(brew --prefix openjdk)/bin/java"
+```
+
+Ubuntu/Debian:
+
+```sh
+sudo apt update && sudo apt install -y cmake ninja-build build-essential default-jre pandoc typst perl zip unzip binutils file xxd librsvg2-bin python3 python3-pip && python3 -m pip install --user Pillow cairosvg
+```
+
+Fedora:
+
+```sh
+sudo dnf install -y cmake ninja-build gcc-c++ java-21-openjdk pandoc typst perl zip unzip binutils file vim-common librsvg2-tools python3 python3-pip && python3 -m pip install --user Pillow cairosvg
+```
+
+Notes:
+
+- CMake fetches the pinned ANTLR tool jar and ANTLR C++ runtime automatically during configure.
+- `cairosvg` is optional when `rsvg-convert` is installed, but installing both is fine.
+
 ## Book
 
 The Rexc book lives in `docs/`. It follows the same chapter-driven teaching
