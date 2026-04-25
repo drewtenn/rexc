@@ -1,4 +1,9 @@
-// SourceFile line table implementation for fast diagnostic locations.
+// Source text ownership and location mapping.
+//
+// SourceFile keeps the original path/text plus a compact table of line starts.
+// Other compiler stages deal mostly in byte offsets from tokens or AST nodes;
+// this file converts those offsets into user-facing line and column positions
+// for diagnostics.
 #include "rexc/source.hpp"
 
 #include <algorithm>

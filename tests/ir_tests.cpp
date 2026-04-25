@@ -1,4 +1,8 @@
 // IR lowering tests that check typed values survive frontend stages.
+//
+// These tests run source through parsing and sema before lowering, then inspect
+// the backend-facing IR. They catch mismatches between the AST/sema contract and
+// what codegen expects to receive.
 #include "rexc/ast.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"
@@ -251,4 +255,23 @@ TEST_CASE(lowering_lowers_assignment_and_while_statement)
 	const auto &assign = static_cast<const rexc::ir::AssignStatement &>(*while_stmt.body[0]);
 	REQUIRE_EQ(assign.name, std::string("x"));
 	REQUIRE_EQ(rexc::format_type(assign.value->type), std::string("i32"));
+}
+
+TEST_CASE(lowering_lowers_break_and_continue_statements)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { while true { continue; break; } return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &while_stmt =
+	    static_cast<const rexc::ir::WhileStatement &>(*module.functions[0].body[0]);
+	REQUIRE_EQ(while_stmt.body.size(), std::size_t(2));
+	REQUIRE_EQ(while_stmt.body[0]->kind, rexc::ir::Statement::Kind::Continue);
+	REQUIRE_EQ(while_stmt.body[1]->kind, rexc::ir::Statement::Kind::Break);
 }

@@ -1,3 +1,4 @@
+# Convenience make targets for building, testing, and rendering the Rexc book.
 PYTHON ?= python3
 
 .PHONY: build test
@@ -10,4 +11,3 @@ test: build
 	ctest --test-dir build --output-on-failure
 
 include docs/build.mk
-

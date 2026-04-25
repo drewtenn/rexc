@@ -1,4 +1,8 @@
 // Tiny test runner entry point used by all C++ unit tests.
+//
+// Test files register cases through test_support.hpp. This executable runs
+// those registrations, reports pass/fail status, and returns a nonzero exit
+// code when any assertion throws.
 #include "test_support.hpp"
 
 #include <exception>

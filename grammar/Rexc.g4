@@ -1,4 +1,4 @@
-// Reference grammar for the hand-written parser in src/parse.cpp.
+// Canonical ANTLR grammar for Rexc source syntax.
 grammar Rexc;
 
 compilationUnit
@@ -54,6 +54,8 @@ statement
 	| returnStatement
 	| ifStatement
 	| whileStatement
+	| breakStatement
+	| continueStatement
 	;
 
 letStatement
@@ -74,6 +76,14 @@ ifStatement
 
 whileStatement
 	: 'while' expression block
+	;
+
+breakStatement
+	: 'break' ';'
+	;
+
+continueStatement
+	: 'continue' ';'
 	;
 
 expression

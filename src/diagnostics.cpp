@@ -1,4 +1,8 @@
-// Accumulates stage errors and renders them in a compiler-style format.
+// Shared diagnostic storage and formatting.
+//
+// Compiler stages append source-located errors here instead of printing
+// directly. The CLI can then decide whether to continue to the next stage and
+// render all collected messages in a stable file:line:column format.
 #include "rexc/diagnostics.hpp"
 
 #include <sstream>

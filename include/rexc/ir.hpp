@@ -77,7 +77,7 @@ struct CallValue final : Value {
 };
 
 struct Statement {
-	enum class Kind { Let, Assign, Return, If, While };
+	enum class Kind { Let, Assign, Return, If, While, Break, Continue };
 
 	explicit Statement(Kind kind);
 	virtual ~Statement() = default;
@@ -121,6 +121,14 @@ struct WhileStatement final : Statement {
 
 	std::unique_ptr<Value> condition;
 	std::vector<std::unique_ptr<Statement>> body;
+};
+
+struct BreakStatement final : Statement {
+	BreakStatement();
+};
+
+struct ContinueStatement final : Statement {
+	ContinueStatement();
 };
 
 struct Parameter {

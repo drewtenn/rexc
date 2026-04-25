@@ -1,4 +1,8 @@
 // Unit coverage for source locations and diagnostic formatting.
+//
+// These tests protect the user-facing error surface: byte offsets should map
+// to stable line/column positions, and rendered diagnostics should be suitable
+// for CLI output.
 #include "rexc/diagnostics.hpp"
 #include "rexc/source.hpp"
 #include "test_support.hpp"

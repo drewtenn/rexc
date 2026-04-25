@@ -1,3 +1,4 @@
+# Pandoc metadata for the Rexc EPUB build.
 ---
 title: "REXC - Building a Systems Language Compiler for Drunix"
 author:
@@ -9,4 +10,3 @@ description: >
   compiler for Drunix userland. Covers lexing, parsing, semantic analysis,
   typed IR, x86 assembly emission, and linking into Drunix ELF programs.
 ---
-

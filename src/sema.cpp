@@ -1,4 +1,10 @@
-// Semantic analysis: names, primitive types, calls, and literal ranges.
+// Semantic analysis for the parsed Rexc AST.
+//
+// The parser proves only that source text has the shape of the grammar. This
+// stage proves the program is meaningful enough to lower: functions and locals
+// are declared once, names resolve, calls match signatures, expressions have
+// compatible primitive types, integer literals fit their target types, and
+// break/continue appear only inside loops.
 #include "rexc/sema.hpp"
 #include "rexc/types.hpp"
 
@@ -100,12 +106,12 @@ private:
 		PrimitiveType return_type = check_type(function.return_type);
 
 		for (const auto &statement : function.body)
-			analyze_statement(return_type, locals, *statement);
+			analyze_statement(return_type, locals, *statement, 0);
 	}
 
 	void analyze_statement(PrimitiveType function_return_type,
 	                       std::unordered_map<std::string, LocalInfo> &locals,
-	                       const ast::Stmt &statement)
+	                       const ast::Stmt &statement, int loop_depth)
 	{
 		if (statement.kind == ast::Stmt::Kind::Let) {
 			const auto &let = static_cast<const ast::LetStmt &>(statement);
@@ -154,11 +160,13 @@ private:
 
 			auto then_locals = locals;
 			for (const auto &branch_statement : if_stmt.then_body)
-				analyze_statement(function_return_type, then_locals, *branch_statement);
+				analyze_statement(function_return_type, then_locals, *branch_statement,
+				                  loop_depth);
 
 			auto else_locals = locals;
 			for (const auto &branch_statement : if_stmt.else_body)
-				analyze_statement(function_return_type, else_locals, *branch_statement);
+				analyze_statement(function_return_type, else_locals, *branch_statement,
+				                  loop_depth);
 			return;
 		}
 
@@ -170,7 +178,20 @@ private:
 
 			auto body_locals = locals;
 			for (const auto &body_statement : while_stmt.body)
-				analyze_statement(function_return_type, body_locals, *body_statement);
+				analyze_statement(function_return_type, body_locals, *body_statement,
+				                  loop_depth + 1);
+			return;
+		}
+
+		if (statement.kind == ast::Stmt::Kind::Break) {
+			if (loop_depth == 0)
+				diagnostics_.error(statement.location, "break statement outside loop");
+			return;
+		}
+
+		if (statement.kind == ast::Stmt::Kind::Continue) {
+			if (loop_depth == 0)
+				diagnostics_.error(statement.location, "continue statement outside loop");
 			return;
 		}
 

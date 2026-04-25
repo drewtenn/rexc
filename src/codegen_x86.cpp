@@ -1,4 +1,11 @@
-// GNU i386/x86_64 assembly backend for the typed Rexc IR.
+// GNU assembly backend for Rexc's typed IR.
+//
+// This file is the final compiler stage before an external assembler. It
+// chooses an i386 or x86_64 calling convention, lays out stack slots, emits
+// labels for branches/loops, materializes literals, and turns typed IR values
+// into target instructions. It reports backend diagnostics for IR that is
+// valid Rexc but unsupported by the selected machine target, such as 64-bit
+// values on the current i386 path.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/types.hpp"
 
@@ -300,6 +307,10 @@ private:
 			return ok;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Break ||
+		    statement.kind == ir::Statement::Kind::Continue)
+			return true;
+
 		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
 		return validate_value(*ret.value);
 	}
@@ -382,6 +393,16 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Break) {
+			out_ << "\tjmp " << loop_end_labels_.back() << "\n";
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::Continue) {
+			out_ << "\tjmp " << loop_start_labels_.back() << "\n";
+			return;
+		}
+
 		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
 		emit_value(*ret.value, frame, slots);
 		out_ << "\tjmp " << done_label << '\n';
@@ -421,9 +442,13 @@ private:
 		out_ << "\tcmpb $0, %al\n";
 		out_ << "\tje " << end_label << "\n";
 
+		loop_start_labels_.push_back(start_label);
+		loop_end_labels_.push_back(end_label);
 		SlotMap body_slots = slots;
 		for (const auto &statement : while_statement.body)
 			emit_statement(*statement, frame, done_label, body_slots);
+		loop_end_labels_.pop_back();
+		loop_start_labels_.pop_back();
 		out_ << "\tjmp " << start_label << "\n";
 		out_ << end_label << ":\n";
 	}
@@ -622,6 +647,10 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Break ||
+		    statement.kind == ir::Statement::Kind::Continue)
+			return;
+
 		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
 		collect_string_labels(*ret.value);
 	}
@@ -705,6 +734,10 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Break ||
+		    statement.kind == ir::Statement::Kind::Continue)
+			return;
+
 		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
 		emit_string_literals(*ret.value);
 	}
@@ -749,6 +782,8 @@ private:
 	std::string current_function_;
 	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
 	std::unordered_set<std::string> unsupported_diagnostics_;
+	std::vector<std::string> loop_start_labels_;
+	std::vector<std::string> loop_end_labels_;
 	int eval_stack_bytes_ = 0;
 	int next_label_id_ = 0;
 

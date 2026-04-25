@@ -77,6 +77,12 @@ they do not leak out after the loop. Mutations to already-visible mutable
 locals are allowed because assignment changes an existing slot rather than
 introducing a new name.
 
+Loop-control statements add one more fact for sema to track: whether the
+current statement is inside a loop. A `break` exits the innermost loop, and a
+`continue` skips to that loop's next condition check. Both are meaningful only
+while a loop is being analyzed. If either appears in a function body or an
+`if` branch that is not nested inside a loop, Rexc reports a diagnostic.
+
 ### Expressions Must Produce the Promised Type
 
 Expected types flow into expressions from their context. A return expression is
@@ -101,7 +107,8 @@ Rexc can now reject programs that are grammatically valid but semantically
 wrong. It knows which functions exist, which locals are visible, which primitive
 types are valid, which calls match their signatures, and which expressions
 produce which types. It also knows which locals are mutable, which assignments
-are legal, and which branch and loop conditions are boolean.
+are legal, which branch and loop conditions are boolean, and which `break` and
+`continue` statements are actually inside loops.
 
 The compiler has not emitted anything yet. It still holds the source-shaped AST,
 now checked for meaning. The next step is to lower that tree into a smaller

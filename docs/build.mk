@@ -1,3 +1,4 @@
+# Make rules for rendering the Rexc book PDF and EPUB artifacts.
 include docs/sources.mk
 
 EPUB_FRONTMATTER := docs/epub-copyright.md
@@ -71,4 +72,3 @@ docs: pdf epub
 
 clean-docs:
 	rm -f "$(PDF)" "$(EPUB)" "$(COVER_ART)" $(DIAGRAMS_PNG)
-

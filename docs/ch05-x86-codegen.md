@@ -94,6 +94,13 @@ condition is false. If the condition is true, execution falls through into the
 body. After the body, an unconditional jump returns to the start label so the
 condition can be tested again.
 
+While emitting a loop body, the backend remembers that loop's start and end
+labels. A `continue` statement becomes an unconditional jump to the current
+start label. A `break` statement becomes an unconditional jump to the current
+end label. For nested loops, the most recently entered loop is at the top of
+that label stack, so `break` and `continue` naturally target the innermost
+loop.
+
 That creates the usual loop shape:
 
 | Runtime condition | Instruction path |
@@ -105,9 +112,9 @@ That creates the usual loop shape:
 
 Rexc can now emit assembly for typed functions, locals, returns, calls,
 arithmetic, division, comparisons, strings, assignment, `if/else` branches, and
-`while` loops. The i386 target is the default path for the current Drunix user
-runtime. The x86_64 target emits 64-bit Linux-compatible assembly using the
-System V calling convention.
+`while` loops with `break` and `continue`. The i386 target is the default path
+for the current Drunix user runtime. The x86_64 target emits 64-bit
+Linux-compatible assembly using the System V calling convention.
 
 The compiler still has not produced an executable by itself. Assembly is the
 input to the assembler, and the assembler produces an object file. To become a

@@ -1,4 +1,10 @@
-// Lowers semantically checked AST nodes into typed backend IR.
+// AST-to-IR lowering.
+//
+// This file converts semantically checked source syntax into the smaller typed
+// representation consumed by codegen. It resolves type names into PrimitiveType
+// values, preserves expression and statement structure needed by the backend,
+// and maps source locals/parameters into IR declarations while assuming sema
+// has already rejected invalid names, types, and control flow.
 #include "rexc/lower_ir.hpp"
 #include "rexc/types.hpp"
 
@@ -189,6 +195,12 @@ private:
 				std::move(condition),
 				lower_statements(while_stmt.body, function_return_type, locals));
 		}
+
+		if (statement.kind == ast::Stmt::Kind::Break)
+			return std::make_unique<ir::BreakStatement>();
+
+		if (statement.kind == ast::Stmt::Kind::Continue)
+			return std::make_unique<ir::ContinueStatement>();
 
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
 		return std::make_unique<ir::ReturnStatement>(

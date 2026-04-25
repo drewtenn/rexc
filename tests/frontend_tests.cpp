@@ -1,4 +1,8 @@
 // Parser/frontend tests for grammar coverage and AST shape.
+//
+// These tests exercise parse_source through the generated ANTLR parser and the
+// AST builder. They verify that accepted Rexc syntax becomes the compiler-owned
+// AST shape expected by sema and later stages.
 #include "rexc/parse.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/source.hpp"
@@ -148,4 +152,24 @@ TEST_CASE(parser_accepts_mutable_locals_assignment_and_while)
 	const auto &assign = static_cast<const rexc::ast::AssignStmt &>(*while_stmt.body[0]);
 	REQUIRE_EQ(assign.name, std::string("x"));
 	REQUIRE_EQ(assign.value->kind, rexc::ast::Expr::Kind::Binary);
+}
+
+TEST_CASE(parser_accepts_break_and_continue_statements)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { while true { continue; break; } return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(2));
+	REQUIRE_EQ(body[0]->kind, rexc::ast::Stmt::Kind::While);
+
+	const auto &while_stmt = static_cast<const rexc::ast::WhileStmt &>(*body[0]);
+	REQUIRE_EQ(while_stmt.body.size(), std::size_t(2));
+	REQUIRE_EQ(while_stmt.body[0]->kind, rexc::ast::Stmt::Kind::Continue);
+	REQUIRE_EQ(while_stmt.body[1]->kind, rexc::ast::Stmt::Kind::Break);
 }

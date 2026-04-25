@@ -1,3 +1,4 @@
+# Ordered Markdown source list shared by the PDF and EPUB book builds.
 DOCS_SRC := \
 	docs/partI-source-to-syntax.md \
 	docs/ch01-source-text.md \

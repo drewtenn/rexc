@@ -1,4 +1,9 @@
-// Constructors for the typed intermediate representation.
+// Constructors for Rexc's typed intermediate representation.
+//
+// The IR is the backend-facing form produced after semantic analysis. It keeps
+// resolved primitive types on values, locals, functions, branches, and calls so
+// code generation no longer has to interpret parser spelling or AST-only
+// structure.
 #include "rexc/ir.hpp"
 
 #include <utility>
@@ -77,6 +82,16 @@ IfStatement::IfStatement(std::unique_ptr<Value> condition,
 WhileStatement::WhileStatement(std::unique_ptr<Value> condition,
                                std::vector<std::unique_ptr<Statement>> body)
 	: Statement(Kind::While), condition(std::move(condition)), body(std::move(body))
+{
+}
+
+BreakStatement::BreakStatement()
+	: Statement(Kind::Break)
+{
+}
+
+ContinueStatement::ContinueStatement()
+	: Statement(Kind::Continue)
 {
 }
 

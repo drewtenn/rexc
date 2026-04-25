@@ -1,4 +1,8 @@
 // Unit coverage for x86 assembly emission and backend diagnostics.
+//
+// These tests parse real Rexc snippets, run sema and IR lowering, then inspect
+// emitted assembly. That keeps backend checks tied to the same frontend shapes
+// users write instead of constructing IR by hand for every case.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"
@@ -294,6 +298,17 @@ TEST_CASE(codegen_x86_64_emits_assignment_and_while_loop)
 	REQUIRE(assembly.find("jmp .L_while_start_") != std::string::npos);
 	REQUIRE(assembly.find("movq %rax, -8(%rbp)") != std::string::npos);
 	REQUIRE_EQ(count_occurrences(assembly, "subq $16, %rsp"), 1);
+}
+
+TEST_CASE(codegen_i386_emits_break_and_continue_jumps)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i32 { while true { continue; break; } return 0; }\n");
+
+	REQUIRE(assembly.find(".L_while_start_") != std::string::npos);
+	REQUIRE(assembly.find(".L_while_end_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_while_start_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_while_end_") != std::string::npos);
 }
 
 TEST_CASE(codegen_x86_64_uses_system_v_argument_registers)

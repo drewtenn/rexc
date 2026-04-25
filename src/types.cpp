@@ -1,4 +1,10 @@
-// Primitive type parsing, formatting, predicates, and range checks.
+// Primitive type utilities shared across compiler stages.
+//
+// The parser preserves type spelling, sema resolves that spelling with these
+// helpers, IR stores the resolved PrimitiveType, and codegen asks the same
+// model about widths, signedness, formatting, literal ranges, and target
+// support. Keeping this here prevents each stage from inventing its own type
+// rules.
 #include "rexc/types.hpp"
 
 #include <limits>

@@ -55,6 +55,11 @@ value and a lowered body. The backend does not need to rediscover that the
 condition is legal or that the body is scoped; semantic analysis already proved
 those facts, and lowering preserved them.
 
+`break` and `continue` lower to marker statements. They do not carry their
+target labels in IR because labels are a backend detail. Semantic analysis has
+already proved they are inside a loop, so code generation can resolve them to
+the innermost loop it is currently emitting.
+
 The IR also keeps branch-local statements contained in their branch bodies.
 Loop-local statements stay contained in loop bodies for the same reason. That
 matches semantic analysis and makes stack-slot assignment possible later: each
@@ -78,7 +83,8 @@ Rexc now holds a typed IR module. The source has been parsed, checked, and
 lowered into a backend-facing representation. Every value has a primitive type.
 Every branch and loop condition is already known to be boolean. Every
 assignment targets an existing local with a value of the right type. Every
-function body is a sequence of typed IR statements.
+`break` and `continue` statement is known to be inside a loop. Every function
+body is a sequence of typed IR statements.
 
 The compiler is ready to leave source-language territory. The next stage must
 take this typed IR and make it concrete for a CPU: stack frames, registers,

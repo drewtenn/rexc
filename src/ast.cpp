@@ -1,4 +1,10 @@
-// Constructors for AST nodes; ownership is expressed with unique_ptr fields.
+// AST node construction for Rexc's source-level tree.
+//
+// The parser builds these nodes after ANTLR has accepted the grammar. The AST
+// preserves source structure and locations, but it deliberately does not know
+// whether names resolve, types match, or control-flow statements are legal.
+// Ownership of child expressions/statements lives in unique_ptr and vector
+// fields declared in include/rexc/ast.hpp.
 #include "rexc/ast.hpp"
 
 #include <utility>
@@ -89,6 +95,16 @@ WhileStmt::WhileStmt(SourceLocation location, std::unique_ptr<Expr> condition,
                      std::vector<std::unique_ptr<Stmt>> body)
 	: Stmt(Kind::While, std::move(location)), condition(std::move(condition)),
 	  body(std::move(body))
+{
+}
+
+BreakStmt::BreakStmt(SourceLocation location)
+	: Stmt(Kind::Break, std::move(location))
+{
+}
+
+ContinueStmt::ContinueStmt(SourceLocation location)
+	: Stmt(Kind::Continue, std::move(location))
 {
 }
 

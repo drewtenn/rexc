@@ -1,9 +1,18 @@
-// Hand-written lexer and recursive-descent parser for the Rexc grammar.
+// ANTLR parser entry point plus Rexc AST construction.
+//
+// The grammar lives in grammar/Rexc.g4 and CMake generates RexcLexer and
+// RexcParser from it. parse.cpp wires those generated classes into Rexc,
+// translates ANTLR syntax errors into Rexc Diagnostics, then walks the ANTLR
+// parse tree to build the compiler-owned AST from include/rexc/ast.hpp. It
+// does not define token kinds, parsing rules, or grammar decisions itself.
 #include "rexc/parse.hpp"
 
-#include <cctype>
+#include "RexcLexer.h"
+#include "RexcParser.h"
+
+#include <antlr4-runtime.h>
+
 #include <cstdlib>
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -12,653 +21,377 @@
 namespace rexc {
 namespace {
 
-enum class TokenKind {
-	End,
-	Identifier,
-	Integer,
-	Bool,
-	Char,
-	String,
-	Extern,
-	Fn,
-	If,
-	Else,
-	Let,
-	Mut,
-	Return,
-	While,
-	LParen,
-	RParen,
-	LBrace,
-	RBrace,
-	Colon,
-	Semicolon,
-	Comma,
-	Arrow,
-	Equal,
-	EqualEqual,
-	BangEqual,
-	Less,
-	LessEqual,
-	Greater,
-	GreaterEqual,
-	Plus,
-	Minus,
-	Star,
-	Slash,
-};
-
-struct Token {
-	TokenKind kind = TokenKind::End;
-	std::string text;
-	std::size_t offset = 0;
-};
-
-class Lexer {
+class DiagnosticErrorListener final : public antlr4::BaseErrorListener {
 public:
-	explicit Lexer(const SourceFile &source) : source_(source) {}
-
-	std::vector<Token> lex(Diagnostics &diagnostics)
+	DiagnosticErrorListener(const SourceFile &source, Diagnostics &diagnostics)
+		: source_(source), diagnostics_(diagnostics)
 	{
-		std::vector<Token> tokens;
+	}
 
-		while (offset_ < source_.text().size()) {
-			char ch = source_.text()[offset_];
-			if (std::isspace(static_cast<unsigned char>(ch))) {
-				++offset_;
-				continue;
-			}
-
-			if (ch == '/' && peek(1) == '/') {
-				while (offset_ < source_.text().size() && source_.text()[offset_] != '\n')
-					++offset_;
-				continue;
-			}
-
-			if (std::isalpha(static_cast<unsigned char>(ch)) || ch == '_') {
-				tokens.push_back(identifier());
-				continue;
-			}
-
-			if (std::isdigit(static_cast<unsigned char>(ch))) {
-				tokens.push_back(integer());
-				continue;
-			}
-
-			if (ch == '\'') {
-				tokens.push_back(character(diagnostics));
-				continue;
-			}
-
-			if (ch == '"') {
-				tokens.push_back(string(diagnostics));
-				continue;
-			}
-
-			std::size_t start = offset_++;
-			switch (ch) {
-			case '(':
-				tokens.push_back({TokenKind::LParen, "(", start});
-				break;
-			case ')':
-				tokens.push_back({TokenKind::RParen, ")", start});
-				break;
-			case '{':
-				tokens.push_back({TokenKind::LBrace, "{", start});
-				break;
-			case '}':
-				tokens.push_back({TokenKind::RBrace, "}", start});
-				break;
-			case ':':
-				tokens.push_back({TokenKind::Colon, ":", start});
-				break;
-			case ';':
-				tokens.push_back({TokenKind::Semicolon, ";", start});
-				break;
-			case ',':
-				tokens.push_back({TokenKind::Comma, ",", start});
-				break;
-			case '=':
-				if (peek(0) == '=') {
-					++offset_;
-					tokens.push_back({TokenKind::EqualEqual, "==", start});
-				} else {
-					tokens.push_back({TokenKind::Equal, "=", start});
-				}
-				break;
-			case '!':
-				if (peek(0) == '=') {
-					++offset_;
-					tokens.push_back({TokenKind::BangEqual, "!=", start});
-				} else {
-					diagnostics.error(source_.location_at(start), "expected '!='");
-				}
-				break;
-			case '<':
-				if (peek(0) == '=') {
-					++offset_;
-					tokens.push_back({TokenKind::LessEqual, "<=", start});
-				} else {
-					tokens.push_back({TokenKind::Less, "<", start});
-				}
-				break;
-			case '>':
-				if (peek(0) == '=') {
-					++offset_;
-					tokens.push_back({TokenKind::GreaterEqual, ">=", start});
-				} else {
-					tokens.push_back({TokenKind::Greater, ">", start});
-				}
-				break;
-			case '+':
-				tokens.push_back({TokenKind::Plus, "+", start});
-				break;
-			case '*':
-				tokens.push_back({TokenKind::Star, "*", start});
-				break;
-			case '/':
-				tokens.push_back({TokenKind::Slash, "/", start});
-				break;
-			case '-':
-				if (peek(0) == '>') {
-					++offset_;
-					tokens.push_back({TokenKind::Arrow, "->", start});
-				} else {
-					tokens.push_back({TokenKind::Minus, "-", start});
-				}
-				break;
-			default:
-				diagnostics.error(source_.location_at(start),
-				                  std::string("unexpected character '") + ch + "'");
-				break;
-			}
+	void syntaxError(antlr4::Recognizer *, antlr4::Token *offending_symbol,
+	                 std::size_t line, std::size_t char_position_in_line,
+	                 const std::string &message, std::exception_ptr) override
+	{
+		std::size_t offset = source_.text().size();
+		if (offending_symbol != nullptr &&
+		    offending_symbol->getStartIndex() != static_cast<std::size_t>(-1)) {
+			offset = offending_symbol->getStartIndex();
+		} else {
+			offset = offset_from_line_column(line, char_position_in_line);
 		}
 
-		tokens.push_back({TokenKind::End, "", source_.text().size()});
-		return tokens;
+		diagnostics_.error(source_.location_at(offset), message);
 	}
 
 private:
-	char peek(std::size_t ahead) const
+	std::size_t offset_from_line_column(std::size_t line,
+	                                    std::size_t char_position_in_line) const
 	{
-		std::size_t at = offset_ + ahead;
-		return at < source_.text().size() ? source_.text()[at] : '\0';
-	}
+		if (line == 0)
+			return 0;
 
-	Token identifier()
-	{
-		std::size_t start = offset_;
-		while (offset_ < source_.text().size()) {
-			char ch = source_.text()[offset_];
-			if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_')
-				break;
-			++offset_;
-		}
-
-		std::string text = source_.text().substr(start, offset_ - start);
-		if (text == "extern")
-			return {TokenKind::Extern, text, start};
-		if (text == "fn")
-			return {TokenKind::Fn, text, start};
-		if (text == "if")
-			return {TokenKind::If, text, start};
-		if (text == "else")
-			return {TokenKind::Else, text, start};
-		if (text == "let")
-			return {TokenKind::Let, text, start};
-		if (text == "mut")
-			return {TokenKind::Mut, text, start};
-		if (text == "return")
-			return {TokenKind::Return, text, start};
-		if (text == "while")
-			return {TokenKind::While, text, start};
-		if (text == "true" || text == "false")
-			return {TokenKind::Bool, text, start};
-		return {TokenKind::Identifier, text, start};
-	}
-
-	Token integer()
-	{
-		std::size_t start = offset_;
-		while (offset_ < source_.text().size() &&
-		       std::isdigit(static_cast<unsigned char>(source_.text()[offset_])))
-			++offset_;
-		return {TokenKind::Integer, source_.text().substr(start, offset_ - start), start};
-	}
-
-	char decode_escape(Diagnostics &diagnostics, std::size_t escape_offset)
-	{
-		if (offset_ >= source_.text().size()) {
-			diagnostics.error(source_.location_at(escape_offset), "unterminated escape sequence");
-			return '\0';
-		}
-
-		char escaped = source_.text()[offset_++];
-		switch (escaped) {
-		case 'n':
-			return '\n';
-		case 'r':
-			return '\r';
-		case 't':
-			return '\t';
-		case '\'':
-			return '\'';
-		case '"':
-			return '"';
-		case '\\':
-			return '\\';
-		default:
-			diagnostics.error(source_.location_at(escape_offset),
-			                  std::string("unknown escape sequence '\\") + escaped + "'");
-			return escaped;
-		}
-	}
-
-	Token character(Diagnostics &diagnostics)
-	{
-		std::size_t start = offset_++;
-		std::string value;
-
-		if (offset_ >= source_.text().size()) {
-			diagnostics.error(source_.location_at(start), "unterminated character literal");
-			return {TokenKind::Char, value, start};
-		}
-
-		if (source_.text()[offset_] == '\\') {
-			std::size_t escape_offset = offset_++;
-			value.push_back(decode_escape(diagnostics, escape_offset));
-		} else if (source_.text()[offset_] == '\'' || source_.text()[offset_] == '\n' ||
-		           source_.text()[offset_] == '\r') {
-			diagnostics.error(source_.location_at(offset_), "expected character literal value");
-		} else {
-			value.push_back(source_.text()[offset_++]);
-		}
-
-		if (offset_ < source_.text().size() && source_.text()[offset_] == '\'') {
-			++offset_;
-		} else {
-			diagnostics.error(source_.location_at(offset_), "unterminated character literal");
-			while (offset_ < source_.text().size() && source_.text()[offset_] != '\'' &&
-			       source_.text()[offset_] != '\n' && source_.text()[offset_] != '\r')
-				++offset_;
-			if (offset_ < source_.text().size() && source_.text()[offset_] == '\'')
-				++offset_;
-		}
-
-		return {TokenKind::Char, value, start};
-	}
-
-	Token string(Diagnostics &diagnostics)
-	{
-		std::size_t start = offset_++;
-		std::string value;
-
-		while (offset_ < source_.text().size()) {
-			char ch = source_.text()[offset_++];
-			if (ch == '"')
-				return {TokenKind::String, value, start};
-			if (ch == '\n' || ch == '\r') {
-				diagnostics.error(source_.location_at(offset_ - 1), "unterminated string literal");
-				return {TokenKind::String, value, start};
-			}
-			if (ch == '\\') {
-				value.push_back(decode_escape(diagnostics, offset_ - 1));
-				continue;
-			}
-			value.push_back(ch);
-		}
-
-		diagnostics.error(source_.location_at(start), "unterminated string literal");
-		return {TokenKind::String, value, start};
-	}
-
-	const SourceFile &source_;
-	std::size_t offset_ = 0;
-};
-
-class Parser {
-public:
-	Parser(const SourceFile &source, Diagnostics &diagnostics, std::vector<Token> tokens)
-		: source_(source), diagnostics_(diagnostics), tokens_(std::move(tokens))
-	{
-	}
-
-	ParseResult parse()
-	{
-		ast::Module module;
-
-		while (!at(TokenKind::End)) {
-			if (at(TokenKind::Extern))
-				module.functions.push_back(parse_extern_function());
-			else if (at(TokenKind::Fn))
-				module.functions.push_back(parse_function_definition());
-			else {
-				error_here("expected item");
-				advance();
+		std::size_t current_line = 1;
+		std::size_t line_start = 0;
+		for (std::size_t i = 0; i < source_.text().size() && current_line < line; ++i) {
+			if (source_.text()[i] == '\n') {
+				++current_line;
+				line_start = i + 1;
 			}
 		}
 
-		return ParseResult(!diagnostics_.has_errors(), std::move(module));
-	}
-
-private:
-	bool at(TokenKind kind) const
-	{
-		return current().kind == kind;
-	}
-
-	const Token &current() const
-	{
-		return tokens_[index_];
-	}
-
-	const Token &next() const
-	{
-		return tokens_[index_ + 1 < tokens_.size() ? index_ + 1 : index_];
-	}
-
-	const Token &advance()
-	{
-		const Token &token = current();
-		if (!at(TokenKind::End))
-			++index_;
-		return token;
-	}
-
-	Token expect(TokenKind kind, const char *message)
-	{
-		if (at(kind))
-			return advance();
-		error_here(message);
-		return {kind, "", current().offset};
-	}
-
-	void error_here(const std::string &message)
-	{
-		diagnostics_.error(source_.location_at(current().offset), message);
-	}
-
-	ast::Function parse_extern_function()
-	{
-		Token start = expect(TokenKind::Extern, "expected 'extern'");
-		expect(TokenKind::Fn, "expected 'fn'");
-		ast::Function function = parse_signature(start.offset);
-		function.is_extern = true;
-		expect(TokenKind::Semicolon, "expected ';'");
-		return function;
-	}
-
-	ast::Function parse_function_definition()
-	{
-		Token start = expect(TokenKind::Fn, "expected 'fn'");
-		ast::Function function = parse_signature(start.offset);
-		function.body = parse_block();
-		return function;
-	}
-
-	ast::Function parse_signature(std::size_t start_offset)
-	{
-		ast::Function function;
-		function.location = source_.location_at(start_offset);
-		Token name = expect(TokenKind::Identifier, "expected function name");
-		function.name = name.text;
-		expect(TokenKind::LParen, "expected '('");
-		if (!at(TokenKind::RParen))
-			function.parameters = parse_parameter_list();
-		expect(TokenKind::RParen, "expected ')'");
-		expect(TokenKind::Arrow, "expected '->'");
-		function.return_type = parse_type();
-		return function;
-	}
-
-	std::vector<ast::Parameter> parse_parameter_list()
-	{
-		std::vector<ast::Parameter> parameters;
-		parameters.push_back(parse_parameter());
-		while (at(TokenKind::Comma)) {
-			advance();
-			parameters.push_back(parse_parameter());
-		}
-		return parameters;
-	}
-
-	ast::Parameter parse_parameter()
-	{
-		Token name = expect(TokenKind::Identifier, "expected parameter name");
-		expect(TokenKind::Colon, "expected ':'");
-		return ast::Parameter{name.text, parse_type(), source_.location_at(name.offset)};
-	}
-
-	ast::TypeName parse_type()
-	{
-		if (!at(TokenKind::Identifier)) {
-			Token token = expect(TokenKind::Identifier, "expected type");
-			return ast::TypeName{token.text, source_.location_at(token.offset)};
-		}
-
-		Token token = advance();
-		if (!is_primitive_type_name(token.text))
-			diagnostics_.error(source_.location_at(token.offset), "expected primitive type");
-		return ast::TypeName{token.text, source_.location_at(token.offset)};
-	}
-
-	std::vector<std::unique_ptr<ast::Stmt>> parse_block()
-	{
-		std::vector<std::unique_ptr<ast::Stmt>> body;
-		expect(TokenKind::LBrace, "expected '{'");
-		while (!at(TokenKind::RBrace) && !at(TokenKind::End)) {
-			if (at(TokenKind::Let))
-				body.push_back(parse_let_statement());
-			else if (at(TokenKind::Identifier) && next().kind == TokenKind::Equal)
-				body.push_back(parse_assignment_statement());
-			else if (at(TokenKind::Return))
-				body.push_back(parse_return_statement());
-			else if (at(TokenKind::If))
-				body.push_back(parse_if_statement());
-			else if (at(TokenKind::While))
-				body.push_back(parse_while_statement());
-			else {
-				error_here("expected statement");
-				advance();
-			}
-		}
-		expect(TokenKind::RBrace, "expected '}'");
-		return body;
-	}
-
-	std::unique_ptr<ast::Stmt> parse_let_statement()
-	{
-		Token start = expect(TokenKind::Let, "expected 'let'");
-		bool is_mutable = false;
-		if (at(TokenKind::Mut)) {
-			advance();
-			is_mutable = true;
-		}
-		Token name = expect(TokenKind::Identifier, "expected local name");
-		expect(TokenKind::Colon, "expected ':'");
-		auto type = parse_type();
-		expect(TokenKind::Equal, "expected '='");
-		auto initializer = parse_expression();
-		expect(TokenKind::Semicolon, "expected ';'");
-		return std::make_unique<ast::LetStmt>(source_.location_at(start.offset), is_mutable,
-		                                      name.text, std::move(type),
-		                                      std::move(initializer));
-	}
-
-	std::unique_ptr<ast::Stmt> parse_assignment_statement()
-	{
-		Token name = expect(TokenKind::Identifier, "expected local name");
-		expect(TokenKind::Equal, "expected '='");
-		auto value = parse_expression();
-		expect(TokenKind::Semicolon, "expected ';'");
-		return std::make_unique<ast::AssignStmt>(source_.location_at(name.offset), name.text,
-		                                         std::move(value));
-	}
-
-	std::unique_ptr<ast::Stmt> parse_return_statement()
-	{
-		Token start = expect(TokenKind::Return, "expected 'return'");
-		auto value = parse_expression();
-		expect(TokenKind::Semicolon, "expected ';'");
-		return std::make_unique<ast::ReturnStmt>(source_.location_at(start.offset), std::move(value));
-	}
-
-	std::unique_ptr<ast::Stmt> parse_if_statement()
-	{
-		Token start = expect(TokenKind::If, "expected 'if'");
-		auto condition = parse_expression();
-		auto then_body = parse_block();
-		std::vector<std::unique_ptr<ast::Stmt>> else_body;
-		if (at(TokenKind::Else)) {
-			advance();
-			else_body = parse_block();
-		}
-		return std::make_unique<ast::IfStmt>(source_.location_at(start.offset),
-		                                     std::move(condition), std::move(then_body),
-		                                     std::move(else_body));
-	}
-
-	std::unique_ptr<ast::Stmt> parse_while_statement()
-	{
-		Token start = expect(TokenKind::While, "expected 'while'");
-		auto condition = parse_expression();
-		auto body = parse_block();
-		return std::make_unique<ast::WhileStmt>(source_.location_at(start.offset),
-		                                        std::move(condition), std::move(body));
-	}
-
-	std::unique_ptr<ast::Expr> parse_expression()
-	{
-		return parse_comparison();
-	}
-
-	bool is_primitive_type_name(const std::string &name) const
-	{
-		return name == "i8" || name == "i16" || name == "i32" || name == "i64" ||
-		       name == "u8" || name == "u16" || name == "u32" || name == "u64" ||
-		       name == "bool" || name == "char" || name == "str";
-	}
-
-	bool at_comparison_operator() const
-	{
-		return at(TokenKind::EqualEqual) || at(TokenKind::BangEqual) || at(TokenKind::Less) ||
-		       at(TokenKind::LessEqual) || at(TokenKind::Greater) ||
-		       at(TokenKind::GreaterEqual);
-	}
-
-	std::unique_ptr<ast::Expr> parse_comparison()
-	{
-		auto lhs = parse_additive();
-		while (at_comparison_operator()) {
-			Token op = advance();
-			auto rhs = parse_additive();
-			lhs = std::make_unique<ast::BinaryExpr>(source_.location_at(op.offset), op.text,
-			                                        std::move(lhs), std::move(rhs));
-		}
-		return lhs;
-	}
-
-	std::unique_ptr<ast::Expr> parse_additive()
-	{
-		auto lhs = parse_multiplicative();
-		while (at(TokenKind::Plus) || at(TokenKind::Minus)) {
-			Token op = advance();
-			auto rhs = parse_multiplicative();
-			lhs = std::make_unique<ast::BinaryExpr>(source_.location_at(op.offset), op.text,
-			                                        std::move(lhs), std::move(rhs));
-		}
-		return lhs;
-	}
-
-	std::unique_ptr<ast::Expr> parse_multiplicative()
-	{
-		auto lhs = parse_unary();
-		while (at(TokenKind::Star) || at(TokenKind::Slash)) {
-			Token op = advance();
-			auto rhs = parse_unary();
-			lhs = std::make_unique<ast::BinaryExpr>(source_.location_at(op.offset), op.text,
-			                                        std::move(lhs), std::move(rhs));
-		}
-		return lhs;
-	}
-
-	std::unique_ptr<ast::Expr> parse_unary()
-	{
-		if (at(TokenKind::Minus)) {
-			Token op = advance();
-			return std::make_unique<ast::UnaryExpr>(source_.location_at(op.offset), op.text,
-			                                       parse_unary());
-		}
-
-		return parse_primary();
-	}
-
-	std::unique_ptr<ast::Expr> parse_primary()
-	{
-		if (at(TokenKind::Integer)) {
-			Token token = advance();
-			return std::make_unique<ast::IntegerExpr>(source_.location_at(token.offset),
-			                                          std::strtoll(token.text.c_str(), nullptr, 10),
-			                                          token.text);
-		}
-
-		if (at(TokenKind::Bool)) {
-			Token token = advance();
-			return std::make_unique<ast::BoolExpr>(source_.location_at(token.offset),
-			                                       token.text == "true");
-		}
-
-		if (at(TokenKind::Char)) {
-			Token token = advance();
-			char32_t value = token.text.empty()
-			                     ? U'\0'
-			                     : static_cast<unsigned char>(token.text.front());
-			return std::make_unique<ast::CharExpr>(source_.location_at(token.offset), value);
-		}
-
-		if (at(TokenKind::String)) {
-			Token token = advance();
-			return std::make_unique<ast::StringExpr>(source_.location_at(token.offset), token.text);
-		}
-
-		if (at(TokenKind::Identifier)) {
-			Token token = advance();
-			if (at(TokenKind::LParen))
-				return finish_call(token);
-			return std::make_unique<ast::NameExpr>(source_.location_at(token.offset), token.text);
-		}
-
-		if (at(TokenKind::LParen)) {
-			advance();
-			auto expr = parse_expression();
-			expect(TokenKind::RParen, "expected ')'");
-			return expr;
-		}
-
-		error_here("expected expression");
-		Token token = advance();
-		return std::make_unique<ast::IntegerExpr>(source_.location_at(token.offset), 0, "0");
-	}
-
-	std::unique_ptr<ast::Expr> finish_call(const Token &callee)
-	{
-		auto call = std::make_unique<ast::CallExpr>(source_.location_at(callee.offset), callee.text);
-		expect(TokenKind::LParen, "expected '('");
-		if (!at(TokenKind::RParen)) {
-			call->arguments.push_back(parse_expression());
-			while (at(TokenKind::Comma)) {
-				advance();
-				call->arguments.push_back(parse_expression());
-			}
-		}
-		expect(TokenKind::RParen, "expected ')'");
-		return call;
+		return line_start + char_position_in_line;
 	}
 
 	const SourceFile &source_;
 	Diagnostics &diagnostics_;
-	std::vector<Token> tokens_;
-	std::size_t index_ = 0;
+};
+
+class AstBuilder {
+public:
+	AstBuilder(const SourceFile &source, Diagnostics &diagnostics)
+		: source_(source), diagnostics_(diagnostics)
+	{
+	}
+
+	ast::Module build(RexcParser::CompilationUnitContext *context)
+	{
+		ast::Module module;
+		for (auto *item : context->item())
+			module.functions.push_back(build_item(item));
+		return module;
+	}
+
+private:
+	SourceLocation location(const antlr4::Token *token) const
+	{
+		if (token == nullptr)
+			return source_.location_at(0);
+
+		auto offset = token->getStartIndex();
+		if (offset == static_cast<std::size_t>(-1))
+			offset = source_.text().size();
+		return source_.location_at(offset);
+	}
+
+	SourceLocation location(const antlr4::ParserRuleContext *context) const
+	{
+		return location(context != nullptr ? context->getStart() : nullptr);
+	}
+
+	SourceLocation location(const antlr4::tree::TerminalNode *node) const
+	{
+		return location(node != nullptr ? node->getSymbol() : nullptr);
+	}
+
+	ast::Function build_item(RexcParser::ItemContext *context)
+	{
+		if (auto *extern_function = context->externFunction())
+			return build_extern_function(extern_function);
+		return build_function_definition(context->functionDefinition());
+	}
+
+	ast::Function build_extern_function(RexcParser::ExternFunctionContext *context)
+	{
+		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
+		                                         context->type(), location(context));
+		function.is_extern = true;
+		return function;
+	}
+
+	ast::Function build_function_definition(RexcParser::FunctionDefinitionContext *context)
+	{
+		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
+		                                         context->type(), location(context));
+		function.body = build_block(context->block());
+		return function;
+	}
+
+	ast::Function build_signature(antlr4::tree::TerminalNode *name,
+	                              RexcParser::ParameterListContext *parameters,
+	                              RexcParser::TypeContext *return_type,
+	                              SourceLocation function_location)
+	{
+		ast::Function function;
+		function.location = std::move(function_location);
+		function.name = name->getText();
+		if (parameters != nullptr)
+			function.parameters = build_parameter_list(parameters);
+		function.return_type = build_type(return_type);
+		return function;
+	}
+
+	std::vector<ast::Parameter> build_parameter_list(RexcParser::ParameterListContext *context)
+	{
+		std::vector<ast::Parameter> parameters;
+		for (auto *parameter : context->parameter())
+			parameters.push_back(build_parameter(parameter));
+		return parameters;
+	}
+
+	ast::Parameter build_parameter(RexcParser::ParameterContext *context)
+	{
+		auto *name = context->IDENT();
+		return ast::Parameter{name->getText(), build_type(context->type()), location(name)};
+	}
+
+	ast::TypeName build_type(RexcParser::TypeContext *context)
+	{
+		auto *primitive = context->primitiveType();
+		return ast::TypeName{primitive->getText(), location(primitive)};
+	}
+
+	std::vector<std::unique_ptr<ast::Stmt>> build_block(RexcParser::BlockContext *context)
+	{
+		std::vector<std::unique_ptr<ast::Stmt>> body;
+		for (auto *statement : context->statement())
+			body.push_back(build_statement(statement));
+		return body;
+	}
+
+	std::unique_ptr<ast::Stmt> build_statement(RexcParser::StatementContext *context)
+	{
+		if (auto *let = context->letStatement())
+			return build_let_statement(let);
+		if (auto *assign = context->assignStatement())
+			return build_assign_statement(assign);
+		if (auto *ret = context->returnStatement())
+			return build_return_statement(ret);
+		if (auto *if_statement = context->ifStatement())
+			return build_if_statement(if_statement);
+		if (auto *while_statement = context->whileStatement())
+			return build_while_statement(while_statement);
+		if (auto *break_statement = context->breakStatement())
+			return std::make_unique<ast::BreakStmt>(location(break_statement));
+		if (auto *continue_statement = context->continueStatement())
+			return std::make_unique<ast::ContinueStmt>(location(continue_statement));
+
+		diagnostics_.error(location(context), "expected statement");
+		return std::make_unique<ast::ReturnStmt>(
+		    location(context),
+		    std::make_unique<ast::IntegerExpr>(location(context), 0, "0"));
+	}
+
+	std::unique_ptr<ast::Stmt> build_let_statement(RexcParser::LetStatementContext *context)
+	{
+		bool is_mutable = false;
+		for (auto *child : context->children) {
+			if (child->getText() == "mut") {
+				is_mutable = true;
+				break;
+			}
+		}
+
+		auto *name = context->IDENT();
+		return std::make_unique<ast::LetStmt>(
+		    location(context), is_mutable, name->getText(), build_type(context->type()),
+		    build_expression(context->expression()));
+	}
+
+	std::unique_ptr<ast::Stmt> build_assign_statement(
+	    RexcParser::AssignStatementContext *context)
+	{
+		auto *name = context->IDENT();
+		return std::make_unique<ast::AssignStmt>(
+		    location(name), name->getText(), build_expression(context->expression()));
+	}
+
+	std::unique_ptr<ast::Stmt> build_return_statement(
+	    RexcParser::ReturnStatementContext *context)
+	{
+		return std::make_unique<ast::ReturnStmt>(
+		    location(context), build_expression(context->expression()));
+	}
+
+	std::unique_ptr<ast::Stmt> build_if_statement(RexcParser::IfStatementContext *context)
+	{
+		auto blocks = context->block();
+		std::vector<std::unique_ptr<ast::Stmt>> else_body;
+		if (blocks.size() > 1)
+			else_body = build_block(blocks[1]);
+
+		return std::make_unique<ast::IfStmt>(
+		    location(context), build_expression(context->expression()), build_block(blocks[0]),
+		    std::move(else_body));
+	}
+
+	std::unique_ptr<ast::Stmt> build_while_statement(
+	    RexcParser::WhileStatementContext *context)
+	{
+		return std::make_unique<ast::WhileStmt>(
+		    location(context), build_expression(context->expression()),
+		    build_block(context->block()));
+	}
+
+	std::unique_ptr<ast::Expr> build_expression(RexcParser::ExpressionContext *context)
+	{
+		return build_comparison(context->comparison());
+	}
+
+	std::unique_ptr<ast::Expr> build_comparison(RexcParser::ComparisonContext *context)
+	{
+		auto operands = context->additive();
+		auto lhs = build_additive(operands[0]);
+		for (std::size_t i = 1; i < operands.size(); ++i)
+			lhs = build_binary(context, 2 * i - 1, std::move(lhs),
+			                   build_additive(operands[i]));
+		return lhs;
+	}
+
+	std::unique_ptr<ast::Expr> build_additive(RexcParser::AdditiveContext *context)
+	{
+		auto operands = context->multiplicative();
+		auto lhs = build_multiplicative(operands[0]);
+		for (std::size_t i = 1; i < operands.size(); ++i)
+			lhs = build_binary(context, 2 * i - 1, std::move(lhs),
+			                   build_multiplicative(operands[i]));
+		return lhs;
+	}
+
+	std::unique_ptr<ast::Expr> build_multiplicative(
+	    RexcParser::MultiplicativeContext *context)
+	{
+		auto operands = context->unary();
+		auto lhs = build_unary(operands[0]);
+		for (std::size_t i = 1; i < operands.size(); ++i)
+			lhs = build_binary(context, 2 * i - 1, std::move(lhs),
+			                   build_unary(operands[i]));
+		return lhs;
+	}
+
+	std::unique_ptr<ast::Expr> build_binary(
+	    antlr4::ParserRuleContext *context, std::size_t operator_child_index,
+	    std::unique_ptr<ast::Expr> lhs, std::unique_ptr<ast::Expr> rhs)
+	{
+		auto *operator_node =
+		    dynamic_cast<antlr4::tree::TerminalNode *>(context->children[operator_child_index]);
+		std::string op = operator_node != nullptr ? operator_node->getText() : "";
+		return std::make_unique<ast::BinaryExpr>(
+		    location(operator_node), std::move(op), std::move(lhs), std::move(rhs));
+	}
+
+	std::unique_ptr<ast::Expr> build_unary(RexcParser::UnaryContext *context)
+	{
+		if (auto *primary = context->primary())
+			return build_primary(primary);
+
+		auto *operator_node =
+		    dynamic_cast<antlr4::tree::TerminalNode *>(context->children.front());
+		return std::make_unique<ast::UnaryExpr>(
+		    location(operator_node), operator_node != nullptr ? operator_node->getText() : "-",
+		    build_unary(context->unary()));
+	}
+
+	std::unique_ptr<ast::Expr> build_primary(RexcParser::PrimaryContext *context)
+	{
+		if (auto *integer = context->INTEGER()) {
+			auto text = integer->getText();
+			return std::make_unique<ast::IntegerExpr>(
+			    location(integer), std::strtoll(text.c_str(), nullptr, 10), text);
+		}
+
+		if (auto *boolean = context->BOOL()) {
+			return std::make_unique<ast::BoolExpr>(
+			    location(boolean), boolean->getText() == "true");
+		}
+
+		if (auto *character = context->CHAR()) {
+			auto decoded = decode_quoted_literal(character->getText());
+			char32_t value = decoded.empty()
+			                     ? U'\0'
+			                     : static_cast<unsigned char>(decoded.front());
+			return std::make_unique<ast::CharExpr>(location(character), value);
+		}
+
+		if (auto *string = context->STRING()) {
+			return std::make_unique<ast::StringExpr>(
+			    location(string), decode_quoted_literal(string->getText()));
+		}
+
+		if (auto *call = context->callExpression())
+			return build_call_expression(call);
+
+		if (auto *name = context->IDENT())
+			return std::make_unique<ast::NameExpr>(location(name), name->getText());
+
+		return build_expression(context->expression());
+	}
+
+	std::unique_ptr<ast::Expr> build_call_expression(
+	    RexcParser::CallExpressionContext *context)
+	{
+		auto *name = context->IDENT();
+		auto call = std::make_unique<ast::CallExpr>(location(name), name->getText());
+		if (auto *arguments = context->argumentList()) {
+			for (auto *argument : arguments->expression())
+				call->arguments.push_back(build_expression(argument));
+		}
+		return call;
+	}
+
+	std::string decode_quoted_literal(const std::string &literal) const
+	{
+		if (literal.size() < 2)
+			return "";
+
+		std::string decoded;
+		for (std::size_t i = 1; i + 1 < literal.size(); ++i) {
+			char ch = literal[i];
+			if (ch != '\\') {
+				decoded.push_back(ch);
+				continue;
+			}
+
+			if (++i + 1 > literal.size())
+				break;
+			switch (literal[i]) {
+			case 'n':
+				decoded.push_back('\n');
+				break;
+			case 'r':
+				decoded.push_back('\r');
+				break;
+			case 't':
+				decoded.push_back('\t');
+				break;
+			case '\'':
+				decoded.push_back('\'');
+				break;
+			case '"':
+				decoded.push_back('"');
+				break;
+			case '\\':
+				decoded.push_back('\\');
+				break;
+			default:
+				decoded.push_back(literal[i]);
+				break;
+			}
+		}
+		return decoded;
+	}
+
+	const SourceFile &source_;
+	Diagnostics &diagnostics_;
 };
 
 } // namespace
@@ -685,10 +418,24 @@ ast::Module ParseResult::take_module()
 
 ParseResult parse_source(const SourceFile &source, Diagnostics &diagnostics)
 {
-	Lexer lexer(source);
-	auto tokens = lexer.lex(diagnostics);
-	Parser parser(source, diagnostics, std::move(tokens));
-	return parser.parse();
+	antlr4::ANTLRInputStream input(source.text());
+	RexcLexer lexer(&input);
+	antlr4::CommonTokenStream tokens(&lexer);
+	RexcParser parser(&tokens);
+	DiagnosticErrorListener error_listener(source, diagnostics);
+
+	lexer.removeErrorListeners();
+	parser.removeErrorListeners();
+	lexer.addErrorListener(&error_listener);
+	parser.addErrorListener(&error_listener);
+
+	auto *tree = parser.compilationUnit();
+	if (diagnostics.has_errors())
+		return ParseResult(false, {});
+
+	AstBuilder builder(source, diagnostics);
+	auto module = builder.build(tree);
+	return ParseResult(!diagnostics.has_errors(), std::move(module));
 }
 
 } // namespace rexc

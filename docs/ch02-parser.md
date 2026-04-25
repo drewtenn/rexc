@@ -11,10 +11,10 @@ a function definition.
 
 The **parser** performs that next step. A parser is the compiler stage that
 checks whether tokens follow the language grammar and builds a structured
-representation of that grammar. Rexc uses a hand-written recursive-descent
-parser. Recursive descent means each grammar rule is represented by ordinary
-C++ control flow: one function parses a function, another parses a block,
-another parses an expression, and so on.
+representation of that grammar. Rexc uses ANTLR to generate its lexer and
+parser from `grammar/Rexc.g4`. That keeps the accepted syntax in one grammar
+file, while `src/parse.cpp` stays focused on invoking ANTLR and converting the
+generated parse tree into Rexc's own AST.
 
 ### Items, Blocks, and Statements
 
@@ -24,7 +24,7 @@ names a function that exists outside the current Rexc source file, which lets
 Rexc-generated code call into a runtime or library supplied by the final link.
 
 Inside a function body, the parser builds statements. A statement is a piece of
-program structure that does something in sequence. Rexc currently has seven
+program structure that does something in sequence. Rexc currently has nine
 statement shapes:
 
 | Statement | What it means |
@@ -36,6 +36,8 @@ statement shapes:
 | `if` | conditionally run one block |
 | `if/else` | choose between two blocks |
 | `while` | repeat a block while a condition is true |
+| `break` | leave the nearest loop |
+| `continue` | jump to the next check of the nearest loop |
 
 When the parser sees braces, it enters a block. A block is a sequence of
 statements surrounded by `{` and `}`. The parser does not yet decide whether a
@@ -65,7 +67,7 @@ Rexc's current expression layers are:
 | Unary | unary `-` |
 | Primary | literals, names, calls, parenthesised expressions |
 
-This layered parser gives each operator family a clear place. A comparison can
+These grammar layers give each operator family a clear place. A comparison can
 contain arithmetic on either side. Arithmetic can contain calls and names. A
 parenthesised expression can override the default grouping when the source
 needs a different shape.
@@ -88,13 +90,15 @@ then stops.
 
 ### Where the Compiler Is by the End of Chapter 2
 
-Rexc can now turn a valid token stream into a syntax tree. It understands
+Rexc can now turn valid source text into a syntax tree. It understands
 function definitions, extern declarations, typed parameters, immutable and
 mutable typed locals, assignments, returns, conditionals, while loops, calls,
-literals, unary expressions, binary arithmetic, and comparisons.
+literals, unary expressions, binary arithmetic, comparisons, `break`, and
+`continue`.
 
 The compiler still has not proved the program is meaningful. The tree might
 refer to an unknown function. A return statement might produce the wrong type.
 An assignment might target an immutable local. An `if` or `while` condition
-might be an integer instead of a boolean. Those are semantic questions, and the
-next stage is where Rexc begins to answer them.
+might be an integer instead of a boolean. A `break` might appear outside a
+loop. Those are semantic questions, and the next stage is where Rexc begins to
+answer them.

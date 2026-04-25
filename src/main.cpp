@@ -1,4 +1,9 @@
-// Rexc command-line driver: source file to target x86 assembly.
+// Rexc command-line driver.
+//
+// main.cpp owns process-level concerns: command-line parsing, file I/O, stage
+// sequencing, diagnostic printing, and exit status. The actual compiler work is
+// delegated to parse, sema, IR lowering, and x86 codegen so the CLI remains a
+// thin coordinator from .rx source text to emitted assembly.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/lower_ir.hpp"

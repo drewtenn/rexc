@@ -1,4 +1,8 @@
 // Semantic analysis tests for names, types, calls, and literal ranges.
+//
+// These tests feed real parsed modules into sema and assert whether analysis
+// accepts or rejects them. They cover the language rules that are grammatical
+// but not meaningful until names and primitive types are checked.
 #include "rexc/diagnostics.hpp"
 #include "rexc/parse.hpp"
 #include "rexc/sema.hpp"
@@ -274,4 +278,30 @@ TEST_CASE(sema_keeps_while_body_locals_scoped_to_body)
 	    diagnostics);
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("unknown name 'y'") != std::string::npos);
+}
+
+TEST_CASE(sema_accepts_break_and_continue_inside_loop)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut x: i32 = 0; while x < 10 { x = x + 1; if x == 3 { continue; } if x == 7 { break; } } return x; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_break_outside_loop)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { break; return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("break statement outside loop") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_continue_outside_loop)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { if true { continue; } return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("continue statement outside loop") != std::string::npos);
 }

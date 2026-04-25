@@ -1,4 +1,8 @@
 // Primitive type model tests shared by sema, IR, and codegen.
+//
+// These tests pin the shared PrimitiveType rules: spelling, formatting,
+// signedness, backend support, and literal bounds. Keeping this model tested
+// prevents stages from drifting apart on type behavior.
 #include "rexc/types.hpp"
 #include "test_support.hpp"
 
