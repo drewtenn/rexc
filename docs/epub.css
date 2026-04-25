@@ -1,0 +1,191 @@
+/* epub.css - Rexc
+ *
+ * Adapted from the Drunix book pipeline for clean EPUB output and later
+ * import into page-layout tools.
+ */
+
+body {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1em;
+  line-height: 1.6;
+  margin: 0;
+  padding: 0;
+  color: #000000;
+}
+
+h1 {
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 1.9em;
+  font-weight: bold;
+  margin-top: 0;
+  margin-bottom: 0.6em;
+  padding-top: 1.5em;
+  page-break-before: always;
+  border-bottom: 1px solid #000000;
+  padding-bottom: 0.3em;
+}
+
+h2 {
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 1.55em;
+  font-weight: bold;
+  margin-top: 0;
+  margin-bottom: 0.5em;
+  padding-top: 1.2em;
+  page-break-before: always;
+}
+
+h3 {
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 1.2em;
+  font-weight: bold;
+  margin-top: 1.4em;
+  margin-bottom: 0.35em;
+}
+
+p {
+  margin-top: 0;
+  margin-bottom: 1em;
+  text-align: left;
+  orphans: 2;
+  widows: 2;
+}
+
+pre {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.78em;
+  line-height: 1.4;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 1em 0;
+  padding: 0.6em 0.8em;
+  border-left: 3px solid #555555;
+  page-break-inside: avoid;
+  background-color: transparent;
+}
+
+code {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.88em;
+}
+
+pre code {
+  font-size: 1em;
+  background-color: transparent;
+  border: none;
+  padding: 0;
+}
+
+code span.dt {
+  text-decoration: none;
+}
+
+pre > code.sourceCode > span > a:first-child::before {
+  text-decoration: none;
+}
+
+code a,
+pre a {
+  text-decoration: none;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.4em 0;
+  font-size: 0.92em;
+  page-break-inside: avoid;
+  border-top: 2px solid #000000;
+  border-bottom: 2px solid #000000;
+}
+
+thead tr th {
+  font-family: Helvetica, Arial, sans-serif;
+  font-weight: bold;
+  padding: 0.4em 0.8em 0.4em 0;
+  text-align: left;
+  vertical-align: bottom;
+  border-bottom: 1px solid #000000;
+  background-color: transparent;
+  white-space: nowrap;
+}
+
+tbody tr td {
+  padding: 0.35em 0.8em 0.35em 0;
+  text-align: left;
+  vertical-align: top;
+  border: none;
+  white-space: nowrap;
+}
+
+tbody tr + tr td {
+  border-top: 1px solid #dddddd;
+}
+
+ul,
+ol {
+  margin: 0.5em 0 0.75em 0;
+  padding-left: 1.8em;
+}
+
+li {
+  margin-bottom: 0.3em;
+  line-height: 1.5;
+}
+
+nav#toc {
+  margin: 1em 0;
+}
+
+nav#toc h2 {
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 1.4em;
+  font-weight: bold;
+  margin-bottom: 0.75em;
+  page-break-before: avoid;
+  border-bottom: 1px solid #000000;
+  padding-bottom: 0.2em;
+}
+
+nav#toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+nav#toc li {
+  margin: 0.25em 0;
+  padding: 0;
+}
+
+nav#toc > ol > li {
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 1em;
+  font-weight: bold;
+  margin-top: 0.5em;
+}
+
+nav#toc > ol > li > ol > li {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.92em;
+  font-weight: normal;
+  padding-left: 1.2em;
+  margin-top: 0.15em;
+}
+
+nav#toc a {
+  text-decoration: none;
+  color: #000000;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.epub-copyright-page {
+  margin-top: 35%;
+  text-align: center;
+  font-size: 0.95em;
+}
+

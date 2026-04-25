@@ -2,6 +2,25 @@
 
 Rexc is an experimental systems-language compiler for Drunix userland.
 
+## Book
+
+The Rexc book lives in `docs/`. It follows the same chapter-driven teaching
+style as the Drunix book: each chapter narrates one stage of the compiler
+pipeline and ends by describing what the compiler knows at that point.
+
+Start with `docs/cover.md`. The canonical source order is listed in
+`docs/sources.mk`.
+
+Build the PDF and EPUB with the same Pandoc/Typst pipeline used by the Drunix
+book:
+
+```sh
+make docs
+```
+
+Individual outputs can be built with `make pdf` or `make epub`. The generated
+files are `docs/Rexc.pdf` and `docs/Rexc.epub`.
+
 ## Build
 
 ```sh
