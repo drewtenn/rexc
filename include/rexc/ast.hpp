@@ -86,7 +86,7 @@ struct CallExpr final : Expr {
 };
 
 struct Stmt {
-	enum class Kind { Let, Return };
+	enum class Kind { Let, Return, If };
 
 	Stmt(Kind kind, SourceLocation location);
 	virtual ~Stmt() = default;
@@ -108,6 +108,16 @@ struct ReturnStmt final : Stmt {
 	ReturnStmt(SourceLocation location, std::unique_ptr<Expr> value);
 
 	std::unique_ptr<Expr> value;
+};
+
+struct IfStmt final : Stmt {
+	IfStmt(SourceLocation location, std::unique_ptr<Expr> condition,
+	       std::vector<std::unique_ptr<Stmt>> then_body,
+	       std::vector<std::unique_ptr<Stmt>> else_body);
+
+	std::unique_ptr<Expr> condition;
+	std::vector<std::unique_ptr<Stmt>> then_body;
+	std::vector<std::unique_ptr<Stmt>> else_body;
 };
 
 struct Function {

@@ -3,6 +3,7 @@
 #include "rexc/types.hpp"
 
 #include <algorithm>
+#include <memory>
 #include <stdexcept>
 #include <sstream>
 #include <string>
@@ -14,19 +15,38 @@
 namespace rexc {
 namespace {
 
+using SlotMap = std::unordered_map<std::string, int>;
+
 struct Frame {
-	std::unordered_map<std::string, int> slots;
+	SlotMap parameter_slots;
+	std::unordered_map<const ir::LetStatement *, int> let_slots;
 	int local_bytes = 0;
 };
 
-int count_locals(const ir::Function &function)
+int count_locals(const std::vector<std::unique_ptr<ir::Statement>> &statements)
 {
 	int count = 0;
-	for (const auto &statement : function.body) {
-		if (statement->kind == ir::Statement::Kind::Let)
+	for (const auto &statement : statements) {
+		if (statement->kind == ir::Statement::Kind::Let) {
 			++count;
+		} else if (statement->kind == ir::Statement::Kind::If) {
+			const auto &if_statement = static_cast<const ir::IfStatement &>(*statement);
+			count += count_locals(if_statement.then_body);
+			count += count_locals(if_statement.else_body);
+		}
 	}
 	return count;
+}
+
+int count_locals(const ir::Function &function)
+{
+	return count_locals(function.body);
+}
+
+bool is_comparison_operator(const std::string &op)
+{
+	return op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" ||
+	       op == ">=";
 }
 
 std::string canonical_decimal_literal(const std::string &literal)
@@ -132,8 +152,9 @@ private:
 		if (target_ == CodegenTarget::X86_64)
 			emit_x86_64_parameter_spills(function, frame);
 
+		SlotMap slots = frame.parameter_slots;
 		for (const auto &statement : function.body)
-			emit_statement(*statement, frame, done_label);
+			emit_statement(*statement, frame, done_label, slots);
 
 		out_ << done_label << ":\n";
 		out_ << "\tleave\n";
@@ -148,18 +169,12 @@ private:
 		Frame frame;
 		int offset = 8;
 		for (const auto &parameter : function.parameters) {
-			frame.slots[parameter.name] = offset;
+			frame.parameter_slots[parameter.name] = offset;
 			offset += 4;
 		}
 
 		int local_index = 0;
-		for (const auto &statement : function.body) {
-			if (statement->kind != ir::Statement::Kind::Let)
-				continue;
-			const auto &let = static_cast<const ir::LetStatement &>(*statement);
-			++local_index;
-			frame.slots[let.name] = -4 * local_index;
-		}
+		assign_i386_local_slots(function.body, frame, local_index);
 		frame.local_bytes = count_locals(function) * 4;
 		return frame;
 	}
@@ -172,23 +187,54 @@ private:
 			const auto &parameter = function.parameters[i];
 			if (i < x86_64_argument_registers().size()) {
 				++slot_index;
-				frame.slots[parameter.name] = -8 * slot_index;
+				frame.parameter_slots[parameter.name] = -8 * slot_index;
 			} else {
-				frame.slots[parameter.name] =
+				frame.parameter_slots[parameter.name] =
 					16 + static_cast<int>(i - x86_64_argument_registers().size()) * 8;
 			}
 		}
 
-		for (const auto &statement : function.body) {
-			if (statement->kind != ir::Statement::Kind::Let)
-				continue;
-			const auto &let = static_cast<const ir::LetStatement &>(*statement);
-			++slot_index;
-			frame.slots[let.name] = -8 * slot_index;
-		}
+		assign_x86_64_local_slots(function.body, frame, slot_index);
 
 		frame.local_bytes = align_stack_bytes(slot_index * 8);
 		return frame;
+	}
+
+	void assign_i386_local_slots(const std::vector<std::unique_ptr<ir::Statement>> &statements,
+	                             Frame &frame, int &local_index)
+	{
+		for (const auto &statement : statements) {
+			if (statement->kind == ir::Statement::Kind::Let) {
+				const auto &let = static_cast<const ir::LetStatement &>(*statement);
+				++local_index;
+				frame.let_slots[&let] = -4 * local_index;
+				continue;
+			}
+			if (statement->kind == ir::Statement::Kind::If) {
+				const auto &if_statement = static_cast<const ir::IfStatement &>(*statement);
+				assign_i386_local_slots(if_statement.then_body, frame, local_index);
+				assign_i386_local_slots(if_statement.else_body, frame, local_index);
+			}
+		}
+	}
+
+	void assign_x86_64_local_slots(
+		const std::vector<std::unique_ptr<ir::Statement>> &statements, Frame &frame,
+		int &slot_index)
+	{
+		for (const auto &statement : statements) {
+			if (statement->kind == ir::Statement::Kind::Let) {
+				const auto &let = static_cast<const ir::LetStatement &>(*statement);
+				++slot_index;
+				frame.let_slots[&let] = -8 * slot_index;
+				continue;
+			}
+			if (statement->kind == ir::Statement::Kind::If) {
+				const auto &if_statement = static_cast<const ir::IfStatement &>(*statement);
+				assign_x86_64_local_slots(if_statement.then_body, frame, slot_index);
+				assign_x86_64_local_slots(if_statement.else_body, frame, slot_index);
+			}
+		}
 	}
 
 	bool validate_module(const ir::Module &module)
@@ -216,6 +262,16 @@ private:
 		if (statement.kind == ir::Statement::Kind::Let) {
 			const auto &let = static_cast<const ir::LetStatement &>(statement);
 			return validate_value(*let.value);
+		}
+
+		if (statement.kind == ir::Statement::Kind::If) {
+			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
+			bool ok = validate_value(*if_statement.condition);
+			for (const auto &branch_statement : if_statement.then_body)
+				ok = validate_statement(*branch_statement) && ok;
+			for (const auto &branch_statement : if_statement.else_body)
+				ok = validate_statement(*branch_statement) && ok;
+			return ok;
 		}
 
 		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
@@ -268,23 +324,53 @@ private:
 	}
 
 	void emit_statement(const ir::Statement &statement, const Frame &frame,
-	                    const std::string &done_label)
+	                    const std::string &done_label, SlotMap &slots)
 	{
 		if (statement.kind == ir::Statement::Kind::Let) {
 			const auto &let = static_cast<const ir::LetStatement &>(statement);
-			emit_value(*let.value, frame);
+			emit_value(*let.value, frame, slots);
+			int slot = frame.let_slots.at(&let);
 			out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
-			     << frame.slots.at(let.name) << "(" << frame_pointer_register()
-			     << ")\n";
+			     << slot << "(" << frame_pointer_register() << ")\n";
+			slots[let.name] = slot;
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::If) {
+			emit_if_statement(static_cast<const ir::IfStatement &>(statement), frame,
+			                  done_label, slots);
 			return;
 		}
 
 		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
-		emit_value(*ret.value, frame);
+		emit_value(*ret.value, frame, slots);
 		out_ << "\tjmp " << done_label << '\n';
 	}
 
-	void emit_value(const ir::Value &value, const Frame &frame)
+	void emit_if_statement(const ir::IfStatement &if_statement, const Frame &frame,
+	                       const std::string &done_label, const SlotMap &slots)
+	{
+		std::string else_label = make_label(".L_else_");
+		std::string end_label = make_label(".L_end_if_");
+
+		emit_value(*if_statement.condition, frame, slots);
+		out_ << "\tcmpb $0, %al\n";
+		out_ << "\tje " << else_label << "\n";
+
+		SlotMap then_slots = slots;
+		for (const auto &statement : if_statement.then_body)
+			emit_statement(*statement, frame, done_label, then_slots);
+		out_ << "\tjmp " << end_label << "\n";
+
+		out_ << else_label << ":\n";
+		SlotMap else_slots = slots;
+		for (const auto &statement : if_statement.else_body)
+			emit_statement(*statement, frame, done_label, else_slots);
+
+		out_ << end_label << ":\n";
+	}
+
+	void emit_value(const ir::Value &value, const Frame &frame, const SlotMap &slots)
 	{
 		switch (value.kind) {
 		case ir::Value::Kind::Integer: {
@@ -316,41 +402,47 @@ private:
 			return;
 		}
 		case ir::Value::Kind::Unary:
-			emit_unary(static_cast<const ir::UnaryValue &>(value), frame);
+			emit_unary(static_cast<const ir::UnaryValue &>(value), frame, slots);
 			return;
 		case ir::Value::Kind::Local: {
 			const auto &local = static_cast<const ir::LocalValue &>(value);
-			out_ << "\t" << move_instruction() << " " << frame.slots.at(local.name)
+			out_ << "\t" << move_instruction() << " " << slots.at(local.name)
 			     << "(" << frame_pointer_register() << "), " << accumulator_register()
 			     << "\n";
 			return;
 		}
 		case ir::Value::Kind::Binary:
-			emit_binary(static_cast<const ir::BinaryValue &>(value), frame);
+			emit_binary(static_cast<const ir::BinaryValue &>(value), frame, slots);
 			return;
 		case ir::Value::Kind::Call:
-			emit_call(static_cast<const ir::CallValue &>(value), frame);
+			emit_call(static_cast<const ir::CallValue &>(value), frame, slots);
 			return;
 		}
 	}
 
-	void emit_unary(const ir::UnaryValue &unary, const Frame &frame)
+	void emit_unary(const ir::UnaryValue &unary, const Frame &frame, const SlotMap &slots)
 	{
-		emit_value(*unary.operand, frame);
+		emit_value(*unary.operand, frame, slots);
 		if (unary.op == "-")
 			out_ << "\t" << negate_instruction() << " " << accumulator_register() << "\n";
 	}
 
-	void emit_binary(const ir::BinaryValue &binary, const Frame &frame)
+	void emit_binary(const ir::BinaryValue &binary, const Frame &frame, const SlotMap &slots)
 	{
-		emit_value(*binary.lhs, frame);
+		emit_value(*binary.lhs, frame, slots);
 		emit_push_accumulator();
-		emit_value(*binary.rhs, frame);
+		emit_value(*binary.rhs, frame, slots);
 		out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
 		     << scratch_register() << "\n";
 		emit_pop_accumulator();
 
-		if (binary.op == "+")
+		if (is_comparison_operator(binary.op)) {
+			out_ << "\t" << compare_instruction() << " " << scratch_register() << ", "
+			     << accumulator_register() << "\n";
+			out_ << "\t" << setcc_instruction(binary) << " %al\n";
+			out_ << "\t" << zero_extend_bool_instruction() << " %al, "
+			     << accumulator_register() << "\n";
+		} else if (binary.op == "+")
 			out_ << "\t" << add_instruction() << " " << scratch_register() << ", "
 			     << accumulator_register() << "\n";
 		else if (binary.op == "-")
@@ -373,15 +465,15 @@ private:
 		}
 	}
 
-	void emit_call(const ir::CallValue &call, const Frame &frame)
+	void emit_call(const ir::CallValue &call, const Frame &frame, const SlotMap &slots)
 	{
 		if (target_ == CodegenTarget::X86_64) {
-			emit_x86_64_call(call, frame);
+			emit_x86_64_call(call, frame, slots);
 			return;
 		}
 
 		for (auto it = call.arguments.rbegin(); it != call.arguments.rend(); ++it) {
-			emit_value(**it, frame);
+			emit_value(**it, frame, slots);
 			out_ << "\tpushl %eax\n";
 		}
 
@@ -390,7 +482,8 @@ private:
 			out_ << "\taddl $" << call.arguments.size() * 4 << ", %esp\n";
 	}
 
-	void emit_x86_64_call(const ir::CallValue &call, const Frame &frame)
+	void emit_x86_64_call(const ir::CallValue &call, const Frame &frame,
+	                      const SlotMap &slots)
 	{
 		std::size_t stack_argument_count =
 			call.arguments.size() > x86_64_argument_registers().size()
@@ -403,7 +496,7 @@ private:
 		}
 
 		for (auto it = call.arguments.rbegin(); it != call.arguments.rend(); ++it) {
-			emit_value(**it, frame);
+			emit_value(**it, frame, slots);
 			emit_push_accumulator();
 		}
 
@@ -427,7 +520,7 @@ private:
 			std::min(function.parameters.size(), x86_64_argument_registers().size());
 		for (std::size_t i = 0; i < register_count; ++i) {
 			out_ << "\tmovq " << x86_64_argument_registers()[i] << ", "
-			     << frame.slots.at(function.parameters[i].name) << "(%rbp)\n";
+			     << frame.parameter_slots.at(function.parameters[i].name) << "(%rbp)\n";
 		}
 	}
 
@@ -444,6 +537,16 @@ private:
 		if (statement.kind == ir::Statement::Kind::Let) {
 			const auto &let = static_cast<const ir::LetStatement &>(statement);
 			collect_string_labels(*let.value);
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::If) {
+			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
+			collect_string_labels(*if_statement.condition);
+			for (const auto &branch_statement : if_statement.then_body)
+				collect_string_labels(*branch_statement);
+			for (const auto &branch_statement : if_statement.else_body)
+				collect_string_labels(*branch_statement);
 			return;
 		}
 
@@ -506,6 +609,16 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::If) {
+			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
+			emit_string_literals(*if_statement.condition);
+			for (const auto &branch_statement : if_statement.then_body)
+				emit_string_literals(*branch_statement);
+			for (const auto &branch_statement : if_statement.else_body)
+				emit_string_literals(*branch_statement);
+			return;
+		}
+
 		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
 		emit_string_literals(*ret.value);
 	}
@@ -551,6 +664,7 @@ private:
 	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
 	std::unordered_set<std::string> unsupported_diagnostics_;
 	int eval_stack_bytes_ = 0;
+	int next_label_id_ = 0;
 
 	bool is_target_codegen_supported(ir::Type type) const
 	{
@@ -599,6 +713,34 @@ private:
 	const char *multiply_instruction() const
 	{
 		return target_ == CodegenTarget::X86_64 ? "imulq" : "imull";
+	}
+
+	const char *compare_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "cmpq" : "cmpl";
+	}
+
+	const char *zero_extend_bool_instruction() const
+	{
+		return target_ == CodegenTarget::X86_64 ? "movzbq" : "movzbl";
+	}
+
+	const char *setcc_instruction(const ir::BinaryValue &binary) const
+	{
+		bool unsigned_operands = is_unsigned_integer(binary.lhs->type);
+		if (binary.op == "==")
+			return "sete";
+		if (binary.op == "!=")
+			return "setne";
+		if (binary.op == "<")
+			return unsigned_operands ? "setb" : "setl";
+		if (binary.op == "<=")
+			return unsigned_operands ? "setbe" : "setle";
+		if (binary.op == ">")
+			return unsigned_operands ? "seta" : "setg";
+		if (binary.op == ">=")
+			return unsigned_operands ? "setae" : "setge";
+		throw std::runtime_error("unexpected comparison operator in x86 codegen");
 	}
 
 	const char *negate_instruction() const
@@ -675,6 +817,11 @@ private:
 	{
 		out_ << "\tpopq " << register_name << "\n";
 		eval_stack_bytes_ -= 8;
+	}
+
+	std::string make_label(const char *prefix)
+	{
+		return std::string(prefix) + std::to_string(next_label_id_++);
 	}
 };
 

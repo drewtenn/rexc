@@ -71,4 +71,12 @@ ReturnStmt::ReturnStmt(SourceLocation location, std::unique_ptr<Expr> value)
 {
 }
 
+IfStmt::IfStmt(SourceLocation location, std::unique_ptr<Expr> condition,
+               std::vector<std::unique_ptr<Stmt>> then_body,
+               std::vector<std::unique_ptr<Stmt>> else_body)
+	: Stmt(Kind::If, std::move(location)), condition(std::move(condition)),
+	  then_body(std::move(then_body)), else_body(std::move(else_body))
+{
+}
+
 } // namespace rexc::ast

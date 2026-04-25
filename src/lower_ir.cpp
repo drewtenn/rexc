@@ -17,6 +17,17 @@ PrimitiveType i32_type()
 	return PrimitiveType{PrimitiveKind::SignedInteger, 32};
 }
 
+PrimitiveType bool_type()
+{
+	return PrimitiveType{PrimitiveKind::Bool};
+}
+
+bool is_comparison_operator(const std::string &op)
+{
+	return op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" ||
+	       op == ">=";
+}
+
 ir::Type lower_type(const ast::TypeName &type)
 {
 	auto primitive_type = parse_primitive_type(type.name);
@@ -92,8 +103,9 @@ private:
 		case ast::Expr::Kind::Binary: {
 			const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
 			auto lhs = lower_expr(*binary.lhs, locals, expected);
-			ir::Type type = lhs->type;
-			auto rhs = lower_expr(*binary.rhs, locals, type);
+			ir::Type operand_type = lhs->type;
+			auto rhs = lower_expr(*binary.rhs, locals, operand_type);
+			ir::Type type = is_comparison_operator(binary.op) ? bool_type() : operand_type;
 			return std::make_unique<ir::BinaryValue>(binary.op, std::move(lhs),
 			                                         std::move(rhs), type);
 		}
@@ -130,6 +142,16 @@ private:
 		return std::make_unique<ir::UnaryValue>(unary.op, std::move(operand), type);
 	}
 
+	std::vector<std::unique_ptr<ir::Statement>> lower_statements(
+		const std::vector<std::unique_ptr<ast::Stmt>> &statements,
+		ir::Type function_return_type, Locals locals)
+	{
+		std::vector<std::unique_ptr<ir::Statement>> lowered;
+		for (const auto &statement : statements)
+			lowered.push_back(lower_statement(*statement, function_return_type, locals));
+		return lowered;
+	}
+
 	std::unique_ptr<ir::Statement> lower_statement(const ast::Stmt &statement,
 	                                               ir::Type function_return_type,
 	                                               Locals &locals)
@@ -140,6 +162,15 @@ private:
 			auto initializer = lower_expr(*let.initializer, locals, let_type);
 			locals[let.name] = let_type;
 			return std::make_unique<ir::LetStatement>(let.name, std::move(initializer));
+		}
+
+		if (statement.kind == ast::Stmt::Kind::If) {
+			const auto &if_stmt = static_cast<const ast::IfStmt &>(statement);
+			auto condition = lower_expr(*if_stmt.condition, locals, bool_type());
+			return std::make_unique<ir::IfStatement>(
+				std::move(condition),
+				lower_statements(if_stmt.then_body, function_return_type, locals),
+				lower_statements(if_stmt.else_body, function_return_type, locals));
 		}
 
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);

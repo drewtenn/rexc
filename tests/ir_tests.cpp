@@ -187,3 +187,42 @@ TEST_CASE(lowering_rejects_invalid_type_names)
 		        std::string::npos);
 	}
 }
+
+TEST_CASE(lowering_lowers_comparison_as_bool_value)
+{
+	rexc::SourceFile source("test.rx", "fn main() -> bool { return 1 >= 2; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Binary);
+	REQUIRE_EQ(ret.value->type, rexc::PrimitiveType{rexc::PrimitiveKind::Bool});
+	const auto &binary = static_cast<const rexc::ir::BinaryValue &>(*ret.value);
+	rexc::PrimitiveType i32_type{rexc::PrimitiveKind::SignedInteger, 32};
+	REQUIRE_EQ(binary.op, std::string(">="));
+	REQUIRE_EQ(binary.lhs->type, i32_type);
+	REQUIRE_EQ(binary.rhs->type, i32_type);
+}
+
+TEST_CASE(lowering_lowers_if_else_statement)
+{
+	rexc::SourceFile source(
+	    "test.rx", "fn main() -> i32 { if 1 < 2 { return 1; } else { return 0; } }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &stmt = *module.functions[0].body[0];
+	REQUIRE_EQ(stmt.kind, rexc::ir::Statement::Kind::If);
+	const auto &if_stmt = static_cast<const rexc::ir::IfStatement &>(stmt);
+	REQUIRE_EQ(if_stmt.condition->type, rexc::PrimitiveType{rexc::PrimitiveKind::Bool});
+	REQUIRE_EQ(if_stmt.then_body.size(), std::size_t(1));
+	REQUIRE_EQ(if_stmt.else_body.size(), std::size_t(1));
+}

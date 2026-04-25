@@ -217,6 +217,28 @@ TEST_CASE(codegen_emits_unsigned_division)
 	REQUIRE(assembly.find("idivl %ecx") == std::string::npos);
 }
 
+TEST_CASE(codegen_i386_emits_comparison_result)
+{
+	auto assembly = compile_to_assembly("fn main() -> bool { return 1 != 2; }\n");
+
+	REQUIRE(assembly.find("cmpl %ecx, %eax") != std::string::npos);
+	REQUIRE(assembly.find("setne %al") != std::string::npos);
+	REQUIRE(assembly.find("movzbl %al, %eax") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_if_else_comparison_branch)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { if 1 < 2 { return 7; } else { return 9; } }\n");
+
+	REQUIRE(assembly.find("cmpl %ecx, %eax") != std::string::npos);
+	REQUIRE(assembly.find("setl %al") != std::string::npos);
+	REQUIRE(assembly.find("cmpb $0, %al") != std::string::npos);
+	REQUIRE(assembly.find("je .L_else_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_end_if_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_return_main") != std::string::npos);
+}
+
 TEST_CASE(codegen_x86_64_emits_64_bit_integer_arithmetic)
 {
 	auto assembly = compile_to_assembly(
@@ -230,6 +252,21 @@ TEST_CASE(codegen_x86_64_emits_64_bit_integer_arithmetic)
 	REQUIRE(assembly.find("movq %rax, -8(%rbp)") != std::string::npos);
 	REQUIRE(assembly.find("addq %rcx, %rax") != std::string::npos);
 	REQUIRE(assembly.find("ret") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_if_else_comparison_branch)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i64 { if 1 <= 2 { return 7; } else { return 9; } }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("cmpq %rcx, %rax") != std::string::npos);
+	REQUIRE(assembly.find("setle %al") != std::string::npos);
+	REQUIRE(assembly.find("movzbq %al, %rax") != std::string::npos);
+	REQUIRE(assembly.find("cmpb $0, %al") != std::string::npos);
+	REQUIRE(assembly.find("je .L_else_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_end_if_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_return_main") != std::string::npos);
 }
 
 TEST_CASE(codegen_x86_64_uses_system_v_argument_registers)

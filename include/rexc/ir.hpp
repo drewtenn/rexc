@@ -77,7 +77,7 @@ struct CallValue final : Value {
 };
 
 struct Statement {
-	enum class Kind { Let, Return };
+	enum class Kind { Let, Return, If };
 
 	explicit Statement(Kind kind);
 	virtual ~Statement() = default;
@@ -96,6 +96,16 @@ struct ReturnStatement final : Statement {
 	explicit ReturnStatement(std::unique_ptr<Value> value);
 
 	std::unique_ptr<Value> value;
+};
+
+struct IfStatement final : Statement {
+	IfStatement(std::unique_ptr<Value> condition,
+	            std::vector<std::unique_ptr<Statement>> then_body,
+	            std::vector<std::unique_ptr<Statement>> else_body);
+
+	std::unique_ptr<Value> condition;
+	std::vector<std::unique_ptr<Statement>> then_body;
+	std::vector<std::unique_ptr<Statement>> else_body;
 };
 
 struct Parameter {

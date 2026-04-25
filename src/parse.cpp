@@ -21,6 +21,8 @@ enum class TokenKind {
 	String,
 	Extern,
 	Fn,
+	If,
+	Else,
 	Let,
 	Return,
 	LParen,
@@ -32,6 +34,12 @@ enum class TokenKind {
 	Comma,
 	Arrow,
 	Equal,
+	EqualEqual,
+	BangEqual,
+	Less,
+	LessEqual,
+	Greater,
+	GreaterEqual,
 	Plus,
 	Minus,
 	Star,
@@ -109,7 +117,36 @@ public:
 				tokens.push_back({TokenKind::Comma, ",", start});
 				break;
 			case '=':
-				tokens.push_back({TokenKind::Equal, "=", start});
+				if (peek(0) == '=') {
+					++offset_;
+					tokens.push_back({TokenKind::EqualEqual, "==", start});
+				} else {
+					tokens.push_back({TokenKind::Equal, "=", start});
+				}
+				break;
+			case '!':
+				if (peek(0) == '=') {
+					++offset_;
+					tokens.push_back({TokenKind::BangEqual, "!=", start});
+				} else {
+					diagnostics.error(source_.location_at(start), "expected '!='");
+				}
+				break;
+			case '<':
+				if (peek(0) == '=') {
+					++offset_;
+					tokens.push_back({TokenKind::LessEqual, "<=", start});
+				} else {
+					tokens.push_back({TokenKind::Less, "<", start});
+				}
+				break;
+			case '>':
+				if (peek(0) == '=') {
+					++offset_;
+					tokens.push_back({TokenKind::GreaterEqual, ">=", start});
+				} else {
+					tokens.push_back({TokenKind::Greater, ">", start});
+				}
 				break;
 			case '+':
 				tokens.push_back({TokenKind::Plus, "+", start});
@@ -161,6 +198,10 @@ private:
 			return {TokenKind::Extern, text, start};
 		if (text == "fn")
 			return {TokenKind::Fn, text, start};
+		if (text == "if")
+			return {TokenKind::If, text, start};
+		if (text == "else")
+			return {TokenKind::Else, text, start};
 		if (text == "let")
 			return {TokenKind::Let, text, start};
 		if (text == "return")
@@ -404,6 +445,8 @@ private:
 				body.push_back(parse_let_statement());
 			else if (at(TokenKind::Return))
 				body.push_back(parse_return_statement());
+			else if (at(TokenKind::If))
+				body.push_back(parse_if_statement());
 			else {
 				error_here("expected statement");
 				advance();
@@ -434,9 +477,24 @@ private:
 		return std::make_unique<ast::ReturnStmt>(source_.location_at(start.offset), std::move(value));
 	}
 
+	std::unique_ptr<ast::Stmt> parse_if_statement()
+	{
+		Token start = expect(TokenKind::If, "expected 'if'");
+		auto condition = parse_expression();
+		auto then_body = parse_block();
+		std::vector<std::unique_ptr<ast::Stmt>> else_body;
+		if (at(TokenKind::Else)) {
+			advance();
+			else_body = parse_block();
+		}
+		return std::make_unique<ast::IfStmt>(source_.location_at(start.offset),
+		                                     std::move(condition), std::move(then_body),
+		                                     std::move(else_body));
+	}
+
 	std::unique_ptr<ast::Expr> parse_expression()
 	{
-		return parse_additive();
+		return parse_comparison();
 	}
 
 	bool is_primitive_type_name(const std::string &name) const
@@ -444,6 +502,25 @@ private:
 		return name == "i8" || name == "i16" || name == "i32" || name == "i64" ||
 		       name == "u8" || name == "u16" || name == "u32" || name == "u64" ||
 		       name == "bool" || name == "char" || name == "str";
+	}
+
+	bool at_comparison_operator() const
+	{
+		return at(TokenKind::EqualEqual) || at(TokenKind::BangEqual) || at(TokenKind::Less) ||
+		       at(TokenKind::LessEqual) || at(TokenKind::Greater) ||
+		       at(TokenKind::GreaterEqual);
+	}
+
+	std::unique_ptr<ast::Expr> parse_comparison()
+	{
+		auto lhs = parse_additive();
+		while (at_comparison_operator()) {
+			Token op = advance();
+			auto rhs = parse_additive();
+			lhs = std::make_unique<ast::BinaryExpr>(source_.location_at(op.offset), op.text,
+			                                        std::move(lhs), std::move(rhs));
+		}
+		return lhs;
 	}
 
 	std::unique_ptr<ast::Expr> parse_additive()

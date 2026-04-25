@@ -15,6 +15,17 @@ PrimitiveType i32_type()
 	return PrimitiveType{PrimitiveKind::SignedInteger, 32};
 }
 
+PrimitiveType bool_type()
+{
+	return PrimitiveType{PrimitiveKind::Bool};
+}
+
+bool is_comparison_operator(const std::string &op)
+{
+	return op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" ||
+	       op == ">=";
+}
+
 std::optional<std::uint64_t> parse_decimal_magnitude(const std::string &literal)
 {
 	// Parse from the original token text so huge literals are checked here,
@@ -110,6 +121,22 @@ private:
 			return;
 		}
 
+		if (statement.kind == ast::Stmt::Kind::If) {
+			const auto &if_stmt = static_cast<const ast::IfStmt &>(statement);
+			auto condition_type = check_expr(locals, *if_stmt.condition, bool_type());
+			if (condition_type && *condition_type != bool_type())
+				diagnostics_.error(if_stmt.condition->location, "if condition must be bool");
+
+			auto then_locals = locals;
+			for (const auto &branch_statement : if_stmt.then_body)
+				analyze_statement(function_return_type, then_locals, *branch_statement);
+
+			auto else_locals = locals;
+			for (const auto &branch_statement : if_stmt.else_body)
+				analyze_statement(function_return_type, else_locals, *branch_statement);
+			return;
+		}
+
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
 		auto value_type = check_expr(locals, *ret.value, function_return_type);
 		if (value_type && *value_type != function_return_type) {
@@ -156,6 +183,16 @@ private:
 			auto rhs_type = check_expr(locals, *binary.rhs, lhs_type ? lhs_type : expected);
 			if (!lhs_type || !rhs_type)
 				return lhs_type ? lhs_type : rhs_type;
+			if (is_comparison_operator(binary.op)) {
+				if (!is_integer(*lhs_type) || !is_integer(*rhs_type)) {
+					diagnostics_.error(binary.location, "comparison requires integer operands");
+					return bool_type();
+				}
+				if (*lhs_type != *rhs_type)
+					diagnostics_.error(binary.location,
+					                   "comparison operands must have the same type");
+				return bool_type();
+			}
 			if (!is_integer(*lhs_type) || !is_integer(*rhs_type)) {
 				diagnostics_.error(binary.location, "arithmetic requires integer operands");
 				return *lhs_type;

@@ -91,3 +91,35 @@ TEST_CASE(parser_accepts_bool_char_string_and_unary_literals)
 	const auto &string = static_cast<const rexc::ast::StringExpr &>(*d.initializer);
 	REQUIRE_EQ(string.value, std::string("hi"));
 }
+
+TEST_CASE(parser_accepts_comparisons)
+{
+	rexc::SourceFile source("test.rx", "fn main() -> bool { return 1 <= 2; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &ret =
+	    static_cast<const rexc::ast::ReturnStmt &>(*result.module().functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Binary);
+	const auto &binary = static_cast<const rexc::ast::BinaryExpr &>(*ret.value);
+	REQUIRE_EQ(binary.op, std::string("<="));
+}
+
+TEST_CASE(parser_accepts_if_else_statements)
+{
+	rexc::SourceFile source(
+	    "test.rx", "fn main() -> i32 { if 1 < 2 { return 1; } else { return 0; } }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &stmt = *result.module().functions[0].body[0];
+	REQUIRE_EQ(stmt.kind, rexc::ast::Stmt::Kind::If);
+	const auto &if_stmt = static_cast<const rexc::ast::IfStmt &>(stmt);
+	REQUIRE_EQ(if_stmt.condition->kind, rexc::ast::Expr::Kind::Binary);
+	REQUIRE_EQ(if_stmt.then_body.size(), std::size_t(1));
+	REQUIRE_EQ(if_stmt.else_body.size(), std::size_t(1));
+}

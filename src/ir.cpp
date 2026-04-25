@@ -61,4 +61,12 @@ ReturnStatement::ReturnStatement(std::unique_ptr<Value> value)
 {
 }
 
+IfStatement::IfStatement(std::unique_ptr<Value> condition,
+                         std::vector<std::unique_ptr<Statement>> then_body,
+                         std::vector<std::unique_ptr<Statement>> else_body)
+	: Statement(Kind::If), condition(std::move(condition)),
+	  then_body(std::move(then_body)), else_body(std::move(else_body))
+{
+}
+
 } // namespace rexc::ir

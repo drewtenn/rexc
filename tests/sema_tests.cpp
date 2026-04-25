@@ -184,3 +184,41 @@ TEST_CASE(sema_accepts_i64_min_integer_literal)
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
 }
+
+TEST_CASE(sema_accepts_integer_comparisons_as_bool)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> bool { let a: i32 = 1; let b: i32 = 2; return a <= b; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_mixed_integer_comparisons)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> bool { let a: i16 = 1; let b: i32 = 2; return a < b; }\n",
+	                      diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("comparison operands must have the same type") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_accepts_if_else_with_bool_condition)
+{
+	rexc::Diagnostics diagnostics;
+	auto result =
+	    analyze("fn main() -> i32 { if 1 < 2 { return 1; } else { return 0; } }\n",
+	            diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_non_bool_if_condition)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { if 1 { return 1; } return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("if condition must be bool") != std::string::npos);
+}
