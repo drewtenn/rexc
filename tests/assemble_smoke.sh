@@ -7,6 +7,11 @@ repo_dir=$2
 tmp_dir="${build_dir}/assemble-smoke"
 mkdir -p "$tmp_dir"
 
+assert_no_stdlib_temps() {
+	test ! -e "$1.stdlib.s.tmp"
+	test ! -e "$1.stdlib.o.tmp"
+}
+
 "${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -S -o "${tmp_dir}/add.s"
 "${build_dir}/rexc" "${repo_dir}/examples/branch.rx" --target i386 -S -o "${tmp_dir}/branch32.s"
 "${build_dir}/rexc" "${repo_dir}/examples/wide.rx" --target x86_64 -S -o "${tmp_dir}/wide64.s"
@@ -38,6 +43,12 @@ if [ -n "$gnu_as" ]; then
 	if [ "$(uname -s)" != "Darwin" ] && command -v clang >/dev/null 2>&1; then
 		"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target x86_64 -o "${tmp_dir}/add-x86_64"
 		test -x "${tmp_dir}/add-x86_64"
+		"${build_dir}/rexc" "${repo_dir}/examples/std_io.rx" --target x86_64 -o "${tmp_dir}/std-io-x86_64"
+		test -x "${tmp_dir}/std-io-x86_64"
+		printf 'friend\n' | "${tmp_dir}/std-io-x86_64" > "${tmp_dir}/std-io-x86_64.out"
+		grep -F -q 'hello from rexc' "${tmp_dir}/std-io-x86_64.out"
+		grep -F -q 'echo: friend' "${tmp_dir}/std-io-x86_64.out"
+		assert_no_stdlib_temps "${tmp_dir}/std-io-x86_64"
 		if clang -m32 -x c /dev/null -o "${tmp_dir}/empty32" >/dev/null 2>&1; then
 			"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -o "${tmp_dir}/add-i386"
 			test -x "${tmp_dir}/add-i386"
@@ -54,6 +65,8 @@ if [ -n "$gnu_as" ]; then
 			"${build_dir}/rexc" "${repo_dir}/examples/std_io.rx" --target x86_64 -o "${tmp_dir}/std-io-x86_64.elf"
 			file "${tmp_dir}/std-io-i386.elf" | grep -F -q 'ELF 32-bit'
 			file "${tmp_dir}/std-io-x86_64.elf" | grep -F -q 'ELF 64-bit'
+			assert_no_stdlib_temps "${tmp_dir}/std-io-i386.elf"
+			assert_no_stdlib_temps "${tmp_dir}/std-io-x86_64.elf"
 		else
 			echo "SKIP: no x86_64-elf-ld found for Darwin x86 ELF executable smoke"
 		fi
@@ -84,6 +97,7 @@ if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	printf 'friend\n' | "${tmp_dir}/std-io-arm64" > "${tmp_dir}/std-io-arm64.out"
 	grep -F -q 'hello from rexc' "${tmp_dir}/std-io-arm64.out"
 	grep -F -q 'echo: friend' "${tmp_dir}/std-io-arm64.out"
+	assert_no_stdlib_temps "${tmp_dir}/std-io-arm64"
 else
 	echo "SKIP: arm64-macos object smoke requires Apple Silicon macOS"
 fi
