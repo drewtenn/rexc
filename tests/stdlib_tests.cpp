@@ -73,62 +73,62 @@ TEST_CASE(stdlib_uses_rx_files_as_canonical_source)
 	REQUIRE(!contains(std_io_text.str(), "fn print_i32_positive"));
 }
 
-TEST_CASE(stdlib_declares_prelude_functions)
+TEST_CASE(stdlib_declares_all_public_functions)
 {
-	auto print = rexc::stdlib::find_prelude_function("print");
-	auto println = rexc::stdlib::find_prelude_function("println");
-	auto read_line = rexc::stdlib::find_prelude_function("read_line");
-	auto strlen = rexc::stdlib::find_prelude_function("strlen");
-	auto str_eq = rexc::stdlib::find_prelude_function("str_eq");
-	auto str_is_empty = rexc::stdlib::find_prelude_function("str_is_empty");
-	auto str_starts_with = rexc::stdlib::find_prelude_function("str_starts_with");
-	auto str_ends_with = rexc::stdlib::find_prelude_function("str_ends_with");
-	auto str_contains = rexc::stdlib::find_prelude_function("str_contains");
-	auto str_find = rexc::stdlib::find_prelude_function("str_find");
-	auto memset_u8 = rexc::stdlib::find_prelude_function("memset_u8");
-	auto memcpy_u8 = rexc::stdlib::find_prelude_function("memcpy_u8");
-	auto str_copy_to = rexc::stdlib::find_prelude_function("str_copy_to");
-	auto slice_u8_len = rexc::stdlib::find_prelude_function("slice_u8_len");
-	auto slice_u8_is_empty = rexc::stdlib::find_prelude_function("slice_u8_is_empty");
-	auto slice_u8_get_or = rexc::stdlib::find_prelude_function("slice_u8_get_or");
-	auto result_is_ok = rexc::stdlib::find_prelude_function("result_is_ok");
-	auto result_is_err = rexc::stdlib::find_prelude_function("result_is_err");
-	auto error_out_of_memory = rexc::stdlib::find_prelude_function("error_out_of_memory");
-	auto alloc_bytes = rexc::stdlib::find_prelude_function("alloc_bytes");
-	auto alloc_used = rexc::stdlib::find_prelude_function("alloc_used");
-	auto alloc_can_allocate = rexc::stdlib::find_prelude_function("alloc_can_allocate");
-	auto alloc_str_copy = rexc::stdlib::find_prelude_function("alloc_str_copy");
-	auto alloc_str_concat = rexc::stdlib::find_prelude_function("alloc_str_concat");
-	auto owned_str_clone = rexc::stdlib::find_prelude_function("owned_str_clone");
-	auto box_i32_new = rexc::stdlib::find_prelude_function("box_i32_new");
-	auto vec_i32_new = rexc::stdlib::find_prelude_function("vec_i32_new");
-	auto vec_i32_push = rexc::stdlib::find_prelude_function("vec_i32_push");
-	auto alloc_i32_to_str = rexc::stdlib::find_prelude_function("alloc_i32_to_str");
-	auto alloc_bool_to_str = rexc::stdlib::find_prelude_function("alloc_bool_to_str");
-	auto alloc_char_to_str = rexc::stdlib::find_prelude_function("alloc_char_to_str");
-	auto alloc_remaining = rexc::stdlib::find_prelude_function("alloc_remaining");
-	auto alloc_reset = rexc::stdlib::find_prelude_function("alloc_reset");
-	auto print_i32 = rexc::stdlib::find_prelude_function("print_i32");
-	auto println_i32 = rexc::stdlib::find_prelude_function("println_i32");
-	auto print_bool = rexc::stdlib::find_prelude_function("print_bool");
-	auto println_bool = rexc::stdlib::find_prelude_function("println_bool");
-	auto print_char = rexc::stdlib::find_prelude_function("print_char");
-	auto println_char = rexc::stdlib::find_prelude_function("println_char");
-	auto parse_i32 = rexc::stdlib::find_prelude_function("parse_i32");
-	auto read_i32 = rexc::stdlib::find_prelude_function("read_i32");
-	auto parse_bool = rexc::stdlib::find_prelude_function("parse_bool");
-	auto read_bool = rexc::stdlib::find_prelude_function("read_bool");
-	auto exit = rexc::stdlib::find_prelude_function("exit");
-	auto panic = rexc::stdlib::find_prelude_function("panic");
-	auto abort = rexc::stdlib::find_prelude_function("abort");
-	auto std_io_println = rexc::stdlib::find_prelude_function("std_io_println");
-	auto std_process_exit = rexc::stdlib::find_prelude_function("std_process_exit");
-	auto args_len = rexc::stdlib::find_prelude_function("args_len");
-	auto arg_at = rexc::stdlib::find_prelude_function("arg_at");
-	auto env_get = rexc::stdlib::find_prelude_function("env_get");
-	auto file_open_read = rexc::stdlib::find_prelude_function("file_open_read");
-	auto file_write_str = rexc::stdlib::find_prelude_function("file_write_str");
-	auto path_join = rexc::stdlib::find_prelude_function("path_join");
+	auto print = rexc::stdlib::find_stdlib_function("print");
+	auto println = rexc::stdlib::find_stdlib_function("println");
+	auto read_line = rexc::stdlib::find_stdlib_function("read_line");
+	auto strlen = rexc::stdlib::find_stdlib_function("strlen");
+	auto str_eq = rexc::stdlib::find_stdlib_function("str_eq");
+	auto str_is_empty = rexc::stdlib::find_stdlib_function("str_is_empty");
+	auto str_starts_with = rexc::stdlib::find_stdlib_function("str_starts_with");
+	auto str_ends_with = rexc::stdlib::find_stdlib_function("str_ends_with");
+	auto str_contains = rexc::stdlib::find_stdlib_function("str_contains");
+	auto str_find = rexc::stdlib::find_stdlib_function("str_find");
+	auto memset_u8 = rexc::stdlib::find_stdlib_function("memset_u8");
+	auto memcpy_u8 = rexc::stdlib::find_stdlib_function("memcpy_u8");
+	auto str_copy_to = rexc::stdlib::find_stdlib_function("str_copy_to");
+	auto slice_u8_len = rexc::stdlib::find_stdlib_function("slice_u8_len");
+	auto slice_u8_is_empty = rexc::stdlib::find_stdlib_function("slice_u8_is_empty");
+	auto slice_u8_get_or = rexc::stdlib::find_stdlib_function("slice_u8_get_or");
+	auto result_is_ok = rexc::stdlib::find_stdlib_function("result_is_ok");
+	auto result_is_err = rexc::stdlib::find_stdlib_function("result_is_err");
+	auto error_out_of_memory = rexc::stdlib::find_stdlib_function("error_out_of_memory");
+	auto alloc_bytes = rexc::stdlib::find_stdlib_function("alloc_bytes");
+	auto alloc_used = rexc::stdlib::find_stdlib_function("alloc_used");
+	auto alloc_can_allocate = rexc::stdlib::find_stdlib_function("alloc_can_allocate");
+	auto alloc_str_copy = rexc::stdlib::find_stdlib_function("alloc_str_copy");
+	auto alloc_str_concat = rexc::stdlib::find_stdlib_function("alloc_str_concat");
+	auto owned_str_clone = rexc::stdlib::find_stdlib_function("owned_str_clone");
+	auto box_i32_new = rexc::stdlib::find_stdlib_function("box_i32_new");
+	auto vec_i32_new = rexc::stdlib::find_stdlib_function("vec_i32_new");
+	auto vec_i32_push = rexc::stdlib::find_stdlib_function("vec_i32_push");
+	auto alloc_i32_to_str = rexc::stdlib::find_stdlib_function("alloc_i32_to_str");
+	auto alloc_bool_to_str = rexc::stdlib::find_stdlib_function("alloc_bool_to_str");
+	auto alloc_char_to_str = rexc::stdlib::find_stdlib_function("alloc_char_to_str");
+	auto alloc_remaining = rexc::stdlib::find_stdlib_function("alloc_remaining");
+	auto alloc_reset = rexc::stdlib::find_stdlib_function("alloc_reset");
+	auto print_i32 = rexc::stdlib::find_stdlib_function("print_i32");
+	auto println_i32 = rexc::stdlib::find_stdlib_function("println_i32");
+	auto print_bool = rexc::stdlib::find_stdlib_function("print_bool");
+	auto println_bool = rexc::stdlib::find_stdlib_function("println_bool");
+	auto print_char = rexc::stdlib::find_stdlib_function("print_char");
+	auto println_char = rexc::stdlib::find_stdlib_function("println_char");
+	auto parse_i32 = rexc::stdlib::find_stdlib_function("parse_i32");
+	auto read_i32 = rexc::stdlib::find_stdlib_function("read_i32");
+	auto parse_bool = rexc::stdlib::find_stdlib_function("parse_bool");
+	auto read_bool = rexc::stdlib::find_stdlib_function("read_bool");
+	auto exit = rexc::stdlib::find_stdlib_function("exit");
+	auto panic = rexc::stdlib::find_stdlib_function("panic");
+	auto abort = rexc::stdlib::find_stdlib_function("abort");
+	auto std_io_println = rexc::stdlib::find_stdlib_function("std_io_println");
+	auto std_process_exit = rexc::stdlib::find_stdlib_function("std_process_exit");
+	auto args_len = rexc::stdlib::find_stdlib_function("args_len");
+	auto arg_at = rexc::stdlib::find_stdlib_function("arg_at");
+	auto env_get = rexc::stdlib::find_stdlib_function("env_get");
+	auto file_open_read = rexc::stdlib::find_stdlib_function("file_open_read");
+	auto file_write_str = rexc::stdlib::find_stdlib_function("file_write_str");
+	auto path_join = rexc::stdlib::find_stdlib_function("path_join");
 
 	REQUIRE(print != nullptr);
 	REQUIRE(println != nullptr);
@@ -350,6 +350,33 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE_EQ(file_open_read->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(file_write_str->parameters.size(), std::size_t(2));
 	REQUIRE_EQ(path_join->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+}
+
+TEST_CASE(stdlib_default_prelude_contains_only_user_facing_names)
+{
+	auto println = rexc::stdlib::find_prelude_function("println");
+	auto read_line = rexc::stdlib::find_prelude_function("read_line");
+	auto str_eq = rexc::stdlib::find_prelude_function("str_eq");
+	auto parse_i32 = rexc::stdlib::find_prelude_function("parse_i32");
+	auto print_i32 = rexc::stdlib::find_prelude_function("print_i32");
+	auto panic = rexc::stdlib::find_prelude_function("panic");
+
+	REQUIRE(println != nullptr);
+	REQUIRE(read_line != nullptr);
+	REQUIRE(str_eq != nullptr);
+	REQUIRE(parse_i32 != nullptr);
+	REQUIRE(print_i32 != nullptr);
+	REQUIRE(panic != nullptr);
+
+	REQUIRE(rexc::stdlib::find_prelude_function("memset_u8") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("alloc_bytes") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("alloc_i32_to_str") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("result_is_ok") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("file_open_read") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("path_join") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("std_io_println") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("exit") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("abort") == nullptr);
 }
 
 TEST_CASE(stdlib_emits_hosted_runtime_symbols)

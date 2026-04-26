@@ -9,12 +9,13 @@
 #include "rexc/source.hpp"
 #include "rexc/types.hpp"
 
+#include "names.hpp"
 #include "source.hpp"
 #include "sys/runtime.hpp"
-#include "names.hpp"
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -66,6 +67,37 @@ void append_source_unit_declarations(std::vector<FunctionDecl> &target,
 	}
 }
 
+const std::unordered_set<std::string> &default_prelude_names()
+{
+	static const std::unordered_set<std::string> names{
+	    "print", "println", "read_line",
+	    "strlen", "str_eq", "str_is_empty", "str_starts_with", "str_ends_with",
+	    "str_contains", "str_find",
+	    "parse_i32", "parse_bool",
+	    "print_i32", "println_i32", "print_bool", "println_bool", "print_char",
+	    "println_char", "read_i32", "read_bool",
+	    "panic"};
+	return names;
+}
+
+bool is_default_prelude_function(const FunctionDecl &function)
+{
+	return default_prelude_names().find(function.name) != default_prelude_names().end();
+}
+
+const FunctionDecl *find_function_in(const std::vector<FunctionDecl> &functions,
+                                     const std::string &name)
+{
+	for (const auto &function : functions) {
+		if (function.name == name)
+			return &function;
+		if (auto path = stdlib_path_for_symbol(function.name);
+		    path && canonical_path(*path) == name)
+			return &function;
+	}
+	return nullptr;
+}
+
 std::string portable_stdlib_assembly(CodegenTarget target)
 {
 	Diagnostics diagnostics;
@@ -112,7 +144,7 @@ std::string sys_runtime_assembly(TargetTriple target)
 
 } // namespace
 
-const std::vector<FunctionDecl> &prelude_functions()
+const std::vector<FunctionDecl> &stdlib_functions()
 {
 	static const std::vector<FunctionDecl> functions = [] {
 		std::vector<FunctionDecl> result;
@@ -123,16 +155,27 @@ const std::vector<FunctionDecl> &prelude_functions()
 	return functions;
 }
 
+const std::vector<FunctionDecl> &prelude_functions()
+{
+	static const std::vector<FunctionDecl> functions = [] {
+		std::vector<FunctionDecl> result;
+		for (const auto &function : stdlib_functions()) {
+			if (is_default_prelude_function(function))
+				result.push_back(function);
+		}
+		return result;
+	}();
+	return functions;
+}
+
+const FunctionDecl *find_stdlib_function(const std::string &name)
+{
+	return find_function_in(stdlib_functions(), name);
+}
+
 const FunctionDecl *find_prelude_function(const std::string &name)
 {
-	for (const auto &function : prelude_functions()) {
-		if (function.name == name)
-			return &function;
-		if (auto path = stdlib_path_for_symbol(function.name);
-		    path && canonical_path(*path) == name)
-			return &function;
-	}
-	return nullptr;
+	return find_function_in(prelude_functions(), name);
 }
 
 std::string hosted_runtime_assembly(TargetTriple target)
