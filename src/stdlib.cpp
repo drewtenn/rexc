@@ -28,6 +28,7 @@ std::string i386_hosted_runtime_assembly()
 print:
 	pushl %ebp
 	movl %esp, %ebp
+	pushl %ebx
 	movl 8(%ebp), %ecx
 	xorl %edx, %edx
 .Lrexc_i386_print_len:
@@ -39,28 +40,34 @@ print:
 	movl $4, %eax
 	movl $1, %ebx
 	int $0x80
+	popl %ebx
 	leave
 	ret
 .globl println
 println:
 	pushl %ebp
 	movl %esp, %ebp
+	pushl %ebx
+	subl $4, %esp
 	pushl 8(%ebp)
 	call print
 	addl $4, %esp
-	movl %eax, %esi
+	movl %eax, -8(%ebp)
 	movl $4, %eax
 	movl $1, %ebx
 	movl $.Lrexc_newline, %ecx
 	movl $1, %edx
 	int $0x80
-	addl %esi, %eax
+	addl -8(%ebp), %eax
+	addl $4, %esp
+	popl %ebx
 	leave
 	ret
 .globl read_line
 read_line:
 	pushl %ebp
 	movl %esp, %ebp
+	pushl %ebx
 	movl $3, %eax
 	movl $0, %ebx
 	movl $.Lrexc_read_line_buffer, %ecx
@@ -81,6 +88,7 @@ read_line:
 	movb $0, .Lrexc_read_line_buffer
 .Lrexc_i386_read_done:
 	movl $.Lrexc_read_line_buffer, %eax
+	popl %ebx
 	leave
 	ret
 .globl exit
@@ -154,7 +162,6 @@ read_line:
 	ret
 .globl exit
 exit:
-	movq %rdi, %rdi
 	movq $60, %rax
 	syscall
 )";
