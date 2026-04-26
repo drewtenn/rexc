@@ -71,6 +71,39 @@ TEST_CASE(sema_accepts_private_call_within_same_module)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_private_static_within_same_module)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod state {\n"
+	    "  static mut VALUE: i32 = 7;\n"
+	    "  fn read() -> i32 { return VALUE; }\n"
+	    "}\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_descendant_access_to_ancestor_private_static)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod outer {\n"
+	    "  static mut VALUE: i32 = 7;\n"
+	    "  mod inner {\n"
+	    "    use outer::VALUE;\n"
+	    "    fn read() -> i32 { return VALUE; }\n"
+	    "  }\n"
+	    "}\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_accepts_descendant_call_to_ancestor_private_function)
 {
 	rexc::Diagnostics diagnostics;
@@ -84,6 +117,40 @@ TEST_CASE(sema_accepts_descendant_call_to_ancestor_private_function)
 
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_parent_access_to_private_child_static)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod child { static mut VALUE: i32 = 3; }\n"
+	    "use child::VALUE;\n"
+	    "fn main() -> i32 { return VALUE; }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("private static 'child::VALUE'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_sibling_access_to_private_static)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod outer {\n"
+	    "  mod state { static mut VALUE: i32 = 7; }\n"
+	    "  mod reader {\n"
+	    "    use outer::state::VALUE;\n"
+	    "    fn read() -> i32 { return VALUE; }\n"
+	    "  }\n"
+	    "}\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("private module 'outer::state'") !=
+	        std::string::npos);
 }
 
 TEST_CASE(sema_accepts_user_module_use_alias)
@@ -115,6 +182,22 @@ TEST_CASE(sema_rejects_use_of_private_function)
 	        std::string::npos);
 }
 
+TEST_CASE(sema_rejects_private_import_without_unknown_alias_cascade)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+	    "use math::add;\n"
+	    "fn main() -> i32 { return add(1, 2); }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	REQUIRE(formatted.find("private function 'math::add'") != std::string::npos);
+	REQUIRE(formatted.find("unknown function 'add'") == std::string::npos);
+}
+
 TEST_CASE(sema_rejects_private_module_segment_from_sibling)
 {
 	rexc::Diagnostics diagnostics;
@@ -131,6 +214,39 @@ TEST_CASE(sema_rejects_private_module_segment_from_sibling)
 	        std::string::npos);
 }
 
+TEST_CASE(sema_rejects_pub_function_inside_private_module_from_outside)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod outer {\n"
+	    "  mod inner { pub fn value() -> i32 { return 1; } }\n"
+	    "}\n"
+	    "fn main() -> i32 { return outer::inner::value(); }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("private module 'outer::inner'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_use_alias_for_private_module)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod outer {\n"
+	    "  mod inner { pub fn value() -> i32 { return 1; } }\n"
+	    "}\n"
+	    "use outer::inner;\n"
+	    "fn main() -> i32 { return inner::value(); }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("private module 'outer::inner'") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_accepts_pub_module_with_pub_function_from_sibling)
 {
 	rexc::Diagnostics diagnostics;
@@ -140,6 +256,22 @@ TEST_CASE(sema_accepts_pub_module_with_pub_function_from_sibling)
 	    "  pub mod inner { pub fn value() -> i32 { return 1; } }\n"
 	    "  mod sibling { fn run() -> i32 { return outer::inner::value(); } }\n"
 	    "}\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_pub_function_through_pub_module_alias)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod outer {\n"
+	    "  pub mod inner { pub fn value() -> i32 { return 1; } }\n"
+	    "}\n"
+	    "use outer::inner;\n"
+	    "fn main() -> i32 { return inner::value(); }\n",
 	    diagnostics);
 
 	REQUIRE(result.ok());

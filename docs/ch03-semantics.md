@@ -60,9 +60,39 @@ fn main() -> i32 {
 }
 ```
 
-Visibility is enforced at the module boundary. Items that another module must
-reach need `pub`; private functions and globals stay available only inside the
-module tree where they were declared.
+Visibility is enforced at every module segment and at the final item. A module
+declared without `pub` is visible to its parent and to code inside that module's
+subtree, but not to siblings or unrelated modules. A private function or static
+is visible in the declaring module and in descendant modules. Parent modules
+cannot reach into a child module's private items; the child must expose a `pub`
+item, and every module segment in the path must also be accessible.
+
+That means `pub fn value` inside a private `mod inner` is still hidden from a
+sibling. The item is public only after the requester can name the module path
+that contains it. `use` declarations follow the same rule as qualified calls:
+an import is checked from the module where the `use` appears.
+
+```rust
+mod outer {
+    fn shared() -> i32 { return 1; }
+
+    pub mod api {
+        pub fn value() -> i32 { return outer::shared(); }
+    }
+
+    mod internal {
+        pub fn hidden() -> i32 { return 2; }
+    }
+}
+
+fn main() -> i32 {
+    return outer::api::value();
+}
+```
+
+The root can call `outer::api::value` because `api` and `value` are public. It
+cannot call `outer::internal::hidden`, even though `hidden` is marked `pub`,
+because `internal` is private outside `outer`.
 
 Inside each function, the analyzer walks with a table of visible local names.
 Function parameters enter the table first. They are visible in the function

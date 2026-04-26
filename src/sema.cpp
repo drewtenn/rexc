@@ -94,7 +94,7 @@ struct ModuleInfo {
 	ast::Visibility visibility = ast::Visibility::Private;
 };
 
-enum class ImportKind { Function, Global, Module };
+enum class ImportKind { Function, Global, Module, Invalid };
 
 struct ImportInfo {
 	ImportKind kind;
@@ -275,33 +275,43 @@ private:
 				continue;
 
 			std::string target_key = canonical_path(use.import_path);
-			ImportKind kind;
-			if (functions_.find(target_key) != functions_.end()) {
-				kind = ImportKind::Function;
-				if (!is_function_accessible(functions_.at(target_key), use.module_path,
-				                            use.location, target_key))
-					continue;
-			} else if (globals_.find(target_key) != globals_.end()) {
-				kind = ImportKind::Global;
-				if (!is_global_accessible(globals_.at(target_key), use.module_path,
-				                          use.location, target_key))
-					continue;
-			} else if (modules_.find(target_key) != modules_.end()) {
-				kind = ImportKind::Module;
-				if (!is_module_accessible(use.import_path, use.module_path,
-				                          use.location))
-					continue;
-			} else {
-				diagnostics_.error(use.location, "unknown import '" + target_key + "'");
-				continue;
-			}
-
 			std::string alias = use.import_path.back();
 			auto &scope = imports_[canonical_path(use.module_path)];
 			if (scope.find(alias) != scope.end()) {
 				diagnostics_.error(use.location, "duplicate import '" + alias + "'");
 				continue;
 			}
+
+			ImportKind kind;
+			if (functions_.find(target_key) != functions_.end()) {
+				kind = ImportKind::Function;
+				if (!is_function_accessible(functions_.at(target_key), use.module_path,
+				                            use.location, target_key)) {
+					scope[alias] = ImportInfo{ImportKind::Invalid, target_key,
+					                          use.import_path};
+					continue;
+				}
+			} else if (globals_.find(target_key) != globals_.end()) {
+				kind = ImportKind::Global;
+				if (!is_global_accessible(globals_.at(target_key), use.module_path,
+				                          use.location, target_key)) {
+					scope[alias] = ImportInfo{ImportKind::Invalid, target_key,
+					                          use.import_path};
+					continue;
+				}
+			} else if (modules_.find(target_key) != modules_.end()) {
+				kind = ImportKind::Module;
+				if (!is_module_accessible(use.import_path, use.module_path,
+				                          use.location)) {
+					scope[alias] = ImportInfo{ImportKind::Invalid, target_key,
+					                          use.import_path};
+					continue;
+				}
+			} else {
+				diagnostics_.error(use.location, "unknown import '" + target_key + "'");
+				continue;
+			}
+
 			scope[alias] = ImportInfo{kind, target_key, use.import_path};
 		}
 	}
@@ -312,8 +322,14 @@ private:
 		return current_module_path_ != nullptr ? *current_module_path_ : empty;
 	}
 
-	bool is_descendant_or_same(const std::vector<std::string> &candidate,
-	                           const std::vector<std::string> &ancestor) const
+	bool is_same_module(const std::vector<std::string> &lhs,
+	                    const std::vector<std::string> &rhs) const
+	{
+		return lhs == rhs;
+	}
+
+	bool is_descendant_or_same_module(const std::vector<std::string> &candidate,
+	                                  const std::vector<std::string> &ancestor) const
 	{
 		if (ancestor.size() > candidate.size())
 			return false;
@@ -324,12 +340,32 @@ private:
 		return true;
 	}
 
+	bool is_parent_module_of(const std::vector<std::string> &parent,
+	                         const std::vector<std::string> &child) const
+	{
+		return is_same_module(parent, parent_module_path(child));
+	}
+
 	std::vector<std::string> parent_module_path(
 	    const std::vector<std::string> &module_path) const
 	{
 		if (module_path.empty())
 			return {};
 		return std::vector<std::string>(module_path.begin(), module_path.end() - 1);
+	}
+
+	bool can_access_private_module_segment(
+	    const std::vector<std::string> &private_module,
+	    const std::vector<std::string> &requester) const
+	{
+		return is_parent_module_of(requester, private_module) ||
+		       is_descendant_or_same_module(requester, private_module);
+	}
+
+	bool can_access_private_item(const std::vector<std::string> &owner,
+	                             const std::vector<std::string> &requester) const
+	{
+		return is_descendant_or_same_module(requester, owner);
 	}
 
 	bool is_module_accessible(const std::vector<std::string> &module_path,
@@ -344,8 +380,7 @@ private:
 			    it->second.visibility == ast::Visibility::Public)
 				continue;
 
-			auto parent = parent_module_path(prefix);
-			if (requester == parent || is_descendant_or_same(requester, prefix))
+			if (can_access_private_module_segment(prefix, requester))
 				continue;
 
 			diagnostics_.error(location,
@@ -360,7 +395,7 @@ private:
 	                     const std::vector<std::string> &requester) const
 	{
 		return visibility == ast::Visibility::Public ||
-		       is_descendant_or_same(requester, owner);
+		       can_access_private_item(owner, requester);
 	}
 
 	bool is_function_accessible(const FunctionInfo &function,
@@ -396,6 +431,14 @@ private:
 			return nullptr;
 		auto import = scope->second.find(alias);
 		return import != scope->second.end() ? &import->second : nullptr;
+	}
+
+	bool has_invalid_import_prefix(const std::vector<std::string> &path) const
+	{
+		if (path.empty())
+			return false;
+		auto import = find_import(path[0]);
+		return import != nullptr && import->kind == ImportKind::Invalid;
 	}
 
 	const FunctionInfo *find_function(const std::vector<std::string> &path) const
@@ -714,7 +757,9 @@ private:
 			const auto &call = static_cast<const ast::CallExpr &>(expr);
 			auto function = resolve_function(call.callee_path, call.location);
 			if (function == nullptr) {
-				diagnostics_.error(call.location, "unknown function '" + call.callee + "'");
+				if (!has_invalid_import_prefix(call.callee_path))
+					diagnostics_.error(call.location,
+					                   "unknown function '" + call.callee + "'");
 			} else {
 				std::size_t expected_count = function->parameter_types.size();
 				if (expected_count != call.arguments.size()) {

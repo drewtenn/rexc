@@ -271,7 +271,7 @@ Goal: make Rexc programs scale beyond single files.
 
 Planned work:
 
-- finalize public/private item rules;
+- finalize public/private item rules; **done for the current module model**
 - decide the default prelude policy and which names remain always available;
 - add clearer namespace rules for stdlib paths and user modules;
 - refine package search roots and command-line behavior;
