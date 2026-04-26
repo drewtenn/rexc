@@ -122,7 +122,10 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	auto panic = rexc::stdlib::find_stdlib_function("panic");
 	auto abort = rexc::stdlib::find_stdlib_function("abort");
 	auto std_io_println = rexc::stdlib::find_stdlib_function("std_io_println");
+	auto std_io_println_path = rexc::stdlib::find_stdlib_function("std::io::println");
 	auto std_process_exit = rexc::stdlib::find_stdlib_function("std_process_exit");
+	auto std_process_exit_path =
+		rexc::stdlib::find_stdlib_function("std::process::exit");
 	auto args_len = rexc::stdlib::find_stdlib_function("args_len");
 	auto arg_at = rexc::stdlib::find_stdlib_function("arg_at");
 	auto env_get = rexc::stdlib::find_stdlib_function("env_get");
@@ -177,7 +180,9 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(panic != nullptr);
 	REQUIRE(abort != nullptr);
 	REQUIRE(std_io_println != nullptr);
+	REQUIRE(std_io_println_path != nullptr);
 	REQUIRE(std_process_exit != nullptr);
+	REQUIRE(std_process_exit_path != nullptr);
 	REQUIRE(args_len != nullptr);
 	REQUIRE(arg_at != nullptr);
 	REQUIRE(env_get != nullptr);
@@ -341,7 +346,9 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(panic->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(abort->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(std_io_println->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_io_println_path->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_process_exit->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_process_exit_path->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(args_len->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(arg_at->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(arg_at->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
@@ -375,6 +382,8 @@ TEST_CASE(stdlib_default_prelude_contains_only_user_facing_names)
 	REQUIRE(rexc::stdlib::find_prelude_function("file_open_read") == nullptr);
 	REQUIRE(rexc::stdlib::find_prelude_function("path_join") == nullptr);
 	REQUIRE(rexc::stdlib::find_prelude_function("std_io_println") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("std::io::println") == nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("std::process::exit") == nullptr);
 	REQUIRE(rexc::stdlib::find_prelude_function("exit") == nullptr);
 	REQUIRE(rexc::stdlib::find_prelude_function("abort") == nullptr);
 }
