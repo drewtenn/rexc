@@ -67,6 +67,7 @@ add_custom_command(
 
 set(REXC_STDLIB_RX_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/str.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/mem.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/num.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/io.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/process.rx"

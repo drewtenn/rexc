@@ -134,6 +134,10 @@ Early catalog entries should record whether an item belongs conceptually to
 capability gap and close the gap in the compiler or language before
 continuing.
 
+Early `core` memory helpers such as byte fill, byte copy, and bounded
+string-to-buffer copy may use raw `*u8` pointers. They are stepping stones
+toward `alloc`, not a substitute for owned strings, slices, or vectors.
+
 ## Runtime And Linking
 
 Executable links should automatically include the hosted `std` runtime object

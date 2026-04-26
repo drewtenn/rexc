@@ -162,3 +162,15 @@ TEST_CASE(codegen_arm64_macos_emits_std_panic_call)
 
 	REQUIRE(assembly.find("bl _panic") != std::string::npos);
 }
+
+TEST_CASE(codegen_arm64_macos_emits_core_memory_helper_calls)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"static mut A: [u8; 16];\n"
+		"static mut B: [u8; 16];\n"
+		"fn main() -> i32 { return memset_u8(A + 0, 120 as u8, 4) + memcpy_u8(B + 0, A + 0, 4) + str_copy_to(B + 0, \"hello\", 16); }\n");
+
+	REQUIRE(assembly.find("bl _memset_u8") != std::string::npos);
+	REQUIRE(assembly.find("bl _memcpy_u8") != std::string::npos);
+	REQUIRE(assembly.find("bl _str_copy_to") != std::string::npos);
+}

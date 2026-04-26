@@ -545,3 +545,15 @@ TEST_CASE(codegen_x86_emits_std_panic_call)
 
 	REQUIRE(assembly.find("call panic") != std::string::npos);
 }
+
+TEST_CASE(codegen_i386_emits_core_memory_helper_calls)
+{
+	auto assembly = compile_to_assembly(
+		"static mut A: [u8; 16];\n"
+		"static mut B: [u8; 16];\n"
+		"fn main() -> i32 { return memset_u8(A + 0, 120 as u8, 4) + memcpy_u8(B + 0, A + 0, 4) + str_copy_to(B + 0, \"hello\", 16); }\n");
+
+	REQUIRE(assembly.find("call memset_u8") != std::string::npos);
+	REQUIRE(assembly.find("call memcpy_u8") != std::string::npos);
+	REQUIRE(assembly.find("call str_copy_to") != std::string::npos);
+}

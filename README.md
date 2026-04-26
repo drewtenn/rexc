@@ -400,6 +400,9 @@ standard functions without module syntax:
 | `str_ends_with` | `fn(str, str) -> bool` | Returns whether the first string ends with the second string. |
 | `str_contains` | `fn(str, str) -> bool` | Returns whether the first string contains the second string. |
 | `str_find` | `fn(str, str) -> i32` | Returns the first byte index of the second string in the first, or `-1` when absent. |
+| `memset_u8` | `fn(*u8, u8, i32) -> i32` | Writes one byte value into a raw byte buffer and returns the requested byte count. |
+| `memcpy_u8` | `fn(*u8, *u8, i32) -> i32` | Copies bytes between raw byte buffers and returns the requested byte count. |
+| `str_copy_to` | `fn(*u8, str, i32) -> i32` | Copies a string into a raw byte buffer, null-terminates when capacity allows, and returns bytes copied. |
 | `print_i32` | `fn(i32) -> i32` | Writes a signed decimal integer without adding a newline. |
 | `println_i32` | `fn(i32) -> i32` | Writes a signed decimal integer followed by `\n`. |
 | `parse_i32` | `fn(str) -> i32` | Parses a signed decimal integer, returning `0` for invalid or overflow input. |
@@ -412,7 +415,10 @@ buffer, and overwrites the same buffer on the next `read_line` call. It is
 implemented in Rexc using a `static mut [u8; 1024]` buffer and the primitive
 `sys_read` hook. `strlen`, `str_is_empty`, `str_eq`, `str_starts_with`,
 `str_ends_with`, `str_contains`, `str_find`, and `parse_i32` are early `core`-style
-target-independent contracts implemented in Rexc source. `parse_i32` accepts
+target-independent contracts implemented in Rexc source. `memset_u8`,
+`memcpy_u8`, and `str_copy_to` provide raw byte-buffer building blocks for
+future `alloc` work while Rexc is still growing ownership and heap types.
+`parse_i32` accepts
 an optional leading `-` followed by decimal digits; empty strings, invalid
 characters, and overflow return `0` until Rexc has richer result types.
 

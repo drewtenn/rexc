@@ -1,0 +1,32 @@
+fn memset_u8(dest: *u8, value: u8, len: i32) -> i32 {
+	let mut index: i32 = 0;
+	while index < len {
+		*(dest + index) = value;
+		index = index + 1;
+	}
+	return len;
+}
+
+fn memcpy_u8(dest: *u8, src: *u8, len: i32) -> i32 {
+	let mut index: i32 = 0;
+	while index < len {
+		*(dest + index) = src[index];
+		index = index + 1;
+	}
+	return len;
+}
+
+fn str_copy_to(dest: *u8, value: str, max_len: i32) -> i32 {
+	if max_len <= 0 {
+		return 0;
+	}
+
+	let limit: i32 = max_len - 1;
+	let mut index: i32 = 0;
+	while index < limit && value[index] != 0 {
+		*(dest + index) = value[index];
+		index = index + 1;
+	}
+	*(dest + index) = 0;
+	return index;
+}

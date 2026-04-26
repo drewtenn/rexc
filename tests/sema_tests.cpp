@@ -379,6 +379,24 @@ TEST_CASE(sema_accepts_std_prelude_panic)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_core_memory_helpers)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"static mut A: [u8; 16];\n"
+		"static mut B: [u8; 16];\n"
+		"fn main() -> i32 {\n"
+		"  let a: i32 = memset_u8(A + 0, 120 as u8, 4);\n"
+		"  let b: i32 = memcpy_u8(B + 0, A + 0, 4);\n"
+		"  let c: i32 = str_copy_to(B + 0, \"hello\", 16);\n"
+		"  return a + b + c;\n"
+		"}\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_rejects_std_prelude_print_i32_wrong_argument_type)
 {
 	rexc::Diagnostics diagnostics;
