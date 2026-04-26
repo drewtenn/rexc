@@ -188,12 +188,20 @@ exposes the character's scalar value. Casts involving `str`, and other
 character casts such as `char as u8`, are rejected so the language does not
 pretend strings or characters are byte arrays.
 
-The hosted standard library is also part of the semantic environment. Prelude
-functions such as `print`, `println`, `read_line`, `strlen`, `str_eq`,
-`parse_i32`, `read_i32`, `print_bool`, `println_bool`, `print_char`, and
-`panic` are injected with known signatures. Programs can call those functions
-without writing module syntax, and sema checks their argument counts and types
-the same way it checks user-defined functions.
+The hosted standard library is also part of the semantic environment. The
+default bare prelude is limited to user-facing helpers such as `print`,
+`println`, `read_line`, `strlen`, `str_eq`, `parse_i32`, `read_i32`,
+`print_bool`, `println_bool`, `print_char`, and `panic`. Programs can call
+those functions without writing module syntax, and sema checks their argument
+counts and types the same way it checks user-defined functions.
+
+Public standard-library helpers outside that default prelude stay available
+through explicit bridge paths, such as `std::io::println` and
+`std::process::exit`. Bootstrap helpers, raw memory helpers, runtime bridge
+labels, and stdlib statics are not user-facing bare names. Compiler internals
+and tests that intentionally exercise those names opt into an explicit
+all-stdlib symbol policy, while normal user analysis keeps the smaller default
+prelude.
 
 ### Where the Compiler Is by the End of Chapter 3
 

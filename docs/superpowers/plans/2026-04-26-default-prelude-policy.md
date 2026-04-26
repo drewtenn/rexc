@@ -830,14 +830,11 @@ git commit -m "test: define default prelude sema behavior"
 ## Task 5: Update Docs And Roadmap
 
 **Files:**
-- Skip in this scoped commit: `docs/ch03-semantics.md` (outside requested write scope)
+- Modify: `docs/ch03-semantics.md`
 - Modify: `docs/roadmap.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Document the default prelude in Chapter 3**
-
-Status note: not changed in this scoped Task 5 docs commit because the
-requested ownership/write scope excludes `docs/ch03-semantics.md`.
+- [x] **Step 1: Document the default prelude in Chapter 3**
 
 In `docs/ch03-semantics.md`, after the module visibility section and before local-name analysis, add:
 
@@ -884,7 +881,7 @@ to:
 Run:
 
 ```bash
-rg -n "std_prelude|default prelude|DefaultPrelude|alloc_reset|memset_u8" README.md docs/ROADMAP.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
+rg -n "std_prelude|default prelude|DefaultPrelude|alloc_reset|memset_u8" README.md docs/ch03-semantics.md docs/roadmap.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
 ```
 
 Expected: docs mention the intended policy without implying omitted helpers are
@@ -893,14 +890,14 @@ default bare user-facing names. Full build and test verification remains Task 6.
 - [x] **Step 5: Commit docs**
 
 ```bash
-git add README.md docs/roadmap.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
+git add README.md docs/ch03-semantics.md docs/roadmap.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
 git commit -m "docs: document default prelude policy"
 ```
 
 If `README.md` had no changes, run:
 
 ```bash
-git add docs/roadmap.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
+git add docs/ch03-semantics.md docs/roadmap.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
 git commit -m "docs: document default prelude policy"
 ```
 
