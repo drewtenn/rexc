@@ -177,23 +177,37 @@ private:
 		                 is_stdlib);
 	}
 
+	void reserve_stdlib_module_path(const std::vector<std::string> &path)
+	{
+		if (path.empty())
+			return;
+		for (std::size_t size = 1; size < path.size(); ++size) {
+			std::vector<std::string> prefix(path.begin(), path.begin() + size);
+			reserved_stdlib_module_paths_.insert(canonical_path(prefix));
+		}
+	}
+
 	void build_module_table()
 	{
 		if (include_stdlib_symbols()) {
 			for (const auto &function : stdlib::stdlib_functions()) {
-				if (auto path = stdlib_path_for_symbol(function.name))
+				if (auto path = stdlib_path_for_symbol(function.name)) {
+					reserve_stdlib_module_path(*path);
 					note_item_path(*path, true);
+				}
 			}
 		}
 
 		for (const auto &module : module_.modules) {
-			note_module_path(module.module_path);
 			std::string key = canonical_path(module.module_path);
-			if (modules_.find(key) != modules_.end() &&
-			    !modules_[key].location.file.empty()) {
+			auto existing = modules_.find(key);
+			if (reserved_stdlib_module_paths_.find(key) !=
+			        reserved_stdlib_module_paths_.end() ||
+			    (existing != modules_.end() && !existing->second.location.file.empty())) {
 				diagnostics_.error(module.location, "duplicate module '" + key + "'");
 				continue;
 			}
+			note_module_path(module.module_path);
 			modules_[key] = ModuleInfo{module.location, module.module_path,
 			                           module.visibility};
 		}
@@ -998,6 +1012,7 @@ private:
 	std::unordered_map<std::string, GlobalInfo> globals_;
 	std::unordered_map<std::string, FunctionInfo> functions_;
 	std::unordered_set<std::string> reserved_stdlib_function_symbols_;
+	std::unordered_set<std::string> reserved_stdlib_module_paths_;
 	std::unordered_map<std::string, ImportScope> imports_;
 	std::unordered_map<std::string, ModuleInfo> modules_;
 	const std::vector<std::string> *current_module_path_ = nullptr;

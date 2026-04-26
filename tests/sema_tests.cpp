@@ -694,6 +694,34 @@ TEST_CASE(sema_accepts_explicit_std_bridge_path_without_bare_bridge_name)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_rejects_user_module_that_collides_with_stdlib_root)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod std { fn value() -> i32 { return 0; } }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("duplicate module 'std'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_user_module_that_collides_with_stdlib_bridge_module)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod std { mod io { fn value() -> i32 { return 0; } } }\n"
+	    "fn main() -> i32 { std::io::println(\"hi\"); return 0; }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("duplicate module 'std'") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_rejects_std_bridge_symbol_as_bare_name)
 {
 	rexc::Diagnostics diagnostics;
