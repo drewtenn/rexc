@@ -76,6 +76,7 @@ add_library(rexc_core
 	src/codegen_x86.cpp
 	src/codegen_arm64.cpp
 	src/types.cpp
+	src/stdlib.cpp
 	${REXC_ANTLR_GENERATED_SOURCES}
 )
 

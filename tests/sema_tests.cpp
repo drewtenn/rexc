@@ -59,19 +59,6 @@ TEST_CASE(sema_rejects_wrong_arity)
 	REQUIRE(diagnostics.format().find("expected 1 arguments but got 2") != std::string::npos);
 }
 
-TEST_CASE(sema_rejects_call_statements_until_supported)
-{
-	rexc::Diagnostics diagnostics;
-
-	auto result = analyze(
-	    "extern fn print(x: str) -> i32;\nfn main() -> i32 { print(\"hello\"); return 0; }\n",
-	    diagnostics);
-
-	REQUIRE(!result.ok());
-	REQUIRE(diagnostics.format().find("call statements are not supported yet") !=
-	        std::string::npos);
-}
-
 TEST_CASE(sema_rejects_unknown_local)
 {
 	rexc::Diagnostics diagnostics;
@@ -248,6 +235,49 @@ TEST_CASE(sema_rejects_logical_operator_on_non_bool)
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("logical operator requires bool operands") !=
 	        std::string::npos);
+}
+
+TEST_CASE(sema_accepts_std_prelude_print_functions)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { print(\"hello\"); println(\"world\"); return 0; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_std_prelude_read_line)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { let name: str = read_line(); println(name); return 0; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_std_prelude_wrong_argument_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { println(1); return 0; }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'str' but got 'i32'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_duplicate_std_prelude_function)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn println(value: str) -> i32 { return 0; }\n"
+		"fn main() -> i32 { return 0; }\n",
+		diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("duplicate function 'println'") != std::string::npos);
 }
 
 TEST_CASE(sema_accepts_supported_explicit_casts)

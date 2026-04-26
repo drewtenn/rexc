@@ -6,12 +6,15 @@
 // compatible primitive types, integer literals fit their target types, and
 // break/continue appear only inside loops.
 #include "rexc/sema.hpp"
+#include "rexc/stdlib.hpp"
 #include "rexc/types.hpp"
 
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace rexc {
 namespace {
@@ -59,7 +62,9 @@ std::uint64_t max_signed_magnitude(PrimitiveType type)
 }
 
 struct FunctionInfo {
-	const ast::Function *function = nullptr;
+	SourceLocation location;
+	PrimitiveType return_type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
+	std::vector<PrimitiveType> parameter_types;
 };
 
 struct LocalInfo {
@@ -89,12 +94,21 @@ public:
 private:
 	void build_function_table()
 	{
+		for (const auto &function : stdlib::prelude_functions())
+			functions_[function.name] =
+				FunctionInfo{SourceLocation{}, function.return_type, function.parameters};
+
 		for (const auto &function : module_.functions) {
 			if (functions_.find(function.name) != functions_.end()) {
 				diagnostics_.error(function.location, "duplicate function '" + function.name + "'");
 				continue;
 			}
-			functions_[function.name] = FunctionInfo{&function};
+			FunctionInfo info;
+			info.location = function.location;
+			info.return_type = check_type(function.return_type);
+			for (const auto &parameter : function.parameters)
+				info.parameter_types.push_back(check_type(parameter.type));
+			functions_[function.name] = std::move(info);
 		}
 	}
 
@@ -226,7 +240,8 @@ private:
 		}
 
 		if (statement.kind == ast::Stmt::Kind::Expr) {
-			diagnostics_.error(statement.location, "call statements are not supported yet");
+			const auto &expr_statement = static_cast<const ast::ExprStmt &>(statement);
+			check_expr(locals, *expr_statement.value);
 			return;
 		}
 
@@ -320,7 +335,7 @@ private:
 			if (it == functions_.end()) {
 				diagnostics_.error(call.location, "unknown function '" + call.callee + "'");
 			} else {
-				std::size_t expected_count = it->second.function->parameters.size();
+				std::size_t expected_count = it->second.parameter_types.size();
 				if (expected_count != call.arguments.size()) {
 					diagnostics_.error(call.location, "function '" + call.callee + "' expected " +
 					                   std::to_string(expected_count) + " arguments but got " +
@@ -329,7 +344,7 @@ private:
 				for (std::size_t i = 0; i < call.arguments.size(); ++i) {
 					std::optional<PrimitiveType> parameter_type;
 					if (i < expected_count)
-						parameter_type = check_type(it->second.function->parameters[i].type);
+						parameter_type = it->second.parameter_types[i];
 					auto argument_type = check_expr(locals, *call.arguments[i], parameter_type);
 					if (parameter_type && argument_type && *argument_type != *parameter_type) {
 						diagnostics_.error(call.arguments[i]->location,
@@ -338,7 +353,7 @@ private:
 						                   format_type(*argument_type) + "'");
 					}
 				}
-				return check_type(it->second.function->return_type);
+				return it->second.return_type;
 			}
 			for (const auto &argument : call.arguments)
 				check_expr(locals, *argument);
