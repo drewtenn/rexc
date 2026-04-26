@@ -6,6 +6,7 @@
 // and maps source locals/parameters into IR declarations while assuming sema
 // has already rejected invalid names, types, and control flow.
 #include "rexc/lower_ir.hpp"
+#include "rexc/stdlib.hpp"
 #include "rexc/types.hpp"
 
 #include <memory>
@@ -71,6 +72,13 @@ private:
 
 	void build_function_table()
 	{
+		for (const auto &function : stdlib::prelude_functions()) {
+			FunctionInfo info;
+			info.return_type = function.return_type;
+			info.parameter_types = function.parameters;
+			functions_[function.name] = std::move(info);
+		}
+
 		for (const auto &function : module_.functions) {
 			FunctionInfo info;
 			info.return_type = lower_type(function.return_type);
@@ -237,8 +245,11 @@ private:
 		if (statement.kind == ast::Stmt::Kind::Continue)
 			return std::make_unique<ir::ContinueStatement>();
 
-		if (statement.kind == ast::Stmt::Kind::Expr)
-			throw std::runtime_error("expression statements are not supported in IR lowering yet");
+		if (statement.kind == ast::Stmt::Kind::Expr) {
+			const auto &expr_statement = static_cast<const ast::ExprStmt &>(statement);
+			return std::make_unique<ir::ExprStatement>(
+				lower_expr(*expr_statement.value, locals));
+		}
 
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
 		return std::make_unique<ir::ReturnStatement>(

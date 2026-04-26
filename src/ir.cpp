@@ -77,6 +77,11 @@ IndirectAssignStatement::IndirectAssignStatement(std::unique_ptr<Value> target,
 {
 }
 
+ExprStatement::ExprStatement(std::unique_ptr<Value> value)
+	: Statement(Kind::Expr), value(std::move(value))
+{
+}
+
 ReturnStatement::ReturnStatement(std::unique_ptr<Value> value)
 	: Statement(Kind::Return), value(std::move(value))
 {
