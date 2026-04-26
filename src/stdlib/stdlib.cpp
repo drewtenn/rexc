@@ -107,13 +107,13 @@ std::string portable_stdlib_assembly(CodegenTarget target)
 		return "# failed to parse stdlib.rx\n# " + diagnostics.format() + "\n";
 
 	SemanticOptions semantic_options;
-	semantic_options.include_stdlib_prelude = false;
+	semantic_options.stdlib_symbols = StdlibSymbolPolicy::None;
 	auto sema = analyze_module(parsed.module(), diagnostics, semantic_options);
 	if (!sema.ok())
 		return "# failed to analyze stdlib.rx\n# " + diagnostics.format() + "\n";
 
 	LowerOptions lower_options;
-	lower_options.include_stdlib_prelude = false;
+	lower_options.stdlib_symbols = LowerStdlibSymbolPolicy::None;
 	auto lowered = lower_to_ir(parsed.module(), lower_options);
 
 	CodegenResult emitted =

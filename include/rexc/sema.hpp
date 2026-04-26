@@ -16,8 +16,14 @@ private:
 	bool ok_;
 };
 
+enum class StdlibSymbolPolicy {
+	None,
+	DefaultPrelude,
+	All,
+};
+
 struct SemanticOptions {
-	bool include_stdlib_prelude = true;
+	StdlibSymbolPolicy stdlib_symbols = StdlibSymbolPolicy::DefaultPrelude;
 };
 
 SemanticResult analyze_module(const ast::Module &module, Diagnostics &diagnostics,

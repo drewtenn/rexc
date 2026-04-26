@@ -11,12 +11,14 @@
 
 #include <string>
 
-static rexc::SemanticResult analyze(const std::string &text, rexc::Diagnostics &diagnostics)
+static rexc::SemanticResult analyze(const std::string &text,
+                                    rexc::Diagnostics &diagnostics,
+                                    rexc::SemanticOptions options = {})
 {
 	rexc::SourceFile source("test.rx", text);
 	auto parsed = rexc::parse_source(source, diagnostics);
 	REQUIRE(parsed.ok());
-	return rexc::analyze_module(parsed.module(), diagnostics);
+	return rexc::analyze_module(parsed.module(), diagnostics, options);
 }
 
 TEST_CASE(sema_accepts_valid_add_program)
@@ -668,9 +670,48 @@ TEST_CASE(sema_accepts_std_prelude_panic)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_rejects_non_default_stdlib_helper_as_bare_name)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("fn main() -> i32 { alloc_reset(); return 0; }\n",
+	                      diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown function 'alloc_reset'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_accepts_explicit_std_bridge_path_without_bare_bridge_name)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "fn main() -> i32 { std::io::println(\"hi\"); return 0; }\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_std_bridge_symbol_as_bare_name)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "fn main() -> i32 { std_io_println(\"hi\"); return 0; }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown function 'std_io_println'") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_accepts_core_memory_helpers)
 {
 	rexc::Diagnostics diagnostics;
+	rexc::SemanticOptions options;
+	options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
 	auto result = analyze(
 		"static mut A: [u8; 16];\n"
 		"static mut B: [u8; 16];\n"
@@ -680,7 +721,8 @@ TEST_CASE(sema_accepts_core_memory_helpers)
 		"  let c: i32 = str_copy_to(B + 0, \"hello\", 16);\n"
 		"  return a + b + c;\n"
 		"}\n",
-		diagnostics);
+		diagnostics,
+		options);
 
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
@@ -689,6 +731,8 @@ TEST_CASE(sema_accepts_core_memory_helpers)
 TEST_CASE(sema_accepts_alloc_helpers)
 {
 	rexc::Diagnostics diagnostics;
+	rexc::SemanticOptions options;
+	options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
 	auto result = analyze(
 		"fn main() -> i32 {\n"
 		"  alloc_reset();\n"
@@ -702,7 +746,8 @@ TEST_CASE(sema_accepts_alloc_helpers)
 		"  if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") && str_eq(letter, \"z\") { return alloc_remaining(); }\n"
 		"  return 0;\n"
 		"}\n",
-		diagnostics);
+		diagnostics,
+		options);
 
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());

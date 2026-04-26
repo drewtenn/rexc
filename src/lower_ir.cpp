@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace rexc {
 namespace {
@@ -103,6 +104,23 @@ private:
 	using Locals = std::unordered_map<std::string, ir::Type>;
 	using ImportScope = std::unordered_map<std::string, ImportInfo>;
 
+	const std::vector<stdlib::FunctionDecl> &bare_stdlib_functions() const
+	{
+		if (options_.stdlib_symbols == LowerStdlibSymbolPolicy::All)
+			return stdlib::stdlib_functions();
+		return stdlib::prelude_functions();
+	}
+
+	bool include_stdlib_symbols() const
+	{
+		return options_.stdlib_symbols != LowerStdlibSymbolPolicy::None;
+	}
+
+	bool include_bare_stdlib_symbols() const
+	{
+		return options_.stdlib_symbols != LowerStdlibSymbolPolicy::None;
+	}
+
 	void note_module_path(const std::vector<std::string> &module_path)
 	{
 		for (std::size_t size = 1; size <= module_path.size(); ++size) {
@@ -138,13 +156,8 @@ private:
 
 	void build_function_table()
 	{
-		if (options_.include_stdlib_prelude) {
-			for (const auto &function : stdlib::prelude_functions()) {
-				FunctionInfo info;
-				info.return_type = function.return_type;
-				info.parameter_types = function.parameters;
-				info.symbol_name = function.name;
-				functions_[function.name] = std::move(info);
+		if (include_stdlib_symbols()) {
+			for (const auto &function : stdlib::stdlib_functions()) {
 				if (auto path = stdlib_path_for_symbol(function.name)) {
 					note_item_path(*path);
 					FunctionInfo path_info;
@@ -152,6 +165,15 @@ private:
 					path_info.parameter_types = function.parameters;
 					path_info.symbol_name = function.name;
 					functions_[canonical_path(*path)] = std::move(path_info);
+				}
+			}
+			if (include_bare_stdlib_symbols()) {
+				for (const auto &function : bare_stdlib_functions()) {
+					FunctionInfo info;
+					info.return_type = function.return_type;
+					info.parameter_types = function.parameters;
+					info.symbol_name = function.name;
+					functions_[function.name] = std::move(info);
 				}
 			}
 		}

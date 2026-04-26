@@ -127,6 +127,23 @@ public:
 private:
 	using ImportScope = std::unordered_map<std::string, ImportInfo>;
 
+	const std::vector<stdlib::FunctionDecl> &bare_stdlib_functions() const
+	{
+		if (options_.stdlib_symbols == StdlibSymbolPolicy::All)
+			return stdlib::stdlib_functions();
+		return stdlib::prelude_functions();
+	}
+
+	bool include_stdlib_symbols() const
+	{
+		return options_.stdlib_symbols != StdlibSymbolPolicy::None;
+	}
+
+	bool include_bare_stdlib_symbols() const
+	{
+		return options_.stdlib_symbols != StdlibSymbolPolicy::None;
+	}
+
 	void note_module_path(const std::vector<std::string> &module_path,
 	                      ast::Visibility leaf_visibility = ast::Visibility::Private,
 	                      bool public_prefixes = false)
@@ -161,8 +178,8 @@ private:
 
 	void build_module_table()
 	{
-		if (options_.include_stdlib_prelude) {
-			for (const auto &function : stdlib::prelude_functions()) {
+		if (include_stdlib_symbols()) {
+			for (const auto &function : stdlib::stdlib_functions()) {
 				if (auto path = stdlib_path_for_symbol(function.name))
 					note_item_path(*path, true);
 			}
@@ -237,14 +254,20 @@ private:
 
 	void build_function_table()
 	{
-		if (options_.include_stdlib_prelude) {
-			for (const auto &function : stdlib::prelude_functions()) {
+		if (include_stdlib_symbols()) {
+			for (const auto &function : stdlib::stdlib_functions()) {
 				FunctionInfo info{SourceLocation{}, function.return_type, function.parameters};
 				info.visibility = ast::Visibility::Public;
-				functions_[function.name] = info;
 				if (auto path = stdlib_path_for_symbol(function.name)) {
 					info.module_path = std::vector<std::string>(path->begin(), path->end() - 1);
-					functions_[canonical_path(*path)] = std::move(info);
+					functions_[canonical_path(*path)] = info;
+				}
+			}
+			if (include_bare_stdlib_symbols()) {
+				for (const auto &function : bare_stdlib_functions()) {
+					FunctionInfo info{SourceLocation{}, function.return_type, function.parameters};
+					info.visibility = ast::Visibility::Public;
+					functions_[function.name] = std::move(info);
 				}
 			}
 		}

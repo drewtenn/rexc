@@ -6,8 +6,15 @@
 
 namespace rexc {
 
+enum class LowerStdlibSymbolPolicy {
+	None,
+	DefaultPrelude,
+	All,
+};
+
 struct LowerOptions {
-	bool include_stdlib_prelude = true;
+	LowerStdlibSymbolPolicy stdlib_symbols =
+	    LowerStdlibSymbolPolicy::DefaultPrelude;
 };
 
 ir::Module lower_to_ir(const ast::Module &module, LowerOptions options = {});
