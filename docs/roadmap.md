@@ -230,7 +230,8 @@ Delivered:
 
 Known limits:
 
-- the prelude is intentionally too broad;
+- the default prelude is intentionally small, but stdlib namespaces and bridge
+  paths still need clearer long-term rules;
 - `alloc` is a static bump arena with no deallocation;
 - errors are integer sentinels instead of typed `Result` values;
 - stdlib source is embedded at build time instead of loaded through the module
