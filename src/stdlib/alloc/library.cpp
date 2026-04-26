@@ -31,6 +31,7 @@ const std::vector<FunctionDecl> &prelude_functions()
 		FunctionDecl{Layer::Alloc, "alloc_bytes", {i32_type()}, ptr_u8_type()},
 		FunctionDecl{Layer::Alloc, "alloc_str_copy", {str_type()}, str_type()},
 		FunctionDecl{Layer::Alloc, "alloc_str_concat", {str_type(), str_type()}, str_type()},
+		FunctionDecl{Layer::Alloc, "alloc_i32_to_str", {i32_type()}, str_type()},
 		FunctionDecl{Layer::Alloc, "alloc_remaining", {}, i32_type()},
 		FunctionDecl{Layer::Alloc, "alloc_reset", {}, i32_type()},
 	};
