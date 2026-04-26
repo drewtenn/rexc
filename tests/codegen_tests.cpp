@@ -519,7 +519,7 @@ TEST_CASE(codegen_x86_64_emits_std_string_helper_calls)
 TEST_CASE(codegen_i386_emits_std_numeric_helper_calls)
 {
 	auto assembly = compile_to_assembly(
-		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); print_bool(true); println_bool(false); return read_i32(); }\n");
+		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); print_bool(true); println_bool(false); if parse_bool(\"true\") && !read_bool() { return 0; } return read_i32(); }\n");
 
 	REQUIRE(assembly.find("call print_i32") != std::string::npos);
 	REQUIRE(assembly.find("call println_i32") != std::string::npos);
@@ -527,12 +527,14 @@ TEST_CASE(codegen_i386_emits_std_numeric_helper_calls)
 	REQUIRE(assembly.find("call println_bool") != std::string::npos);
 	REQUIRE(assembly.find("call parse_i32") != std::string::npos);
 	REQUIRE(assembly.find("call read_i32") != std::string::npos);
+	REQUIRE(assembly.find("call parse_bool") != std::string::npos);
+	REQUIRE(assembly.find("call read_bool") != std::string::npos);
 }
 
 TEST_CASE(codegen_x86_64_emits_std_numeric_helper_calls)
 {
 	auto assembly = compile_to_assembly(
-		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); print_bool(true); println_bool(false); return read_i32(); }\n",
+		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); print_bool(true); println_bool(false); if parse_bool(\"true\") && !read_bool() { return 0; } return read_i32(); }\n",
 		rexc::CodegenTarget::X86_64);
 
 	REQUIRE(assembly.find("call print_i32") != std::string::npos);
@@ -541,6 +543,8 @@ TEST_CASE(codegen_x86_64_emits_std_numeric_helper_calls)
 	REQUIRE(assembly.find("call println_bool") != std::string::npos);
 	REQUIRE(assembly.find("call parse_i32") != std::string::npos);
 	REQUIRE(assembly.find("call read_i32") != std::string::npos);
+	REQUIRE(assembly.find("call parse_bool") != std::string::npos);
+	REQUIRE(assembly.find("call read_bool") != std::string::npos);
 }
 
 TEST_CASE(codegen_x86_emits_std_panic_call)

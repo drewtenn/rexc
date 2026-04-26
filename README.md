@@ -416,6 +416,8 @@ standard functions without module syntax:
 | `println_bool` | `fn(bool) -> i32` | Writes `true` or `false` followed by `\n`. |
 | `parse_i32` | `fn(str) -> i32` | Parses a signed decimal integer, returning `0` for invalid or overflow input. |
 | `read_i32` | `fn() -> i32` | Reads one input line and parses it as `i32`. |
+| `parse_bool` | `fn(str) -> bool` | Parses `true`, returning `false` for any other value until result types exist. |
+| `read_bool` | `fn() -> bool` | Reads one input line and parses it as `bool`. |
 | `exit` | `fn(i32) -> i32` | Terminates the process with the given status. |
 | `panic` | `fn(str) -> i32` | Writes `panic: ` plus the message, then terminates with status `101`. |
 

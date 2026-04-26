@@ -376,6 +376,7 @@ TEST_CASE(sema_accepts_std_prelude_numeric_helpers)
 		"  println_i32(parse_i32(\"-7\"));\n"
 		"  print_bool(true);\n"
 		"  println_bool(false);\n"
+		"  if parse_bool(\"true\") && !read_bool() { return 0; }\n"
 		"  return read_i32();\n"
 		"}\n",
 		diagnostics);

@@ -72,6 +72,8 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	auto println_bool = rexc::stdlib::find_prelude_function("println_bool");
 	auto parse_i32 = rexc::stdlib::find_prelude_function("parse_i32");
 	auto read_i32 = rexc::stdlib::find_prelude_function("read_i32");
+	auto parse_bool = rexc::stdlib::find_prelude_function("parse_bool");
+	auto read_bool = rexc::stdlib::find_prelude_function("read_bool");
 	auto exit = rexc::stdlib::find_prelude_function("exit");
 	auto panic = rexc::stdlib::find_prelude_function("panic");
 
@@ -101,6 +103,8 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE(println_bool != nullptr);
 	REQUIRE(parse_i32 != nullptr);
 	REQUIRE(read_i32 != nullptr);
+	REQUIRE(parse_bool != nullptr);
+	REQUIRE(read_bool != nullptr);
 	REQUIRE(exit != nullptr);
 	REQUIRE(panic != nullptr);
 	REQUIRE_EQ(print->layer, rexc::stdlib::Layer::Std);
@@ -215,6 +219,13 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE_EQ(read_i32->layer, rexc::stdlib::Layer::Std);
 	REQUIRE_EQ(read_i32->parameters.size(), std::size_t(0));
 	REQUIRE_EQ(read_i32->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(parse_bool->layer, rexc::stdlib::Layer::Core);
+	REQUIRE_EQ(parse_bool->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(parse_bool->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(parse_bool->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
+	REQUIRE_EQ(read_bool->layer, rexc::stdlib::Layer::Std);
+	REQUIRE_EQ(read_bool->parameters.size(), std::size_t(0));
+	REQUIRE_EQ(read_bool->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
 	REQUIRE_EQ(exit->layer, rexc::stdlib::Layer::Std);
 	REQUIRE_EQ(exit->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(exit->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
@@ -257,6 +268,8 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "println_bool:"));
 	REQUIRE(contains(i386, "parse_i32:"));
 	REQUIRE(contains(i386, "read_i32:"));
+	REQUIRE(contains(i386, "parse_bool:"));
+	REQUIRE(contains(i386, "read_bool:"));
 	REQUIRE(contains(i386, "exit:"));
 	REQUIRE(contains(i386, "panic:"));
 	REQUIRE(contains(i386, "sys_write:"));
@@ -294,6 +307,8 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "println_bool:"));
 	REQUIRE(contains(x86_64, "parse_i32:"));
 	REQUIRE(contains(x86_64, "read_i32:"));
+	REQUIRE(contains(x86_64, "parse_bool:"));
+	REQUIRE(contains(x86_64, "read_bool:"));
 	REQUIRE(contains(x86_64, "exit:"));
 	REQUIRE(contains(x86_64, "panic:"));
 	REQUIRE(contains(x86_64, "sys_write:"));
@@ -332,6 +347,8 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "_println_bool:"));
 	REQUIRE(contains(arm64, "_parse_i32:"));
 	REQUIRE(contains(arm64, "_read_i32:"));
+	REQUIRE(contains(arm64, "_parse_bool:"));
+	REQUIRE(contains(arm64, "_read_bool:"));
 	REQUIRE(contains(arm64, "_panic:"));
 	REQUIRE(contains(arm64, "_sys_write:"));
 	REQUIRE(contains(arm64, "_sys_read:"));

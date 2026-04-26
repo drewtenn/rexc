@@ -51,6 +51,10 @@ fn read_i32() -> i32 {
 	return parse_i32(read_line());
 }
 
+fn read_bool() -> bool {
+	return parse_bool(read_line());
+}
+
 fn panic(message: str) -> i32 {
 	sys_write(1, "panic: ", 7);
 	sys_write(1, message, strlen(message));

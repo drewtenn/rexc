@@ -44,6 +44,7 @@ const std::vector<FunctionDecl> &prelude_functions()
 		FunctionDecl{Layer::Core, "memcpy_u8", {ptr_u8_type(), ptr_u8_type(), i32_type()}, i32_type()},
 		FunctionDecl{Layer::Core, "str_copy_to", {ptr_u8_type(), str_type(), i32_type()}, i32_type()},
 		FunctionDecl{Layer::Core, "parse_i32", {str_type()}, i32_type()},
+		FunctionDecl{Layer::Core, "parse_bool", {str_type()}, bool_type()},
 	};
 	return functions;
 }

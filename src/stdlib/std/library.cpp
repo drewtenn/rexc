@@ -31,6 +31,7 @@ const std::vector<FunctionDecl> &prelude_functions()
 		FunctionDecl{Layer::Std, "print_bool", {bool_type()}, i32_type()},
 		FunctionDecl{Layer::Std, "println_bool", {bool_type()}, i32_type()},
 		FunctionDecl{Layer::Std, "read_i32", {}, i32_type()},
+		FunctionDecl{Layer::Std, "read_bool", {}, bool_type()},
 		FunctionDecl{Layer::Std, "exit", {i32_type()}, i32_type()},
 		FunctionDecl{Layer::Std, "panic", {str_type()}, i32_type()},
 	};
