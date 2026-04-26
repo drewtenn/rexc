@@ -123,6 +123,9 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	auto abort = rexc::stdlib::find_prelude_function("abort");
 	auto std_io_println = rexc::stdlib::find_prelude_function("std_io_println");
 	auto std_process_exit = rexc::stdlib::find_prelude_function("std_process_exit");
+	auto args_len = rexc::stdlib::find_prelude_function("args_len");
+	auto arg_at = rexc::stdlib::find_prelude_function("arg_at");
+	auto env_get = rexc::stdlib::find_prelude_function("env_get");
 	auto file_open_read = rexc::stdlib::find_prelude_function("file_open_read");
 	auto file_write_str = rexc::stdlib::find_prelude_function("file_write_str");
 	auto path_join = rexc::stdlib::find_prelude_function("path_join");
@@ -175,6 +178,9 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE(abort != nullptr);
 	REQUIRE(std_io_println != nullptr);
 	REQUIRE(std_process_exit != nullptr);
+	REQUIRE(args_len != nullptr);
+	REQUIRE(arg_at != nullptr);
+	REQUIRE(env_get != nullptr);
 	REQUIRE(file_open_read != nullptr);
 	REQUIRE(file_write_str != nullptr);
 	REQUIRE(path_join != nullptr);
@@ -336,6 +342,11 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE_EQ(abort->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(std_io_println->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_process_exit->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(args_len->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(arg_at->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(arg_at->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(env_get->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(env_get->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(file_open_read->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(file_write_str->parameters.size(), std::size_t(2));
 	REQUIRE_EQ(path_join->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
@@ -383,6 +394,10 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "sys_write:"));
 	REQUIRE(contains(i386, "sys_read:"));
 	REQUIRE(contains(i386, "sys_exit:"));
+	REQUIRE(contains(i386, "sys_args_len:"));
+	REQUIRE(contains(i386, "sys_arg:"));
+	REQUIRE(contains(i386, "sys_env_len:"));
+	REQUIRE(contains(i386, "sys_env_at:"));
 	REQUIRE(contains(i386, "call sys_write"));
 	REQUIRE(contains(i386, "call sys_read"));
 	REQUIRE(contains(i386, "call sys_exit"));
@@ -425,6 +440,10 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "sys_write:"));
 	REQUIRE(contains(x86_64, "sys_read:"));
 	REQUIRE(contains(x86_64, "sys_exit:"));
+	REQUIRE(contains(x86_64, "sys_args_len:"));
+	REQUIRE(contains(x86_64, "sys_arg:"));
+	REQUIRE(contains(x86_64, "sys_env_len:"));
+	REQUIRE(contains(x86_64, "sys_env_at:"));
 	REQUIRE(contains(x86_64, "call sys_write"));
 	REQUIRE(contains(x86_64, "call sys_read"));
 	REQUIRE(contains(x86_64, "call sys_exit"));
@@ -467,6 +486,10 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "_sys_write:"));
 	REQUIRE(contains(arm64, "_sys_read:"));
 	REQUIRE(contains(arm64, "_sys_exit:"));
+	REQUIRE(contains(arm64, "_sys_args_len:"));
+	REQUIRE(contains(arm64, "_sys_arg:"));
+	REQUIRE(contains(arm64, "_sys_env_len:"));
+	REQUIRE(contains(arm64, "_sys_env_at:"));
 	REQUIRE(contains(arm64, "bl _sys_write"));
 	REQUIRE(contains(arm64, "bl _sys_read"));
 	REQUIRE(contains(arm64, "bl _sys_exit"));

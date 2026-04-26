@@ -1,3 +1,8 @@
+extern fn sys_args_len() -> i32;
+extern fn sys_arg(index: i32) -> str;
+extern fn sys_env_len() -> i32;
+extern fn sys_env_at(index: i32) -> str;
+
 fn exit(status: i32) -> i32 {
 	return sys_exit(status);
 }
@@ -18,14 +23,33 @@ fn panic_abort(message: str, status: i32) -> i32 {
 }
 
 fn args_len() -> i32 {
-	return 0;
+	return sys_args_len();
 }
 
 fn arg_at(index: i32) -> str {
-	return "";
+	return sys_arg(index);
+}
+
+fn _env_entry_matches(entry: str, name: str) -> bool {
+	let mut index: i32 = 0;
+	while name[index] != 0 {
+		if entry[index] != name[index] {
+			return false;
+		}
+		index = index + 1;
+	}
+	return entry[index] == 61;
 }
 
 fn env_get(name: str) -> str {
+	let mut index: i32 = 0;
+	while index < sys_env_len() {
+		let entry: str = sys_env_at(index);
+		if _env_entry_matches(entry, name) {
+			return (entry + strlen(name) + 1) as str;
+		}
+		index = index + 1;
+	}
 	return "";
 }
 

@@ -6,7 +6,19 @@ namespace rexc::stdlib {
 
 std::string x86_64_linux_hosted_runtime_assembly()
 {
-	return R"(.text
+	return R"(.data
+.globl __rexc_argc
+__rexc_argc:
+	.quad 0
+.globl __rexc_argv
+__rexc_argv:
+	.quad 0
+.globl __rexc_envp
+__rexc_envp:
+	.quad 0
+__rexc_empty_string:
+	.asciz ""
+.text
 .globl sys_write
 sys_write:
 	movq $1, %rax
@@ -39,6 +51,46 @@ sys_file_create_write:
 sys_file_close:
 	movq $3, %rax
 	syscall
+	ret
+.globl sys_args_len
+sys_args_len:
+	movq __rexc_argc(%rip), %rax
+	ret
+.globl sys_arg
+sys_arg:
+	cmpq $0, %rdi
+	jl .Lsys_arg_empty
+	movq __rexc_argc(%rip), %rax
+	cmpq %rax, %rdi
+	jge .Lsys_arg_empty
+	movq __rexc_argv(%rip), %rax
+	movq (%rax,%rdi,8), %rax
+	ret
+.Lsys_arg_empty:
+	leaq __rexc_empty_string(%rip), %rax
+	ret
+.globl sys_env_len
+sys_env_len:
+	movq __rexc_envp(%rip), %rcx
+	xorq %rax, %rax
+.Lsys_env_len_loop:
+	cmpq $0, (%rcx,%rax,8)
+	je .Lsys_env_len_done
+	addq $1, %rax
+	jmp .Lsys_env_len_loop
+.Lsys_env_len_done:
+	ret
+.globl sys_env_at
+sys_env_at:
+	cmpq $0, %rdi
+	jl .Lsys_env_at_empty
+	movq __rexc_envp(%rip), %rcx
+	movq (%rcx,%rdi,8), %rax
+	cmpq $0, %rax
+	je .Lsys_env_at_empty
+	ret
+.Lsys_env_at_empty:
+	leaq __rexc_empty_string(%rip), %rax
 	ret
 )";
 }

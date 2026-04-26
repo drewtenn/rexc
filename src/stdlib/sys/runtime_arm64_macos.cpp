@@ -57,6 +57,65 @@ _sys_file_close:
 	bl _close
 	ldp x29, x30, [sp], #16
 	ret
+.globl _sys_args_len
+.p2align 2
+_sys_args_len:
+	adrp x0, _NXArgc@GOTPAGE
+	ldr x0, [x0, _NXArgc@GOTPAGEOFF]
+	ldr w0, [x0]
+	ret
+.globl _sys_arg
+.p2align 2
+_sys_arg:
+	mov x2, x0
+	adrp x0, _NXArgc@GOTPAGE
+	ldr x0, [x0, _NXArgc@GOTPAGEOFF]
+	ldr w1, [x0]
+	cmp x2, #0
+	b.lt L_sys_arg_empty
+	cmp w2, w1
+	b.ge L_sys_arg_empty
+	adrp x0, _NXArgv@GOTPAGE
+	ldr x0, [x0, _NXArgv@GOTPAGEOFF]
+	ldr x0, [x0]
+	ldr x0, [x0, x2, lsl #3]
+	ret
+L_sys_arg_empty:
+	adrp x0, L_rexc_empty_string@PAGE
+	add x0, x0, L_rexc_empty_string@PAGEOFF
+	ret
+.globl _sys_env_len
+.p2align 2
+_sys_env_len:
+	adrp x1, _environ@GOTPAGE
+	ldr x1, [x1, _environ@GOTPAGEOFF]
+	ldr x1, [x1]
+	mov x0, #0
+L_sys_env_len_loop:
+	ldr x2, [x1, x0, lsl #3]
+	cbz x2, L_sys_env_len_done
+	add x0, x0, #1
+	b L_sys_env_len_loop
+L_sys_env_len_done:
+	ret
+.globl _sys_env_at
+.p2align 2
+_sys_env_at:
+	cmp w0, #0
+	b.lt L_sys_env_at_empty
+	adrp x1, _environ@GOTPAGE
+	ldr x1, [x1, _environ@GOTPAGEOFF]
+	ldr x1, [x1]
+	ldr x0, [x1, x0, lsl #3]
+	cbz x0, L_sys_env_at_empty
+	ret
+L_sys_env_at_empty:
+	adrp x0, L_rexc_empty_string@PAGE
+	add x0, x0, L_rexc_empty_string@PAGEOFF
+	ret
+.section __TEXT,__cstring,cstring_literals
+L_rexc_empty_string:
+	.asciz ""
 )";
 }
 
