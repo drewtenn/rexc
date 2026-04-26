@@ -8,8 +8,8 @@ tmp_dir="${build_dir}/assemble-smoke"
 mkdir -p "$tmp_dir"
 
 assert_no_stdlib_temps() {
-	test ! -e "$1.stdlib.s.tmp"
-	test ! -e "$1.stdlib.o.tmp"
+	test ! -f "$1.stdlib.s.tmp"
+	test ! -f "$1.stdlib.o.tmp"
 }
 
 "${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -S -o "${tmp_dir}/add.s"
@@ -40,7 +40,8 @@ if [ -n "$gnu_as" ]; then
 	test -s "${tmp_dir}/add-cli.o"
 	test -s "${tmp_dir}/wide64-cli.o"
 
-	if [ "$(uname -s)" != "Darwin" ] && command -v clang >/dev/null 2>&1; then
+	if [ "$(uname -s)" != "Darwin" ] &&
+		{ command -v clang >/dev/null 2>&1 || command -v cc >/dev/null 2>&1; }; then
 		"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target x86_64 -o "${tmp_dir}/add-x86_64"
 		test -x "${tmp_dir}/add-x86_64"
 		"${build_dir}/rexc" "${repo_dir}/examples/std_io.rx" --target x86_64 -o "${tmp_dir}/std-io-x86_64"
@@ -49,7 +50,8 @@ if [ -n "$gnu_as" ]; then
 		grep -F -q 'hello from rexc' "${tmp_dir}/std-io-x86_64.out"
 		grep -F -q 'echo: friend' "${tmp_dir}/std-io-x86_64.out"
 		assert_no_stdlib_temps "${tmp_dir}/std-io-x86_64"
-		if clang -m32 -x c /dev/null -o "${tmp_dir}/empty32" >/dev/null 2>&1; then
+		if command -v clang >/dev/null 2>&1 &&
+			clang -m32 -x c /dev/null -o "${tmp_dir}/empty32" >/dev/null 2>&1; then
 			"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -o "${tmp_dir}/add-i386"
 			test -x "${tmp_dir}/add-i386"
 		else
