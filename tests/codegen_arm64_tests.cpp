@@ -112,11 +112,11 @@ TEST_CASE(codegen_arm64_macos_emits_string_index_byte_load)
 TEST_CASE(codegen_arm64_macos_emits_static_byte_buffer)
 {
 	auto assembly = compile_to_arm64_assembly(
-		"static mut READ_LINE_BUFFER: [u8; 1024];\nfn main() -> str { return READ_LINE_BUFFER; }\n");
+		"static mut USER_BUFFER: [u8; 1024];\nfn main() -> str { return USER_BUFFER; }\n");
 
-	REQUIRE(assembly.find(".zerofill __DATA,__bss,Lstatic_READ_LINE_BUFFER,1024,4") != std::string::npos);
-	REQUIRE(assembly.find("adrp x0, Lstatic_READ_LINE_BUFFER@PAGE") != std::string::npos);
-	REQUIRE(assembly.find("add x0, x0, Lstatic_READ_LINE_BUFFER@PAGEOFF") != std::string::npos);
+	REQUIRE(assembly.find(".zerofill __DATA,__bss,Lstatic_USER_BUFFER,1024,4") != std::string::npos);
+	REQUIRE(assembly.find("adrp x0, Lstatic_USER_BUFFER@PAGE") != std::string::npos);
+	REQUIRE(assembly.find("add x0, x0, Lstatic_USER_BUFFER@PAGEOFF") != std::string::npos);
 }
 
 TEST_CASE(codegen_arm64_macos_emits_call_statement)
@@ -184,10 +184,10 @@ TEST_CASE(codegen_arm64_macos_emits_core_memory_helper_calls)
 TEST_CASE(codegen_arm64_macos_emits_static_i32_scalar_load_and_store)
 {
 	auto assembly = compile_to_arm64_assembly(
-		"static mut ALLOC_OFFSET: i32 = 0;\n"
-		"fn bump() -> i32 { ALLOC_OFFSET = ALLOC_OFFSET + 1; return ALLOC_OFFSET; }\n");
+		"static mut USER_COUNTER: i32 = 0;\n"
+		"fn bump() -> i32 { USER_COUNTER = USER_COUNTER + 1; return USER_COUNTER; }\n");
 
-	REQUIRE(assembly.find("Lstatic_ALLOC_OFFSET:") != std::string::npos);
+	REQUIRE(assembly.find("Lstatic_USER_COUNTER:") != std::string::npos);
 	REQUIRE(assembly.find(".long 0") != std::string::npos);
 	REQUIRE(assembly.find("ldr w0, [x") != std::string::npos);
 	REQUIRE(assembly.find("str w0, [x") != std::string::npos);

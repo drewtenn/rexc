@@ -60,7 +60,7 @@ TEST_CASE(lowering_preserves_static_byte_buffers)
 {
 	rexc::SourceFile source(
 	    "test.rx",
-	    "static mut READ_LINE_BUFFER: [u8; 1024];\nfn main() -> str { return READ_LINE_BUFFER; }\n");
+	    "static mut USER_BUFFER: [u8; 1024];\nfn main() -> str { return USER_BUFFER; }\n");
 	rexc::Diagnostics diagnostics;
 	auto parsed = rexc::parse_source(source, diagnostics);
 
@@ -70,7 +70,7 @@ TEST_CASE(lowering_preserves_static_byte_buffers)
 	auto module = rexc::lower_to_ir(parsed.module());
 
 	REQUIRE_EQ(module.static_buffers.size(), std::size_t(1));
-	REQUIRE_EQ(module.static_buffers[0].name, std::string("READ_LINE_BUFFER"));
+	REQUIRE_EQ(module.static_buffers[0].name, std::string("USER_BUFFER"));
 	REQUIRE_EQ(rexc::format_type(module.static_buffers[0].element_type), std::string("u8"));
 	REQUIRE_EQ(module.static_buffers[0].length, std::size_t(1024));
 	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[0]);
@@ -82,8 +82,8 @@ TEST_CASE(lowering_preserves_static_i32_scalars)
 {
 	rexc::SourceFile source(
 	    "test.rx",
-	    "static mut ALLOC_OFFSET: i32 = 0;\n"
-	    "fn bump() -> i32 { ALLOC_OFFSET = ALLOC_OFFSET + 1; return ALLOC_OFFSET; }\n");
+	    "static mut USER_COUNTER: i32 = 0;\n"
+	    "fn bump() -> i32 { USER_COUNTER = USER_COUNTER + 1; return USER_COUNTER; }\n");
 	rexc::Diagnostics diagnostics;
 	auto parsed = rexc::parse_source(source, diagnostics);
 
@@ -93,7 +93,7 @@ TEST_CASE(lowering_preserves_static_i32_scalars)
 	auto module = rexc::lower_to_ir(parsed.module());
 
 	REQUIRE_EQ(module.static_scalars.size(), std::size_t(1));
-	REQUIRE_EQ(module.static_scalars[0].name, std::string("ALLOC_OFFSET"));
+	REQUIRE_EQ(module.static_scalars[0].name, std::string("USER_COUNTER"));
 	REQUIRE_EQ(rexc::format_type(module.static_scalars[0].type), std::string("i32"));
 	REQUIRE_EQ(module.static_scalars[0].initializer_literal, std::string("0"));
 	REQUIRE_EQ(module.functions[0].body[0]->kind, rexc::ir::Statement::Kind::Assign);

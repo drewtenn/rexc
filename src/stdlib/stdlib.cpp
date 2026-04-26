@@ -80,6 +80,14 @@ void append_source_unit_symbol_names(std::vector<std::string> &target,
 		if (!function.name.empty())
 			target.push_back(function.name);
 	}
+	for (const auto &buffer : parsed.module().static_buffers) {
+		if (!buffer.name.empty())
+			target.push_back(buffer.name);
+	}
+	for (const auto &scalar : parsed.module().static_scalars) {
+		if (!scalar.name.empty())
+			target.push_back(scalar.name);
+	}
 }
 
 const std::unordered_set<std::string> &default_prelude_names()

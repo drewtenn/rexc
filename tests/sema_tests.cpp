@@ -434,8 +434,8 @@ TEST_CASE(sema_accepts_static_mut_i32_scalar)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze(
-		"static mut ALLOC_OFFSET: i32 = 0;\n"
-		"fn bump() -> i32 { ALLOC_OFFSET = ALLOC_OFFSET + 1; return ALLOC_OFFSET; }\n",
+		"static mut USER_COUNTER: i32 = 0;\n"
+		"fn bump() -> i32 { USER_COUNTER = USER_COUNTER + 1; return USER_COUNTER; }\n",
 		diagnostics);
 
 	REQUIRE(result.ok());
@@ -854,6 +854,32 @@ TEST_CASE(sema_rejects_user_function_that_collides_with_hidden_stdlib_symbol)
 
 		REQUIRE(!result.ok());
 		REQUIRE(diagnostics.format().find("duplicate static 'std_io_println'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "static mut READ_LINE_BUFFER: [u8; 1024];\n"
+		    "fn main() -> i32 { return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate static 'READ_LINE_BUFFER'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "static mut ALLOC_OFFSET: i32 = 0;\n"
+		    "fn main() -> i32 { return ALLOC_OFFSET; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate static 'ALLOC_OFFSET'") !=
 		        std::string::npos);
 	}
 }
