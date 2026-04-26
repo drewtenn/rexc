@@ -39,6 +39,26 @@ TEST_CASE(sema_rejects_duplicate_functions)
 	REQUIRE(diagnostics.format().find("duplicate function 'main'") != std::string::npos);
 }
 
+TEST_CASE(sema_rejects_duplicate_extern_then_user_function)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("extern fn f() -> i32;\nfn f() -> i32 { return 0; }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("duplicate function 'f'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_duplicate_user_then_extern_function)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("fn f() -> i32 { return 0; }\nextern fn f() -> i32;\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("duplicate function 'f'") != std::string::npos);
+}
+
 TEST_CASE(sema_rejects_unknown_call)
 {
 	rexc::Diagnostics diagnostics;

@@ -192,6 +192,28 @@ TEST_CASE(lowering_rejects_invalid_type_names)
 	}
 }
 
+TEST_CASE(lowering_rejects_expression_statements_until_supported)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "extern fn emit(value: str) -> i32;\nfn main() -> i32 { emit(\"hello\"); return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+	REQUIRE(!diagnostics.has_errors());
+
+	try {
+		(void)rexc::lower_to_ir(parsed.module());
+		REQUIRE(false);
+	} catch (const std::runtime_error &err) {
+		REQUIRE(std::string(err.what()).find(
+		            "expression statements are not supported in IR lowering yet") !=
+		        std::string::npos);
+	}
+}
+
 TEST_CASE(lowering_lowers_comparison_as_bool_value)
 {
 	rexc::SourceFile source("test.rx", "fn main() -> bool { return 1 >= 2; }\n");

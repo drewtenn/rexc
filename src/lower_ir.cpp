@@ -237,6 +237,9 @@ private:
 		if (statement.kind == ast::Stmt::Kind::Continue)
 			return std::make_unique<ir::ContinueStatement>();
 
+		if (statement.kind == ast::Stmt::Kind::Expr)
+			throw std::runtime_error("expression statements are not supported in IR lowering yet");
+
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
 		return std::make_unique<ir::ReturnStatement>(
 			lower_expr(*ret.value, locals, function_return_type));
