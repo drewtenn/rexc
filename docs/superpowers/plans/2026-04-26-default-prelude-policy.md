@@ -87,7 +87,7 @@ Rationale:
 - Modify: `src/stdlib/stdlib.cpp`
 - Test: `tests/stdlib_tests.cpp`
 
-- [ ] **Step 1: Write the failing stdlib declaration tests**
+- [x] **Step 1: Write the failing stdlib declaration tests**
 
 In `tests/stdlib_tests.cpp`, rename `TEST_CASE(stdlib_declares_prelude_functions)` to:
 
@@ -128,7 +128,7 @@ TEST_CASE(stdlib_default_prelude_contains_only_user_facing_names)
 }
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run:
 
@@ -139,7 +139,7 @@ build/rexc_tests "stdlib*"
 
 Expected: compile failure because `find_stdlib_function` is not declared, or test failure because the current prelude still includes omitted names.
 
-- [ ] **Step 3: Add the public declarations**
+- [x] **Step 3: Add the public declarations**
 
 In `include/rexc/stdlib.hpp`, replace:
 
@@ -159,7 +159,7 @@ const FunctionDecl *find_prelude_function(const std::string &name);
 std::string hosted_runtime_assembly(TargetTriple target);
 ```
 
-- [ ] **Step 4: Implement all-functions and filtered-prelude views**
+- [x] **Step 4: Implement all-functions and filtered-prelude views**
 
 In `src/stdlib/stdlib.cpp`, add this include:
 
@@ -240,7 +240,7 @@ const FunctionDecl *find_prelude_function(const std::string &name)
 }
 ```
 
-- [ ] **Step 5: Run stdlib tests and verify they pass**
+- [x] **Step 5: Run stdlib tests and verify they pass**
 
 Run:
 
@@ -251,7 +251,7 @@ build/rexc_tests "stdlib*"
 
 Expected: `stdlib_declares_all_public_functions`, `stdlib_default_prelude_contains_only_user_facing_names`, and existing stdlib runtime tests pass.
 
-- [ ] **Step 6: Commit the stdlib declaration split**
+- [x] **Step 6: Commit the stdlib declaration split**
 
 ```bash
 git add include/rexc/stdlib.hpp src/stdlib/stdlib.cpp tests/stdlib_tests.cpp
@@ -268,7 +268,7 @@ git commit -m "feat: split stdlib declarations from default prelude"
 - Modify: `src/lower_ir.cpp`
 - Test: `tests/sema_tests.cpp`
 
-- [ ] **Step 1: Write failing sema tests for default and explicit policies**
+- [x] **Step 1: Write failing sema tests for default and explicit policies**
 
 In `tests/sema_tests.cpp`, after `sema_accepts_std_prelude_panic`, add:
 
@@ -312,7 +312,7 @@ TEST_CASE(sema_rejects_std_bridge_symbol_as_bare_name)
 }
 ```
 
-- [ ] **Step 2: Run sema tests and verify they fail**
+- [x] **Step 2: Run sema tests and verify they fail**
 
 Run:
 
@@ -323,7 +323,7 @@ build/rexc_tests "sema*"
 
 Expected: `sema_rejects_non_default_stdlib_helper_as_bare_name` and `sema_rejects_std_bridge_symbol_as_bare_name` fail because all public stdlib functions are still bare names.
 
-- [ ] **Step 3: Add the policy enum to sema options**
+- [x] **Step 3: Add the policy enum to sema options**
 
 In `include/rexc/sema.hpp`, replace:
 
@@ -347,7 +347,7 @@ struct SemanticOptions {
 };
 ```
 
-- [ ] **Step 4: Add the same policy enum to lowering options**
+- [x] **Step 4: Add the same policy enum to lowering options**
 
 In `include/rexc/lower_ir.hpp`, replace:
 
@@ -373,7 +373,7 @@ struct LowerOptions {
 
 Use a distinct enum name in `lower_ir.hpp` to avoid accidental include-order coupling between sema and lowering.
 
-- [ ] **Step 5: Update stdlib runtime compilation options**
+- [x] **Step 5: Update stdlib runtime compilation options**
 
 In `src/stdlib/stdlib.cpp`, replace:
 
@@ -407,7 +407,7 @@ lower_options.stdlib_symbols = LowerStdlibSymbolPolicy::None;
 auto lowered = lower_to_ir(parsed.module(), lower_options);
 ```
 
-- [ ] **Step 6: Implement policy selection in sema**
+- [x] **Step 6: Implement policy selection in sema**
 
 In `src/sema.cpp`, add these private helpers near `build_module_table()`:
 
@@ -474,7 +474,7 @@ if (include_stdlib_symbols()) {
 }
 ```
 
-- [ ] **Step 7: Implement policy selection in lowering**
+- [x] **Step 7: Implement policy selection in lowering**
 
 In `src/lower_ir.cpp`, add these private helpers near `build_function_table()`:
 
@@ -523,7 +523,7 @@ if (include_stdlib_symbols()) {
 }
 ```
 
-- [ ] **Step 8: Run sema tests and verify the policy passes**
+- [x] **Step 8: Run sema tests and verify the policy passes**
 
 Run:
 
@@ -534,7 +534,7 @@ build/rexc_tests "sema*"
 
 Expected: default-prelude tests pass. Tests that directly call omitted helpers may now fail and will be handled in the next task.
 
-- [ ] **Step 9: Commit policy plumbing**
+- [x] **Step 9: Commit policy plumbing**
 
 ```bash
 git add include/rexc/sema.hpp include/rexc/lower_ir.hpp src/stdlib/stdlib.cpp src/sema.cpp src/lower_ir.cpp tests/sema_tests.cpp
@@ -548,7 +548,7 @@ git commit -m "feat: add default stdlib symbol policy"
 - Modify: `tests/codegen_arm64_tests.cpp`
 - Modify: `tests/ir_tests.cpp`
 
-- [ ] **Step 1: Add all-stdlib helper options in x86 codegen tests**
+- [x] **Step 1: Add all-stdlib helper options in x86 codegen tests**
 
 In `tests/codegen_tests.cpp`, update the local helper that semantically analyzes snippets. If it currently does:
 
@@ -621,7 +621,7 @@ auto assembly = compile_to_assembly_with_all_stdlib_symbols(
     "fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); let number: str = alloc_i32_to_str(-42); let truth: str = alloc_bool_to_str(true); let letter: str = alloc_char_to_str('z'); if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") && str_eq(letter, \"z\") { return alloc_remaining(); } return 0; }\n");
 ```
 
-- [ ] **Step 2: Add all-stdlib helper options in ARM64 codegen tests**
+- [x] **Step 2: Add all-stdlib helper options in ARM64 codegen tests**
 
 In `tests/codegen_arm64_tests.cpp`, add this helper next to the existing `compile_to_assembly(...)` helper:
 
@@ -680,7 +680,7 @@ auto assembly = compile_to_assembly_with_all_stdlib_symbols(
     "fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); let number: str = alloc_i32_to_str(-42); let truth: str = alloc_bool_to_str(true); let letter: str = alloc_char_to_str('z'); if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") && str_eq(letter, \"z\") { return alloc_remaining(); } return 0; }\n");
 ```
 
-- [ ] **Step 3: Update IR tests that intentionally lower omitted helpers**
+- [x] **Step 3: Update IR tests that intentionally lower omitted helpers**
 
 In `tests/ir_tests.cpp`, for tests that lower direct calls to omitted helpers, set both options explicitly:
 
@@ -697,7 +697,7 @@ auto ir = rexc::lower_to_ir(parsed.module(), lower_options);
 
 Leave tests that use default-prelude names such as `println`, `str_eq`, `parse_i32`, and `panic` on default options.
 
-- [ ] **Step 4: Run targeted backend tests**
+- [x] **Step 4: Run targeted backend tests**
 
 Run:
 
@@ -709,7 +709,7 @@ build/rexc_tests "lowering*"
 
 Expected: backend and lowering tests pass with default-prelude snippets using default options and bootstrap-helper snippets using `All`.
 
-- [ ] **Step 5: Commit backend test updates**
+- [x] **Step 5: Commit backend test updates**
 
 ```bash
 git add tests/codegen_tests.cpp tests/codegen_arm64_tests.cpp tests/ir_tests.cpp
@@ -721,7 +721,7 @@ git commit -m "test: opt backend helper coverage into all stdlib symbols"
 **Files:**
 - Modify: `tests/sema_tests.cpp`
 
-- [ ] **Step 1: Rename existing default-prelude test names**
+- [x] **Step 1: Rename existing default-prelude test names**
 
 In `tests/sema_tests.cpp`, rename:
 
@@ -737,7 +737,7 @@ TEST_CASE(sema_accepts_default_prelude_print_functions)
 
 Rename the other `sema_accepts_std_prelude_*` tests that still use default-prelude names to `sema_accepts_default_prelude_*`.
 
-- [ ] **Step 2: Update omitted-helper sema tests**
+- [x] **Step 2: Update omitted-helper sema tests**
 
 For tests that currently assert bare `alloc_*`, `memset_u8`, or low-level result helpers are accepted by sema, change them into rejection tests. For example, replace:
 
@@ -786,7 +786,7 @@ TEST_CASE(sema_rejects_memory_helpers_as_default_bare_names)
 }
 ```
 
-- [ ] **Step 3: Add all-policy sema test for compiler-internal coverage**
+- [x] **Step 3: Add all-policy sema test for compiler-internal coverage**
 
 Add this test near the rejected helper tests:
 
@@ -809,7 +809,7 @@ TEST_CASE(sema_all_stdlib_policy_accepts_bootstrap_helpers)
 }
 ```
 
-- [ ] **Step 4: Run sema tests**
+- [x] **Step 4: Run sema tests**
 
 Run:
 
@@ -820,7 +820,7 @@ build/rexc_tests "sema*"
 
 Expected: sema tests pass and clearly distinguish default prelude from all-stdlib compiler-internal policy.
 
-- [ ] **Step 5: Commit sema test cleanup**
+- [x] **Step 5: Commit sema test cleanup**
 
 ```bash
 git add tests/sema_tests.cpp
@@ -830,11 +830,14 @@ git commit -m "test: define default prelude sema behavior"
 ## Task 5: Update Docs And Roadmap
 
 **Files:**
-- Modify: `docs/ch03-semantics.md`
+- Skip in this scoped commit: `docs/ch03-semantics.md` (outside requested write scope)
 - Modify: `docs/roadmap.md`
 - Modify: `README.md`
 
 - [ ] **Step 1: Document the default prelude in Chapter 3**
+
+Status note: not changed in this scoped Task 5 docs commit because the
+requested ownership/write scope excludes `docs/ch03-semantics.md`.
 
 In `docs/ch03-semantics.md`, after the module visibility section and before local-name analysis, add:
 
@@ -852,7 +855,7 @@ stdlib paths can be called through those paths, such as `std::io::println` and
 `std::process::exit`.
 ```
 
-- [ ] **Step 2: Update README examples if needed**
+- [x] **Step 2: Update README examples if needed**
 
 Search for omitted bare helper names in README examples:
 
@@ -862,7 +865,7 @@ rg -n "alloc_|memset_u8|memcpy_u8|str_copy_to|file_|path_join|std_io_|std_proces
 
 If the command prints no lines, no README edit is needed. If it prints lines, rewrite those examples to use default-prelude names or explicit `std::...` bridge paths available today.
 
-- [ ] **Step 3: Mark the roadmap item done**
+- [x] **Step 3: Mark the roadmap item done**
 
 In `docs/roadmap.md`, under Phase 8 `Planned work`, change:
 
@@ -876,29 +879,28 @@ to:
 - decide the default prelude policy and which names remain always available; **done for the current module model**
 ```
 
-- [ ] **Step 4: Run docs-adjacent tests**
+- [x] **Step 4: Run lightweight docs checks**
 
 Run:
 
 ```bash
-cmake --build build --target rexc_tests
-build/rexc_tests "stdlib*"
-build/rexc_tests "sema*"
+rg -n "std_prelude|default prelude|DefaultPrelude|alloc_reset|memset_u8" README.md docs/ROADMAP.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
 ```
 
-Expected: stdlib and semantic tests pass after docs updates.
+Expected: docs mention the intended policy without implying omitted helpers are
+default bare user-facing names. Full build and test verification remains Task 6.
 
-- [ ] **Step 5: Commit docs**
+- [x] **Step 5: Commit docs**
 
 ```bash
-git add docs/ch03-semantics.md docs/roadmap.md README.md
+git add README.md docs/roadmap.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
 git commit -m "docs: document default prelude policy"
 ```
 
 If `README.md` had no changes, run:
 
 ```bash
-git add docs/ch03-semantics.md docs/roadmap.md
+git add docs/roadmap.md docs/superpowers/plans/2026-04-26-default-prelude-policy.md
 git commit -m "docs: document default prelude policy"
 ```
 

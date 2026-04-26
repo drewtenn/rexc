@@ -487,8 +487,8 @@ The source tree mirrors those layers: `src/stdlib/core/` contains
 target-independent catalog entries, `src/stdlib/std/` contains hosted prelude
 entries, and `src/stdlib/sys/` contains target runtime adapters.
 
-The first `std` milestone exposes a small prelude, so programs can call
-standard functions without module syntax:
+The default bare prelude is deliberately small, so programs can call common
+console, string, parse/read, and panic helpers without module syntax:
 
 | Function | Type | Behavior |
 | --- | --- | --- |
@@ -502,17 +502,6 @@ standard functions without module syntax:
 | `str_ends_with` | `fn(str, str) -> bool` | Returns whether the first string ends with the second string. |
 | `str_contains` | `fn(str, str) -> bool` | Returns whether the first string contains the second string. |
 | `str_find` | `fn(str, str) -> i32` | Returns the first byte index of the second string in the first, or `-1` when absent. |
-| `memset_u8` | `fn(*u8, u8, i32) -> i32` | Writes one byte value into a raw byte buffer and returns the requested byte count. |
-| `memcpy_u8` | `fn(*u8, *u8, i32) -> i32` | Copies bytes between raw byte buffers and returns the requested byte count. |
-| `str_copy_to` | `fn(*u8, str, i32) -> i32` | Copies a string into a raw byte buffer, null-terminates when capacity allows, and returns bytes copied. |
-| `alloc_bytes` | `fn(i32) -> *u8` | Reserves bytes from the bootstrap bump arena and returns a raw byte pointer. |
-| `alloc_str_copy` | `fn(str) -> str` | Copies a string into the bootstrap bump arena and returns the allocated string view. |
-| `alloc_str_concat` | `fn(str, str) -> str` | Concatenates two strings into the bootstrap bump arena and returns the allocated string view. |
-| `alloc_i32_to_str` | `fn(i32) -> str` | Formats an `i32` into the bootstrap bump arena and returns the allocated string view. |
-| `alloc_bool_to_str` | `fn(bool) -> str` | Formats a bool into the bootstrap bump arena as `true` or `false`. |
-| `alloc_char_to_str` | `fn(char) -> str` | Formats one byte-sized character into the bootstrap bump arena. |
-| `alloc_remaining` | `fn() -> i32` | Returns remaining bytes in the bootstrap bump arena. |
-| `alloc_reset` | `fn() -> i32` | Resets the bootstrap bump arena offset to zero. |
 | `print_i32` | `fn(i32) -> i32` | Writes a signed decimal integer without adding a newline. |
 | `println_i32` | `fn(i32) -> i32` | Writes a signed decimal integer followed by `\n`. |
 | `print_bool` | `fn(bool) -> i32` | Writes `true` or `false` without adding a newline. |
@@ -523,24 +512,23 @@ standard functions without module syntax:
 | `read_i32` | `fn() -> i32` | Reads one input line and parses it as `i32`. |
 | `parse_bool` | `fn(str) -> bool` | Parses `true`, returning `false` for any other value until result types exist. |
 | `read_bool` | `fn() -> bool` | Reads one input line and parses it as `bool`. |
-| `exit` | `fn(i32) -> i32` | Terminates the process with the given status. |
 | `panic` | `fn(str) -> i32` | Writes `panic: ` plus the message, then terminates with status `101`. |
 
 `read_line` strips one trailing newline when present, always null-terminates the
 buffer, and overwrites the same buffer on the next `read_line` call. It is
 implemented in Rexc using a `static mut [u8; 1024]` buffer and the primitive
 `sys_read` hook. `strlen`, `str_is_empty`, `str_eq`, `str_starts_with`,
-`str_ends_with`, `str_contains`, `str_find`, and `parse_i32` are early `core`-style
-target-independent contracts implemented in Rexc source. `memset_u8`,
-`memcpy_u8`, and `str_copy_to` provide raw byte-buffer building blocks for
-future `alloc` work while Rexc is still growing ownership and heap types.
-`alloc_bytes`, `alloc_str_copy`, `alloc_str_concat`, `alloc_i32_to_str`,
-`alloc_bool_to_str`, `alloc_char_to_str`, `alloc_remaining`, and `alloc_reset`
-are the first bootstrap `alloc` surface: a portable bump arena implemented in
-Rexc with a static byte buffer and mutable scalar offset.
+`str_ends_with`, `str_contains`, `str_find`, and `parse_i32` are early
+`core`-style target-independent contracts implemented in Rexc source.
 `parse_i32` accepts
 an optional leading `-` followed by decimal digits; empty strings, invalid
 characters, and overflow return `0` until Rexc has richer result types.
+
+Public stdlib helpers outside the default prelude remain available to hosted
+runtime builds and explicit bridge paths such as `std::io::println` and
+`std::process::exit`. Bootstrap allocation, raw memory, file/path/environment,
+sentinel-result, and `std_*` bridge symbols are not default bare names; compiler
+internals and tests that need those helpers opt into the explicit `All` policy.
 
 Example:
 
@@ -565,12 +553,13 @@ Assembly-only (`-S`) and object-only (`-c`) builds can reference standard
 library symbols, but they do not include the runtime object. Source-level
 prelude names are `print`, `println`, `read_line`, `strlen`, `str_is_empty`,
 `str_eq`, `str_starts_with`, `str_ends_with`, `str_contains`, `str_find`,
-`print_i32`, `println_i32`, `parse_i32`, `read_i32`, and `exit`. ELF assembly
-references those names directly. `panic` is also in the hosted prelude and is
-implemented in Rexc on top of `sys_write` and `sys_exit`. `arm64-macos`
-assembly references Darwin symbols with leading underscores. The hosted target
-adapters provide only the primitive `sys_read`, `sys_write`, and `sys_exit`
-hooks needed by the Rexc stdlib source.
+`parse_i32`, `parse_bool`, `print_i32`, `println_i32`, `print_bool`,
+`println_bool`, `print_char`, `println_char`, `read_i32`, `read_bool`, and
+`panic`. ELF assembly references those names directly. `panic` is implemented
+in Rexc on top of `sys_write` and `sys_exit`. `arm64-macos` assembly references
+Darwin symbols with leading underscores. The hosted target adapters provide
+only the primitive `sys_read`, `sys_write`, and `sys_exit` hooks needed by the
+Rexc stdlib source.
 
 ### Standard Library Roadmap
 
@@ -633,7 +622,7 @@ intended for side-effecting standard-library functions:
 
 ```rust
 println("hello");
-exit(1);
+std::process::exit(1);
 ```
 
 Pointer expressions use `&` to take the address of a mutable local and `*` to
