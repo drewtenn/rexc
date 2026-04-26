@@ -465,6 +465,9 @@ TEST_CASE(codegen_i386_emits_call_statement)
 
 	REQUIRE(assembly.find("call println") != std::string::npos);
 	REQUIRE(assembly.find("addl $4, %esp") != std::string::npos);
+	REQUIRE(assembly.find(".section .rodata") != std::string::npos);
+	REQUIRE(assembly.find(".Lstr0:") != std::string::npos);
+	REQUIRE(assembly.find(".asciz \"hello\"") != std::string::npos);
 }
 
 TEST_CASE(codegen_x86_64_emits_call_statement)
@@ -475,4 +478,7 @@ TEST_CASE(codegen_x86_64_emits_call_statement)
 
 	REQUIRE(assembly.find("call println") != std::string::npos);
 	REQUIRE(assembly.find("popq %rdi") != std::string::npos);
+	REQUIRE(assembly.find(".section .rodata") != std::string::npos);
+	REQUIRE(assembly.find(".Lstr0:") != std::string::npos);
+	REQUIRE(assembly.find(".asciz \"hello\"") != std::string::npos);
 }

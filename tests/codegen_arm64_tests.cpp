@@ -107,4 +107,8 @@ TEST_CASE(codegen_arm64_macos_emits_call_statement)
 		"fn main() -> i32 { println(\"hello\"); return 0; }\n");
 
 	REQUIRE(assembly.find("bl _println") != std::string::npos);
+	REQUIRE(assembly.find(".cstring") != std::string::npos);
+	REQUIRE(assembly.find("Lstr0:") != std::string::npos);
+	REQUIRE(assembly.find(".asciz \"hello\"") != std::string::npos);
+	REQUIRE(assembly.find("adrp x0, Lstr0@PAGE") != std::string::npos);
 }
