@@ -357,6 +357,46 @@ The `x86_64` target emits code for all current primitive types, including
 `i64` and `u64`, and represents pointers as 64-bit addresses using the
 Linux/System V x86_64 calling convention.
 
+## Standard Library
+
+Rexc's standard library is layered. `core` is the always-available,
+target-independent contract layer. `std` is the hosted layer linked into normal
+command-line executables. The first `std` milestone exposes a small prelude, so
+programs can call standard functions without module syntax:
+
+| Function | Type | Behavior |
+| --- | --- | --- |
+| `print` | `fn(str) -> i32` | Writes a string to stdout without adding a newline. |
+| `println` | `fn(str) -> i32` | Writes a string to stdout followed by `\n`. |
+| `read_line` | `fn() -> str` | Reads one stdin line into a runtime-owned 1024-byte buffer and returns it as `str`. |
+| `exit` | `fn(i32) -> i32` | Terminates the process with the given status. |
+
+`read_line` strips one trailing newline when present, always null-terminates the
+buffer, and overwrites the same buffer on the next `read_line` call.
+
+Example:
+
+```rust
+fn main() -> i32 {
+    println("name?");
+    let name: str = read_line();
+    print("hello ");
+    println(name);
+    return 0;
+}
+```
+
+Executable builds link the hosted `std` runtime automatically:
+
+```sh
+build/rexc examples/std_io.rx -o build/std_io
+printf 'friend\n' | build/std_io
+```
+
+Assembly-only (`-S`) and object-only (`-c`) builds can reference standard
+library symbols, but they do not include the runtime object. Manual final links
+must provide `print`, `println`, `read_line`, and `exit`.
+
 ## Operators And Control Flow
 
 Rexc supports integer arithmetic with `+`, `-`, `*`, and `/`. Integer
@@ -372,6 +412,14 @@ Boolean operators are supported with unary `!` plus short-circuiting `&&` and
 Explicit casts use `as`. The first cast surface supports integer-to-integer
 casts, `bool` to integer casts, and `char as u32`. Casts involving `str`, and
 other character casts such as `char as u8`, are rejected.
+
+Function calls can be used as expressions or as statements. Call statements are
+intended for side-effecting standard-library functions:
+
+```rust
+println("hello");
+exit(1);
+```
 
 Pointer expressions use `&` to take the address of a mutable local and `*` to
 dereference a pointer. Pointer arithmetic supports `pointer + integer` and
