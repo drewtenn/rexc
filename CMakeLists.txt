@@ -111,8 +111,8 @@ add_library(rexc_core
 	src/stdlib/core/library.cpp
 	src/stdlib/alloc/library.cpp
 	src/stdlib/std/library.cpp
-	src/stdlib/sys/runtime_i386.cpp
-	src/stdlib/sys/runtime_x86_64.cpp
+	src/stdlib/sys/runtime_i386_linux.cpp
+	src/stdlib/sys/runtime_x86_64_linux.cpp
 	src/stdlib/sys/runtime_arm64_macos.cpp
 	${REXC_ANTLR_GENERATED_SOURCES}
 )

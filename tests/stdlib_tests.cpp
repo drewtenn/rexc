@@ -45,12 +45,22 @@ TEST_CASE(stdlib_uses_rx_files_as_canonical_source)
 	std::ifstream alloc(source_dir + "/src/stdlib/alloc/alloc.rx");
 	std::ifstream std_io(source_dir + "/src/stdlib/std/io.rx");
 	std::ifstream std_process(source_dir + "/src/stdlib/std/process.rx");
+	std::ifstream i386_linux_runtime(source_dir + "/src/stdlib/sys/runtime_i386_linux.cpp");
+	std::ifstream x86_64_linux_runtime(source_dir + "/src/stdlib/sys/runtime_x86_64_linux.cpp");
+	std::ifstream arm64_macos_runtime(source_dir + "/src/stdlib/sys/runtime_arm64_macos.cpp");
+	std::ifstream old_i386_runtime(source_dir + "/src/stdlib/sys/runtime_i386.cpp");
+	std::ifstream old_x86_64_runtime(source_dir + "/src/stdlib/sys/runtime_x86_64.cpp");
 	REQUIRE(core_str.is_open());
 	REQUIRE(core_mem.is_open());
 	REQUIRE(core_num.is_open());
 	REQUIRE(alloc.is_open());
 	REQUIRE(std_io.is_open());
 	REQUIRE(std_process.is_open());
+	REQUIRE(i386_linux_runtime.is_open());
+	REQUIRE(x86_64_linux_runtime.is_open());
+	REQUIRE(arm64_macos_runtime.is_open());
+	REQUIRE(!old_i386_runtime.is_open());
+	REQUIRE(!old_x86_64_runtime.is_open());
 
 	std::ostringstream std_io_text;
 	std_io_text << std_io.rdbuf();

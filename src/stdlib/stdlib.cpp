@@ -96,9 +96,9 @@ std::string sys_runtime_assembly(CodegenTarget target)
 {
 	switch (target) {
 	case CodegenTarget::I386:
-		return i386_hosted_runtime_assembly();
+		return i386_linux_hosted_runtime_assembly();
 	case CodegenTarget::X86_64:
-		return x86_64_hosted_runtime_assembly();
+		return x86_64_linux_hosted_runtime_assembly();
 	case CodegenTarget::ARM64_MACOS:
 		return arm64_macos_hosted_runtime_assembly();
 	}

@@ -4,7 +4,7 @@
 
 namespace rexc::stdlib {
 
-std::string x86_64_hosted_runtime_assembly()
+std::string x86_64_linux_hosted_runtime_assembly()
 {
 	return R"(.text
 .globl sys_write
