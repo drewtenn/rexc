@@ -96,6 +96,7 @@ add_executable(rexc_tests
 	tests/codegen_tests.cpp
 	tests/codegen_arm64_tests.cpp
 	tests/types_tests.cpp
+	tests/stdlib_tests.cpp
 )
 
 target_include_directories(rexc_tests PRIVATE tests)
