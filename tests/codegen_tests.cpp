@@ -453,7 +453,7 @@ TEST_CASE(codegen_x86_64_emits_strings_and_unsigned_division)
 
 	REQUIRE(assembly.find(".section .rodata") != std::string::npos);
 	REQUIRE(assembly.find(".asciz \"wide\"") != std::string::npos);
-	REQUIRE(assembly.find("movq $.Lstr0, %rax") != std::string::npos);
+	REQUIRE(assembly.find("leaq .Lstr0(%rip), %rax") != std::string::npos);
 	REQUIRE(assembly.find("movabsq $18446744073709551615, %rax") != std::string::npos);
 	REQUIRE(assembly.find("xorq %rdx, %rdx") != std::string::npos);
 	REQUIRE(assembly.find("divq %rcx") != std::string::npos);

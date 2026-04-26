@@ -68,25 +68,26 @@ read_line:
 	pushl %ebp
 	movl %esp, %ebp
 	pushl %ebx
+	xorl %edx, %edx
+.Lrexc_i386_read_loop:
+	cmpl $1023, %edx
+	jae .Lrexc_i386_read_done
 	movl $3, %eax
 	movl $0, %ebx
 	movl $.Lrexc_read_line_buffer, %ecx
-	movl $1023, %edx
+	addl %edx, %ecx
+	pushl %edx
+	movl $1, %edx
 	int $0x80
+	popl %edx
 	cmpl $0, %eax
-	jle .Lrexc_i386_read_empty
-	movl %eax, %edx
-	decl %edx
+	jle .Lrexc_i386_read_done
 	cmpb $10, .Lrexc_read_line_buffer(%edx)
-	jne .Lrexc_i386_read_terminate
-	movb $0, .Lrexc_read_line_buffer(%edx)
-	jmp .Lrexc_i386_read_done
-.Lrexc_i386_read_terminate:
-	movb $0, .Lrexc_read_line_buffer(%eax)
-	jmp .Lrexc_i386_read_done
-.Lrexc_i386_read_empty:
-	movb $0, .Lrexc_read_line_buffer
+	je .Lrexc_i386_read_done
+	incl %edx
+	jmp .Lrexc_i386_read_loop
 .Lrexc_i386_read_done:
+	movb $0, .Lrexc_read_line_buffer(%edx)
 	movl $.Lrexc_read_line_buffer, %eax
 	popl %ebx
 	leave
@@ -137,28 +138,27 @@ println:
 	ret
 .globl read_line
 read_line:
+	xorq %r8, %r8
+.Lrexc_x64_read_loop:
+	cmpq $1023, %r8
+	jae .Lrexc_x64_read_done
 	movq $0, %rax
 	movq $0, %rdi
 	leaq .Lrexc_read_line_buffer(%rip), %rsi
-	movq $1023, %rdx
+	addq %r8, %rsi
+	movq $1, %rdx
 	syscall
 	cmpq $0, %rax
-	jle .Lrexc_x64_read_empty
-	movq %rax, %rdx
-	decq %rdx
+	jle .Lrexc_x64_read_done
 	leaq .Lrexc_read_line_buffer(%rip), %rsi
-	cmpb $10, (%rsi,%rdx)
-	jne .Lrexc_x64_read_terminate
-	movb $0, (%rsi,%rdx)
-	jmp .Lrexc_x64_read_done
-.Lrexc_x64_read_terminate:
-	movb $0, (%rsi,%rax)
-	jmp .Lrexc_x64_read_done
-.Lrexc_x64_read_empty:
-	leaq .Lrexc_read_line_buffer(%rip), %rsi
-	movb $0, (%rsi)
+	cmpb $10, (%rsi,%r8)
+	je .Lrexc_x64_read_done
+	incq %r8
+	jmp .Lrexc_x64_read_loop
 .Lrexc_x64_read_done:
-	leaq .Lrexc_read_line_buffer(%rip), %rax
+	leaq .Lrexc_read_line_buffer(%rip), %rsi
+	movb $0, (%rsi,%r8)
+	movq %rsi, %rax
 	ret
 .globl exit
 exit:
@@ -219,27 +219,26 @@ _read_line:
 	mov x29, sp
 	str x19, [sp, #16]
 	str x20, [sp, #24]
-	mov x0, #0
 	adrp x1, Lrexc_read_line_buffer@PAGE
 	add x1, x1, Lrexc_read_line_buffer@PAGEOFF
 	mov x19, x1
-	mov x2, #1023
+	mov x20, #0
+Lrexc_arm64_read_loop:
+	cmp x20, #1023
+	b.hs Lrexc_arm64_read_done
+	mov x0, #0
+	add x1, x19, x20
+	mov x2, #1
 	bl _read
 	cmp x0, #0
-	b.le Lrexc_arm64_read_empty
-	mov x20, x0
-	sub x2, x20, #1
-	ldrb w3, [x19, x2]
+	b.le Lrexc_arm64_read_done
+	ldrb w3, [x19, x20]
 	cmp w3, #10
-	b.ne Lrexc_arm64_read_terminate
-	strb wzr, [x19, x2]
-	b Lrexc_arm64_read_done
-Lrexc_arm64_read_terminate:
-	strb wzr, [x19, x20]
-	b Lrexc_arm64_read_done
-Lrexc_arm64_read_empty:
-	strb wzr, [x19]
+	b.eq Lrexc_arm64_read_done
+	add x20, x20, #1
+	b Lrexc_arm64_read_loop
 Lrexc_arm64_read_done:
+	strb wzr, [x19, x20]
 	mov x0, x19
 	ldr x20, [sp, #24]
 	ldr x19, [sp, #16]

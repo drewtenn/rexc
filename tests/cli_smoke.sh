@@ -22,7 +22,7 @@ grep -F -q 'movl $120, %eax' "${tmp_dir}/types.s"
 "${build_dir}/rexc" "${repo_dir}/examples/types.rx" --target x86_64 -S -o "${tmp_dir}/types64.s"
 test -s "${tmp_dir}/types64.s"
 grep -F -q 'movabsq $4000000000, %rax' "${tmp_dir}/types64.s"
-grep -F -q 'movq $.Lstr0, %rax' "${tmp_dir}/types64.s"
+grep -F -q 'leaq .Lstr0(%rip), %rax' "${tmp_dir}/types64.s"
 grep -F -q 'pushq %rbp' "${tmp_dir}/types64.s"
 
 "${build_dir}/rexc" "${repo_dir}/examples/wide.rx" --target x86_64 -S -o "${tmp_dir}/wide64.s"

@@ -50,6 +50,11 @@ if [ -n "$gnu_as" ]; then
 		grep -F -q 'hello from rexc' "${tmp_dir}/std-io-x86_64.out"
 		grep -F -q 'echo: friend' "${tmp_dir}/std-io-x86_64.out"
 		assert_no_stdlib_temps "${tmp_dir}/std-io-x86_64"
+		"${build_dir}/rexc" "${repo_dir}/examples/std_two_lines.rx" --target x86_64 -o "${tmp_dir}/std-two-lines-x86_64"
+		printf 'one\ntwo\n' | "${tmp_dir}/std-two-lines-x86_64" > "${tmp_dir}/std-two-lines-x86_64.out"
+		printf 'one\ntwo\n' > "${tmp_dir}/std-two-lines.expected"
+		cmp -s "${tmp_dir}/std-two-lines.expected" "${tmp_dir}/std-two-lines-x86_64.out"
+		assert_no_stdlib_temps "${tmp_dir}/std-two-lines-x86_64"
 		if command -v clang >/dev/null 2>&1 &&
 			clang -m32 -x c /dev/null -o "${tmp_dir}/empty32" >/dev/null 2>&1; then
 			"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386 -o "${tmp_dir}/add-i386"
@@ -100,6 +105,12 @@ if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	grep -F -q 'hello from rexc' "${tmp_dir}/std-io-arm64.out"
 	grep -F -q 'echo: friend' "${tmp_dir}/std-io-arm64.out"
 	assert_no_stdlib_temps "${tmp_dir}/std-io-arm64"
+	"${build_dir}/rexc" "${repo_dir}/examples/std_two_lines.rx" -o "${tmp_dir}/std-two-lines-arm64"
+	test -x "${tmp_dir}/std-two-lines-arm64"
+	printf 'one\ntwo\n' | "${tmp_dir}/std-two-lines-arm64" > "${tmp_dir}/std-two-lines-arm64.out"
+	printf 'one\ntwo\n' > "${tmp_dir}/std-two-lines.expected"
+	cmp -s "${tmp_dir}/std-two-lines.expected" "${tmp_dir}/std-two-lines-arm64.out"
+	assert_no_stdlib_temps "${tmp_dir}/std-two-lines-arm64"
 else
 	echo "SKIP: arm64-macos object smoke requires Apple Silicon macOS"
 fi

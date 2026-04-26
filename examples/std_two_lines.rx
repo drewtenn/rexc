@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let first: str = read_line();
+    println(first);
+    let second: str = read_line();
+    println(second);
+    return 0;
+}

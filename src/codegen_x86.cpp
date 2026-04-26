@@ -513,8 +513,12 @@ private:
 		}
 		case ir::Value::Kind::String: {
 			const auto &string = static_cast<const ir::StringValue &>(value);
-			out_ << "\t" << move_instruction() << " $" << string_labels_.at(&string)
-			     << ", " << accumulator_register() << "\n";
+			if (target_ == CodegenTarget::X86_64) {
+				out_ << "\tleaq " << string_labels_.at(&string) << "(%rip), %rax\n";
+			} else {
+				out_ << "\t" << move_instruction() << " $" << string_labels_.at(&string)
+				     << ", " << accumulator_register() << "\n";
+			}
 			return;
 		}
 		case ir::Value::Kind::Unary:
