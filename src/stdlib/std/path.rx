@@ -1,0 +1,23 @@
+fn path_is_absolute(path: str) -> bool {
+	return path[0] == 47;
+}
+
+fn path_join(parent: str, child: str) -> str {
+	if str_is_empty(parent) {
+		return owned_str_clone(child);
+	}
+	if str_is_empty(child) {
+		return owned_str_clone(parent);
+	}
+	if path_is_absolute(child) {
+		return owned_str_clone(child);
+	}
+	if str_ends_with(parent, "/") {
+		return owned_str_concat(parent, child);
+	}
+	return owned_str_concat(owned_str_concat(parent, "/"), child);
+}
+
+fn std_path_join(parent: str, child: str) -> str {
+	return path_join(parent, child);
+}

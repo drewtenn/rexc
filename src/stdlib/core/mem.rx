@@ -30,3 +30,56 @@ fn str_copy_to(dest: *u8, value: str, max_len: i32) -> i32 {
 	*(dest + index) = 0;
 	return index;
 }
+
+fn slice_u8_len(data: *u8, len: i32) -> i32 {
+	return len;
+}
+
+fn slice_u8_is_empty(data: *u8, len: i32) -> bool {
+	return len <= 0;
+}
+
+fn slice_u8_get_or(data: *u8, len: i32, index: i32, fallback: u8) -> u8 {
+	if index < 0 {
+		return fallback;
+	}
+	if index >= len {
+		return fallback;
+	}
+	return data[index];
+}
+
+fn slice_u8_copy_to(dest: *u8, src: *u8, len: i32) -> i32 {
+	return memcpy_u8(dest, src, len);
+}
+
+fn error_none() -> i32 {
+	return 0;
+}
+
+fn error_invalid_argument() -> i32 {
+	return -1;
+}
+
+fn error_out_of_memory() -> i32 {
+	return -2;
+}
+
+fn error_not_found() -> i32 {
+	return -3;
+}
+
+fn result_is_ok(code: i32) -> bool {
+	return code >= 0;
+}
+
+fn result_is_err(code: i32) -> bool {
+	return code < 0;
+}
+
+fn result_unwrap_or_i32(value: i32, fallback: i32) -> i32 {
+	if result_is_ok(value) {
+		return value;
+	}
+	return fallback;
+}

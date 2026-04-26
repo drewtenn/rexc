@@ -591,6 +591,15 @@ TEST_CASE(codegen_i386_emits_u8_pointer_to_str_cast_as_noop)
 	REQUIRE(assembly.find("call") == std::string::npos);
 }
 
+TEST_CASE(codegen_i386_emits_pointer_to_pointer_cast_as_noop)
+{
+	auto assembly = compile_to_assembly(
+		"static mut BUFFER: [u8; 16];\nfn main() -> *i32 { return (BUFFER + 0) as *i32; }\n");
+
+	REQUIRE(assembly.find(".Lstatic_BUFFER") != std::string::npos);
+	REQUIRE(assembly.find("call") == std::string::npos);
+}
+
 TEST_CASE(codegen_i386_emits_alloc_helper_calls)
 {
 	auto assembly = compile_to_assembly(

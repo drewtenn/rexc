@@ -563,6 +563,8 @@ private:
 			return true;
 		if (source == pointer_to(u8_type()) && target.kind == PrimitiveKind::Str)
 			return true;
+		if (is_pointer(source) && is_pointer(target))
+			return true;
 		if (is_integer(source) && is_integer(target))
 			return true;
 		if (source.kind == PrimitiveKind::Bool && is_integer(target))

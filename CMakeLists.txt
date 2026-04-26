@@ -72,6 +72,8 @@ set(REXC_STDLIB_RX_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/alloc/alloc.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/io.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/process.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/fs.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/path.rx"
 )
 
 set(REXC_STDLIB_GENERATED_SOURCE

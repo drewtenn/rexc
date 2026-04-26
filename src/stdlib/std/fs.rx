@@ -1,0 +1,31 @@
+extern fn sys_file_open_read(path: str) -> i32;
+extern fn sys_file_create_write(path: str) -> i32;
+extern fn sys_file_close(fd: i32) -> i32;
+
+fn file_open_read(path: str) -> i32 {
+	return sys_file_open_read(path);
+}
+
+fn file_create_write(path: str) -> i32 {
+	return sys_file_create_write(path);
+}
+
+fn file_close(fd: i32) -> i32 {
+	return sys_file_close(fd);
+}
+
+fn file_read(fd: i32, buffer: *u8, len: i32) -> i32 {
+	return sys_read(fd, buffer, len);
+}
+
+fn file_write_str(fd: i32, value: str) -> i32 {
+	return sys_write(fd, value, strlen(value));
+}
+
+fn std_fs_open_read(path: str) -> i32 {
+	return file_open_read(path);
+}
+
+fn std_fs_create_write(path: str) -> i32 {
+	return file_create_write(path);
+}

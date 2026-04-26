@@ -45,6 +45,8 @@ TEST_CASE(stdlib_uses_rx_files_as_canonical_source)
 	std::ifstream alloc(source_dir + "/src/stdlib/alloc/alloc.rx");
 	std::ifstream std_io(source_dir + "/src/stdlib/std/io.rx");
 	std::ifstream std_process(source_dir + "/src/stdlib/std/process.rx");
+	std::ifstream std_fs(source_dir + "/src/stdlib/std/fs.rx");
+	std::ifstream std_path(source_dir + "/src/stdlib/std/path.rx");
 	std::ifstream i386_linux_runtime(source_dir + "/src/stdlib/sys/runtime_i386_linux.cpp");
 	std::ifstream x86_64_linux_runtime(source_dir + "/src/stdlib/sys/runtime_x86_64_linux.cpp");
 	std::ifstream arm64_macos_runtime(source_dir + "/src/stdlib/sys/runtime_arm64_macos.cpp");
@@ -56,6 +58,8 @@ TEST_CASE(stdlib_uses_rx_files_as_canonical_source)
 	REQUIRE(alloc.is_open());
 	REQUIRE(std_io.is_open());
 	REQUIRE(std_process.is_open());
+	REQUIRE(std_fs.is_open());
+	REQUIRE(std_path.is_open());
 	REQUIRE(i386_linux_runtime.is_open());
 	REQUIRE(x86_64_linux_runtime.is_open());
 	REQUIRE(arm64_macos_runtime.is_open());
@@ -84,9 +88,21 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	auto memset_u8 = rexc::stdlib::find_prelude_function("memset_u8");
 	auto memcpy_u8 = rexc::stdlib::find_prelude_function("memcpy_u8");
 	auto str_copy_to = rexc::stdlib::find_prelude_function("str_copy_to");
+	auto slice_u8_len = rexc::stdlib::find_prelude_function("slice_u8_len");
+	auto slice_u8_is_empty = rexc::stdlib::find_prelude_function("slice_u8_is_empty");
+	auto slice_u8_get_or = rexc::stdlib::find_prelude_function("slice_u8_get_or");
+	auto result_is_ok = rexc::stdlib::find_prelude_function("result_is_ok");
+	auto result_is_err = rexc::stdlib::find_prelude_function("result_is_err");
+	auto error_out_of_memory = rexc::stdlib::find_prelude_function("error_out_of_memory");
 	auto alloc_bytes = rexc::stdlib::find_prelude_function("alloc_bytes");
+	auto alloc_used = rexc::stdlib::find_prelude_function("alloc_used");
+	auto alloc_can_allocate = rexc::stdlib::find_prelude_function("alloc_can_allocate");
 	auto alloc_str_copy = rexc::stdlib::find_prelude_function("alloc_str_copy");
 	auto alloc_str_concat = rexc::stdlib::find_prelude_function("alloc_str_concat");
+	auto owned_str_clone = rexc::stdlib::find_prelude_function("owned_str_clone");
+	auto box_i32_new = rexc::stdlib::find_prelude_function("box_i32_new");
+	auto vec_i32_new = rexc::stdlib::find_prelude_function("vec_i32_new");
+	auto vec_i32_push = rexc::stdlib::find_prelude_function("vec_i32_push");
 	auto alloc_i32_to_str = rexc::stdlib::find_prelude_function("alloc_i32_to_str");
 	auto alloc_bool_to_str = rexc::stdlib::find_prelude_function("alloc_bool_to_str");
 	auto alloc_char_to_str = rexc::stdlib::find_prelude_function("alloc_char_to_str");
@@ -104,6 +120,12 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	auto read_bool = rexc::stdlib::find_prelude_function("read_bool");
 	auto exit = rexc::stdlib::find_prelude_function("exit");
 	auto panic = rexc::stdlib::find_prelude_function("panic");
+	auto abort = rexc::stdlib::find_prelude_function("abort");
+	auto std_io_println = rexc::stdlib::find_prelude_function("std_io_println");
+	auto std_process_exit = rexc::stdlib::find_prelude_function("std_process_exit");
+	auto file_open_read = rexc::stdlib::find_prelude_function("file_open_read");
+	auto file_write_str = rexc::stdlib::find_prelude_function("file_write_str");
+	auto path_join = rexc::stdlib::find_prelude_function("path_join");
 
 	REQUIRE(print != nullptr);
 	REQUIRE(println != nullptr);
@@ -118,9 +140,21 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE(memset_u8 != nullptr);
 	REQUIRE(memcpy_u8 != nullptr);
 	REQUIRE(str_copy_to != nullptr);
+	REQUIRE(slice_u8_len != nullptr);
+	REQUIRE(slice_u8_is_empty != nullptr);
+	REQUIRE(slice_u8_get_or != nullptr);
+	REQUIRE(result_is_ok != nullptr);
+	REQUIRE(result_is_err != nullptr);
+	REQUIRE(error_out_of_memory != nullptr);
 	REQUIRE(alloc_bytes != nullptr);
+	REQUIRE(alloc_used != nullptr);
+	REQUIRE(alloc_can_allocate != nullptr);
 	REQUIRE(alloc_str_copy != nullptr);
 	REQUIRE(alloc_str_concat != nullptr);
+	REQUIRE(owned_str_clone != nullptr);
+	REQUIRE(box_i32_new != nullptr);
+	REQUIRE(vec_i32_new != nullptr);
+	REQUIRE(vec_i32_push != nullptr);
 	REQUIRE(alloc_i32_to_str != nullptr);
 	REQUIRE(alloc_bool_to_str != nullptr);
 	REQUIRE(alloc_char_to_str != nullptr);
@@ -138,6 +172,12 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE(read_bool != nullptr);
 	REQUIRE(exit != nullptr);
 	REQUIRE(panic != nullptr);
+	REQUIRE(abort != nullptr);
+	REQUIRE(std_io_println != nullptr);
+	REQUIRE(std_process_exit != nullptr);
+	REQUIRE(file_open_read != nullptr);
+	REQUIRE(file_write_str != nullptr);
+	REQUIRE(path_join != nullptr);
 	REQUIRE_EQ(print->layer, rexc::stdlib::Layer::Std);
 	REQUIRE_EQ(print->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(print->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
@@ -200,6 +240,15 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE_EQ(str_copy_to->parameters[1], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(str_copy_to->parameters[2], (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(str_copy_to->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(slice_u8_len->layer, rexc::stdlib::Layer::Core);
+	REQUIRE_EQ(slice_u8_len->parameters.size(), std::size_t(2));
+	REQUIRE_EQ(slice_u8_len->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(slice_u8_is_empty->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
+	REQUIRE_EQ(slice_u8_get_or->parameters.size(), std::size_t(4));
+	REQUIRE_EQ(slice_u8_get_or->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::UnsignedInteger, 8}));
+	REQUIRE_EQ(result_is_ok->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
+	REQUIRE_EQ(result_is_err->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
+	REQUIRE_EQ(error_out_of_memory->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(alloc_bytes->layer, rexc::stdlib::Layer::Alloc);
 	REQUIRE_EQ(alloc_bytes->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(alloc_bytes->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
@@ -228,6 +277,13 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE_EQ(alloc_remaining->layer, rexc::stdlib::Layer::Alloc);
 	REQUIRE_EQ(alloc_remaining->parameters.size(), std::size_t(0));
 	REQUIRE_EQ(alloc_remaining->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(alloc_used->layer, rexc::stdlib::Layer::Alloc);
+	REQUIRE_EQ(alloc_used->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(alloc_can_allocate->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
+	REQUIRE_EQ(owned_str_clone->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(box_i32_new->return_type, rexc::pointer_to(rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(vec_i32_new->return_type, rexc::pointer_to(rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(vec_i32_push->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(alloc_reset->layer, rexc::stdlib::Layer::Alloc);
 	REQUIRE_EQ(alloc_reset->parameters.size(), std::size_t(0));
 	REQUIRE_EQ(alloc_reset->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
@@ -277,6 +333,12 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE_EQ(panic->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(panic->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(panic->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(abort->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_io_println->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_process_exit->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(file_open_read->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(file_write_str->parameters.size(), std::size_t(2));
+	REQUIRE_EQ(path_join->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 }
 
 TEST_CASE(stdlib_emits_hosted_runtime_symbols)

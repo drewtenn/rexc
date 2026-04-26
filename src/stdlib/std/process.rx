@@ -1,3 +1,34 @@
 fn exit(status: i32) -> i32 {
 	return sys_exit(status);
 }
+
+fn std_process_exit(status: i32) -> i32 {
+	return sys_exit(status);
+}
+
+fn abort(status: i32) -> i32 {
+	return sys_exit(status);
+}
+
+fn panic_abort(message: str, status: i32) -> i32 {
+	sys_write(1, "panic: ", 7);
+	sys_write(1, message, strlen(message));
+	sys_write(1, "\n", 1);
+	return abort(status);
+}
+
+fn args_len() -> i32 {
+	return 0;
+}
+
+fn arg_at(index: i32) -> str {
+	return "";
+}
+
+fn env_get(name: str) -> str {
+	return "";
+}
+
+fn std_env_get(name: str) -> str {
+	return env_get(name);
+}

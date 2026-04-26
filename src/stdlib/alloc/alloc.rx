@@ -5,6 +5,21 @@ fn alloc_remaining() -> i32 {
 	return 65536 - ALLOC_OFFSET;
 }
 
+fn alloc_used() -> i32 {
+	return ALLOC_OFFSET;
+}
+
+fn alloc_capacity() -> i32 {
+	return 65536;
+}
+
+fn alloc_can_allocate(len: i32) -> bool {
+	if len <= 0 {
+		return true;
+	}
+	return len <= alloc_remaining();
+}
+
 fn alloc_reset() -> i32 {
 	ALLOC_OFFSET = 0;
 	return 0;
@@ -38,6 +53,76 @@ fn alloc_str_concat(lhs: str, rhs: str) -> str {
 	str_copy_to(dest, lhs, total_len);
 	str_copy_to(dest + lhs_len, rhs, rhs_len + 1);
 	return dest as str;
+}
+
+fn owned_str_clone(value: str) -> str {
+	return alloc_str_copy(value);
+}
+
+fn owned_str_len(value: str) -> i32 {
+	return strlen(value);
+}
+
+fn owned_str_is_empty(value: str) -> bool {
+	return str_is_empty(value);
+}
+
+fn owned_str_concat(lhs: str, rhs: str) -> str {
+	return alloc_str_concat(lhs, rhs);
+}
+
+fn box_i32_new(value: i32) -> *i32 {
+	let box: *i32 = alloc_bytes(4) as *i32;
+	*(box + 0) = value;
+	return box;
+}
+
+fn box_i32_read(box: *i32) -> i32 {
+	return box[0];
+}
+
+fn box_i32_write(box: *i32, value: i32) -> i32 {
+	*(box + 0) = value;
+	return value;
+}
+
+fn vec_i32_new(capacity: i32) -> *i32 {
+	let mut actual_capacity: i32 = capacity;
+	if capacity < 0 {
+		actual_capacity = 0;
+	}
+	let vec: *i32 = alloc_bytes((actual_capacity + 2) * 4) as *i32;
+	*(vec + 0) = 0;
+	*(vec + 1) = actual_capacity;
+	return vec;
+}
+
+fn vec_i32_len(vec: *i32) -> i32 {
+	return vec[0];
+}
+
+fn vec_i32_capacity(vec: *i32) -> i32 {
+	return vec[1];
+}
+
+fn vec_i32_push(vec: *i32, value: i32) -> i32 {
+	let len: i32 = vec_i32_len(vec);
+	if len >= vec_i32_capacity(vec) {
+		return error_out_of_memory();
+	}
+	*(vec + 2 + len) = value;
+	*(vec + 0) = len + 1;
+	return len + 1;
+}
+
+fn vec_i32_get_or(vec: *i32, index: i32, fallback: i32) -> i32 {
+	if index < 0 {
+		return fallback;
+	}
+	if index >= vec_i32_len(vec) {
+		return fallback;
+	}
+	return vec[2 + index];
 }
 
 fn _write_digit_to(dest: *u8, value: i32) -> i32 {

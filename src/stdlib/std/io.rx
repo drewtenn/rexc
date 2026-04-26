@@ -8,9 +8,17 @@ fn print(value: str) -> i32 {
 	return sys_write(1, value, strlen(value));
 }
 
+fn std_io_print(value: str) -> i32 {
+	return print(value);
+}
+
 fn println(value: str) -> i32 {
 	let count: i32 = print(value);
 	return count + sys_write(1, "\n", 1);
+}
+
+fn std_io_println(value: str) -> i32 {
+	return println(value);
 }
 
 fn read_line() -> str {
@@ -29,6 +37,10 @@ fn read_line() -> str {
 	}
 	*(READ_LINE_BUFFER + index) = 0;
 	return READ_LINE_BUFFER;
+}
+
+fn std_io_read_line() -> str {
+	return read_line();
 }
 
 fn print_i32(value: i32) -> i32 {
@@ -64,8 +76,5 @@ fn read_bool() -> bool {
 }
 
 fn panic(message: str) -> i32 {
-	sys_write(1, "panic: ", 7);
-	sys_write(1, message, strlen(message));
-	sys_write(1, "\n", 1);
-	return sys_exit(101);
+	return panic_abort(message, 101);
 }
