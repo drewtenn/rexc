@@ -22,3 +22,10 @@ fn alloc_bytes(len: i32) -> *u8 {
 	ALLOC_OFFSET = ALLOC_OFFSET + len;
 	return ALLOC_ARENA + start;
 }
+
+fn alloc_str_copy(value: str) -> str {
+	let len: i32 = strlen(value) + 1;
+	let dest: *u8 = alloc_bytes(len);
+	str_copy_to(dest, value, len);
+	return dest as str;
+}

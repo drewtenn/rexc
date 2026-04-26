@@ -323,6 +323,8 @@ terminals, environment variables, or process services.
 During bootstrap, `alloc` may start as a portable bump arena implemented in
 Rexc source with `static mut` byte storage and scalar offset state. That is an
 allocator contract seed, not the final ownership model for vectors or strings.
+Allocation-backed string helpers may return `str` views into that arena until
+Rexc has owned string and lifetime semantics.
 
 ### Stage 6: Grow Hosted `std`
 

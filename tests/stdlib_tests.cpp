@@ -54,6 +54,7 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	auto memcpy_u8 = rexc::stdlib::find_prelude_function("memcpy_u8");
 	auto str_copy_to = rexc::stdlib::find_prelude_function("str_copy_to");
 	auto alloc_bytes = rexc::stdlib::find_prelude_function("alloc_bytes");
+	auto alloc_str_copy = rexc::stdlib::find_prelude_function("alloc_str_copy");
 	auto alloc_remaining = rexc::stdlib::find_prelude_function("alloc_remaining");
 	auto alloc_reset = rexc::stdlib::find_prelude_function("alloc_reset");
 	auto print_i32 = rexc::stdlib::find_prelude_function("print_i32");
@@ -77,6 +78,7 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE(memcpy_u8 != nullptr);
 	REQUIRE(str_copy_to != nullptr);
 	REQUIRE(alloc_bytes != nullptr);
+	REQUIRE(alloc_str_copy != nullptr);
 	REQUIRE(alloc_remaining != nullptr);
 	REQUIRE(alloc_reset != nullptr);
 	REQUIRE(print_i32 != nullptr);
@@ -151,6 +153,10 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE_EQ(alloc_bytes->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(alloc_bytes->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(alloc_bytes->return_type, rexc::pointer_to(rexc::PrimitiveType{rexc::PrimitiveKind::UnsignedInteger, 8}));
+	REQUIRE_EQ(alloc_str_copy->layer, rexc::stdlib::Layer::Alloc);
+	REQUIRE_EQ(alloc_str_copy->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(alloc_str_copy->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(alloc_str_copy->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(alloc_remaining->layer, rexc::stdlib::Layer::Alloc);
 	REQUIRE_EQ(alloc_remaining->parameters.size(), std::size_t(0));
 	REQUIRE_EQ(alloc_remaining->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
@@ -202,6 +208,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "memcpy_u8:"));
 	REQUIRE(contains(i386, "str_copy_to:"));
 	REQUIRE(contains(i386, "alloc_bytes:"));
+	REQUIRE(contains(i386, "alloc_str_copy:"));
 	REQUIRE(contains(i386, "alloc_remaining:"));
 	REQUIRE(contains(i386, "alloc_reset:"));
 	REQUIRE(contains(i386, "print_i32:"));
@@ -233,6 +240,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "memcpy_u8:"));
 	REQUIRE(contains(x86_64, "str_copy_to:"));
 	REQUIRE(contains(x86_64, "alloc_bytes:"));
+	REQUIRE(contains(x86_64, "alloc_str_copy:"));
 	REQUIRE(contains(x86_64, "alloc_remaining:"));
 	REQUIRE(contains(x86_64, "alloc_reset:"));
 	REQUIRE(contains(x86_64, "print_i32:"));
@@ -265,6 +273,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "_memcpy_u8:"));
 	REQUIRE(contains(arm64, "_str_copy_to:"));
 	REQUIRE(contains(arm64, "_alloc_bytes:"));
+	REQUIRE(contains(arm64, "_alloc_str_copy:"));
 	REQUIRE(contains(arm64, "_alloc_remaining:"));
 	REQUIRE(contains(arm64, "_alloc_reset:"));
 	REQUIRE(contains(arm64, "_print_i32:"));
