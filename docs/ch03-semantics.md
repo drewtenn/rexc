@@ -195,13 +195,13 @@ default bare prelude is limited to user-facing helpers such as `print`,
 those functions without writing module syntax, and sema checks their argument
 counts and types the same way it checks user-defined functions.
 
-Public standard-library helpers outside that default prelude stay available
-through explicit bridge paths, such as `std::io::println` and
-`std::process::exit`. Bootstrap helpers, raw memory helpers, runtime bridge
-labels, and stdlib statics are not user-facing bare names. Compiler internals
-and tests that intentionally exercise those names opt into an explicit
-all-stdlib symbol policy, while normal user analysis keeps the smaller default
-prelude.
+Public standard-library helpers outside that default prelude still emit into
+hosted runtime builds. Bridge-backed `std_*` declarations also stay available
+through explicit paths, such as `std::io::println` and `std::process::exit`.
+Bootstrap helpers, raw memory helpers, runtime bridge labels, and stdlib
+statics are not user-facing bare names. Compiler internals and tests that
+intentionally exercise those names opt into an explicit all-stdlib symbol
+policy, while normal user analysis keeps the smaller default prelude.
 
 ### Where the Compiler Is by the End of Chapter 3
 

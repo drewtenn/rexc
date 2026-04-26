@@ -524,11 +524,12 @@ implemented in Rexc using a `static mut [u8; 1024]` buffer and the primitive
 an optional leading `-` followed by decimal digits; empty strings, invalid
 characters, and overflow return `0` until Rexc has richer result types.
 
-Public stdlib helpers outside the default prelude remain available to hosted
-runtime builds and explicit bridge paths such as `std::io::println` and
-`std::process::exit`. Bootstrap allocation, raw memory, file/path/environment,
-sentinel-result, and `std_*` bridge symbols are not default bare names; compiler
-internals and tests that need those helpers opt into the explicit `All` policy.
+Public stdlib helpers outside the default prelude still emit into hosted
+runtime builds. Bridge-backed `std_*` declarations also remain available
+through explicit paths such as `std::io::println` and `std::process::exit`.
+Bootstrap allocation, raw memory, file/path/environment, sentinel-result, and
+`std_*` bridge symbols are not default bare names; compiler internals and tests
+that need those helpers opt into the explicit `All` policy.
 
 Example:
 
