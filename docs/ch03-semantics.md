@@ -39,11 +39,36 @@ backend to choose correctly without reinterpreting source text.
 
 ### Names, Locals, and Local Mutation
 
-The analyzer walks each function with a table of visible local names. Function
-parameters enter the table first. They are visible in the function body, but
-they are not assignable. A `let` statement checks its initializer before
-inserting the new name, so a declaration such as `let x: i32 = x;` is still an
-unknown-name error rather than a self-reference that silently works.
+The analyzer begins by building module-level tables. It records functions,
+static scalars, static buffers, and modules by their full module path. That
+path matters for both symbol names and visibility. A function loaded from
+`math.rx` under `mod math;` is known as `math::add` at the language level and
+will later receive a symbol name such as `math_add`.
+
+`use` declarations are checked against those tables. A declaration such as
+`use math::add;` imports the final name, so later code in the same module can
+call `add(20, 22)`. Qualified calls remain available too:
+
+```rust
+mod math;
+use math::add;
+
+fn main() -> i32 {
+    let imported: i32 = add(20, 22);
+    let qualified: i32 = math::double(21);
+    return imported + qualified - 42;
+}
+```
+
+Visibility is enforced at the module boundary. Items that another module must
+reach need `pub`; private functions and globals stay available only inside the
+module tree where they were declared.
+
+Inside each function, the analyzer walks with a table of visible local names.
+Function parameters enter the table first. They are visible in the function
+body, but they are not assignable. A `let` statement checks its initializer
+before inserting the new name, so a declaration such as `let x: i32 = x;` is
+still an unknown-name error rather than a self-reference that silently works.
 
 Rexc separates declaration from mutation. A plain `let` creates an immutable
 local. A `let mut` creates a mutable local. Assignment is only valid when the
@@ -72,6 +97,12 @@ Pointer arithmetic is limited to `pointer + integer` and `pointer - integer`.
 The result keeps the pointer type. The integer is an element offset, not a byte
 offset, so the backend later scales it by the pointee size. Indexing follows
 that same rule: `p[i]` is checked as `*(p + i)`.
+
+Static globals follow a smaller set of rules. A static scalar has a primitive
+type and an integer initializer that must fit that type. A static byte buffer
+records an element type and a fixed length. Reads from static scalars and
+addresses of static buffers are valid expressions; assignments to mutable
+static scalars are checked just like assignments to mutable locals.
 
 ### Block Scopes
 
@@ -127,16 +158,23 @@ exposes the character's scalar value. Casts involving `str`, and other
 character casts such as `char as u8`, are rejected so the language does not
 pretend strings or characters are byte arrays.
 
+The hosted standard library is also part of the semantic environment. Prelude
+functions such as `print`, `println`, `read_line`, `strlen`, `str_eq`,
+`parse_i32`, `read_i32`, `print_bool`, `println_bool`, `print_char`, and
+`panic` are injected with known signatures. Programs can call those functions
+without writing module syntax, and sema checks their argument counts and types
+the same way it checks user-defined functions.
+
 ### Where the Compiler Is by the End of Chapter 3
 
 Rexc can now reject programs that are grammatically valid but semantically
-wrong. It knows which functions exist, which locals are visible, which primitive
-types are valid, which calls match their signatures, and which expressions
-produce which types. It also knows which explicit casts are legal, which locals
-are mutable, which assignments are legal, which pointer expressions and
-indirect assignments are legal, which logical expressions are boolean, which
-branch and loop conditions are boolean, and which `break` and `continue`
-statements are actually inside loops.
+wrong. It knows which functions, modules, imports, globals, and locals are
+visible, which primitive types are valid, which calls match their signatures,
+and which expressions produce which types. It also knows which explicit casts
+are legal, which locals and statics are mutable, which assignments are legal,
+which pointer expressions and indirect assignments are legal, which logical
+expressions are boolean, which branch and loop conditions are boolean, and
+which `break` and `continue` statements are actually inside loops.
 
 The compiler has not emitted anything yet. It still holds the source-shaped AST,
 now checked for meaning. The next step is to lower that tree into a smaller

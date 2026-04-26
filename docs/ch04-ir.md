@@ -16,14 +16,15 @@ AST, and direct enough for assembly emission.
 
 ### What the IR Keeps
 
-The IR keeps the facts the backend needs. Functions have names, parameters,
-return types, and statement bodies. Values carry resolved primitive types.
-Integer literals keep their decimal text. Calls carry the callee name and the
-lowered argument values. Assignments carry a target local name and a typed
-value to store. Indirect assignments carry a lowered pointer target and a typed
-value to write through it. Casts carry the lowered source value and the
-resolved target type. Branches and loops carry typed conditions and lowered
-statement bodies.
+The IR keeps the facts the backend needs. Functions have full module-aware
+names, parameters, return types, and statement bodies. Static buffers and
+static scalars become explicit IR globals. Values carry resolved primitive
+types. Integer literals keep their decimal text. Calls carry the resolved
+callee name and the lowered argument values. Assignments carry a target local
+or static scalar name and a typed value to store. Indirect assignments carry a
+lowered pointer target and a typed value to write through it. Casts carry the
+lowered source value and the resolved target type. Branches and loops carry
+typed conditions and lowered statement bodies.
 
 The main shift is that source type names disappear. Once semantic analysis has
 proved that `i32` is a valid primitive type, later stages do not need to parse
@@ -85,6 +86,13 @@ the same idea with an extra address step: evaluate the value, evaluate the
 pointer target, then store the value into the memory address held by that
 pointer.
 
+Static storage is explicit in IR because it does not live in a stack frame.
+Static buffers lower to global storage declarations. Static scalars lower to
+global scalar declarations plus load and store operations when expressions read
+or assign them. This lets code generation put stack locals, mutable statics,
+and static byte buffers in the right assembly sections without re-reading the
+source AST.
+
 Pointer indexing does not need its own IR node. The parser turns `p[i]` into
 the same shape the programmer could have written directly: `*(p + i)`. That
 means semantic analysis, lowering, and code generation all reuse the existing
@@ -93,13 +101,14 @@ unary dereference and binary pointer-addition paths.
 ### Where the Compiler Is by the End of Chapter 4
 
 Rexc now holds a typed IR module. The source has been parsed, checked, and
-lowered into a backend-facing representation. Every value has a primitive type.
-Every branch and loop condition is already known to be boolean. Every
-explicit cast has a validated source and target type. Every assignment targets
-an existing local with a value of the right type. Every indirect assignment has
-a pointer target and a value of the pointee type. Every `break` and `continue`
-statement is known to be inside a loop. Every function body is a sequence of
-typed IR statements.
+lowered into a backend-facing representation. Every function and global has a
+module-aware name. Every value has a primitive type. Every branch and loop
+condition is already known to be boolean. Every explicit cast has a validated
+source and target type. Every assignment targets an existing local or static
+scalar with a value of the right type. Every indirect assignment has a pointer
+target and a value of the pointee type. Every `break` and `continue` statement
+is known to be inside a loop. Every function body is a sequence of typed IR
+statements.
 
 The compiler is ready to leave source-language territory. The next stage must
 take this typed IR and make it concrete for a CPU: stack frames, registers,

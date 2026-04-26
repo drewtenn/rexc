@@ -18,13 +18,28 @@ generated parse tree into Rexc's own AST.
 
 ### Items, Blocks, and Statements
 
-Rexc source is organised around functions. At the top level, the parser expects
-either a function definition or an extern declaration. An extern declaration
-names a function that exists outside the current Rexc source file, which lets
-Rexc-generated code call into a runtime or library supplied by the final link.
+Rexc source is organised around top-level **items**. A function definition is
+one item, but it is no longer the only shape the parser accepts. Top-level
+source can contain:
+
+| Item | What it records |
+| --- | --- |
+| `fn` | a Rexc function definition with a body |
+| `extern fn` | a function supplied by the runtime or final link |
+| `static` / `static mut` scalar | a global scalar with an integer initializer |
+| `static mut [T; N]` | a global byte-style buffer |
+| `mod name { ... }` | an inline module containing nested items |
+| `mod name;` | a file-backed module declaration |
+| `use path::to::item;` | an imported item name for later lookup |
+
+File-backed modules are part of parsing now. When the command-line driver
+parses an entry file, `mod math;` causes Rexc to look for `math.rx` or
+`math/mod.rx` beside the entry file, and then under any `--package-path` roots.
+The loaded module is parsed with the correct module path so its functions and
+globals keep names such as `math_add`.
 
 Inside a function body, the parser builds statements. A statement is a piece of
-program structure that does something in sequence. Rexc currently has nine
+program structure that does something in sequence. Rexc currently has these
 statement shapes:
 
 | Statement | What it means |
@@ -32,6 +47,8 @@ statement shapes:
 | `let` | create an immutable local value with an explicit type |
 | `let mut` | create a mutable local value with an explicit type |
 | assignment | update an existing mutable local |
+| indirect assignment | write through a pointer, as in `*p = 9;` |
+| call statement | call a function for its side effect |
 | `return` | produce the function result |
 | `if` | conditionally run one block |
 | `if/else` | choose between two blocks |
@@ -69,12 +86,17 @@ Rexc's current expression layers are:
 | Cast | `as` followed by a type |
 | Unary | unary `-`, `!`, `&`, `*` |
 | Postfix | pointer indexing with `[index]` |
-| Primary | literals, names, calls, parenthesised expressions |
+| Primary | literals, names, qualified calls, parenthesised expressions |
 
 These grammar layers give each operator family a clear place. A comparison can
 contain arithmetic on either side. Arithmetic can contain calls and names. A
 parenthesised expression can override the default grouping when the source
 needs a different shape.
+
+Function calls use qualified names, so both `add(1, 2)` and
+`math::add(1, 2)` have the same call-expression shape. The parser records the
+path segments. Semantic analysis later decides whether that path names a
+visible function.
 
 ### The AST as the Parser's Handoff
 
@@ -95,15 +117,17 @@ then stops.
 ### Where the Compiler Is by the End of Chapter 2
 
 Rexc can now turn valid source text into a syntax tree. It understands
-function definitions, extern declarations, typed parameters, pointer types,
-immutable and mutable typed locals, assignments, indirect pointer assignments,
-returns, conditionals, while loops, calls, literals, unary expressions, pointer
-indexing, binary arithmetic, comparisons, boolean operators, explicit casts,
-`break`, and `continue`.
+function definitions, extern declarations, file-backed and inline modules,
+`use` imports, public visibility markers, static scalars, static buffers, typed
+parameters, pointer types, immutable and mutable typed locals, assignments,
+indirect pointer assignments, returns, conditionals, while loops, calls,
+literals, unary expressions, pointer indexing, binary arithmetic, comparisons,
+boolean operators, explicit casts, `break`, and `continue`.
 
 The compiler still has not proved the program is meaningful. The tree might
-refer to an unknown function. A return statement might produce the wrong type.
-An assignment might target an immutable local. An `if` or `while` condition
-might be an integer instead of a boolean. A `break` might appear outside a
-loop. Those are semantic questions, and the next stage is where Rexc begins to
-answer them.
+refer to an unknown function or module item. A `use` declaration might import
+a private symbol. A return statement might produce the wrong type. An
+assignment might target an immutable local. An `if` or `while` condition might
+be an integer instead of a boolean. A `break` might appear outside a loop.
+Those are semantic questions, and the next stage is where Rexc begins to answer
+them.

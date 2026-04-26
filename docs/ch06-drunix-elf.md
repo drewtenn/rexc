@@ -2,23 +2,31 @@
 
 ## Chapter 6 - Building a Drunix ELF Program
 
-### The Compiler Stops at Assembly
+### The Compiler Can Stop at Several Boundaries
 
-Rexc currently stops after assembly output. That is a deliberate boundary. The
-compiler owns source analysis, typing, lowering, and target assembly emission.
-The assembler and linker own the binary container that Drunix will eventually
-load.
+Rexc can stop at assembly output, stop after object-file assembly, or drive a
+final executable link. Those are command-line choices rather than different
+compiler pipelines. The compiler owns source analysis, typing, lowering, and
+target assembly emission. The assembler and linker still own the binary
+container that Drunix will eventually load.
 
 The assembler turns textual assembly into an object file. An object file is a
 binary file containing machine code, data, symbols, and relocation information.
 Relocation information records places where the linker may need to adjust an
 address once all input objects are laid out together.
 
-Rexc's i386 path is the current Drunix userland path. The generated assembly is
-assembled as a 32-bit x86 object file:
+Rexc's i386 path is the current Drunix userland path. The generated assembly
+can be assembled as a 32-bit x86 object file directly:
 
 ```sh
-x86_64-elf-as --32 -o build/add.o build/add.s
+build/rexc examples/core.rx --target i386 -S -o build/core.s
+x86_64-elf-as --32 -o build/core.o build/core.s
+```
+
+or through Rexc's object-output mode:
+
+```sh
+build/rexc examples/core.rx --target i386 -c -o build/core.o
 ```
 
 The command is short, but the state change is significant. Before assembly,
@@ -46,7 +54,8 @@ program from dragging in the whole library when it only needs a small part.
 
 ### The Linker Gives the Program Its Final Shape
 
-The linker combines the startup object, the Rexc-generated object, and the
+The linker combines the startup object, the Rexc-generated object, Rexc's
+hosted runtime object when standard-library calls need it, and the Drunix
 runtime archive under the control of the Drunix user linker script. A linker
 script is a set of layout instructions for the linker. It decides where code
 and data live in the final address space and which symbol becomes the entry
@@ -58,12 +67,22 @@ For the current i386 Drunix path, the link has this shape:
 | --- | --- |
 | `crt0.o` | process entry and call into `main` |
 | Rexc object | program code emitted from `.rx` source |
+| Rexc hosted runtime object | target-specific hooks and compiled stdlib support |
 | `libc.a` | runtime and library support |
 | `user.ld` | final executable layout |
 
 The order matters. The runtime archive should come after the program object so
 the linker sees the program's unresolved symbols first and can pull the needed
 archive members afterward.
+
+Rexc can drive that final link when given a Drunix root:
+
+```sh
+build/rexc examples/core.rx \
+    --target i386-drunix \
+    --drunix-root /path/to/DrunixOS \
+    -o build/core.drunix
+```
 
 ### ELF Is the Shared Contract
 
@@ -85,11 +104,10 @@ The useful validation checks are simple: `file` should identify a 32-bit Intel
 
 Rexc can now participate in the Drunix userland story. A `.rx` source file can
 be parsed, checked, lowered, emitted as i386 assembly, assembled into an object
-file, and linked with Drunix's startup object and runtime archive into a final
-ELF executable.
+file, and linked with Drunix's startup object, Rexc's hosted runtime support,
+and the Drunix runtime archive into a final ELF executable.
 
 The operating system boundary remains clean. Drunix loads an ELF program. Rexc
 is responsible for producing code that fits the runtime contract. The next
 chapters can expand the language itself, but the first complete path from
 source text to Drunix user program is now visible end to end.
-

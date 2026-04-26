@@ -8,7 +8,8 @@ Code generation begins with an important advantage: it does not have to guess.
 The backend receives typed IR. It knows whether a value is signed or unsigned,
 whether a comparison produces `bool`, whether a local is a string pointer or an
 integer-sized scalar, whether an assignment targets existing local storage or a
-pointer address, and whether the selected target is i386 or x86_64.
+pointer address, whether a name is a local or a static global, and whether the
+selected target is i386 or x86_64.
 
 The backend's job is to turn those facts into assembly. Assembly is a textual
 form of machine instructions. Rexc emits GNU assembler syntax, which means the
@@ -44,6 +45,11 @@ The two current targets differ most visibly at function calls:
 
 That difference is why the IR does not try to encode call mechanics. Calls are
 a backend decision.
+
+Module paths are also a backend-facing naming concern. A source call to
+`math::add(1, 2)` resolves before code generation, and the x86 backend emits a
+call to the flat assembly symbol `math_add`. The same rule applies to functions
+loaded through file-backed modules and functions declared in inline modules.
 
 ### Arithmetic, Division, and Comparisons
 
@@ -95,6 +101,20 @@ target's normal word move.
 For `*p = value`, Rexc evaluates the value, saves it briefly, evaluates the
 pointer target, restores the value into a scratch register, and stores through
 the address in the accumulator. The store width comes from the pointee type.
+
+### Static Storage and String Data
+
+Stack slots are not the only storage the backend emits. Static scalars become
+data labels initialized with their source literal. Mutable static byte buffers
+become zero-filled storage. A read from a static scalar emits a load from that
+label; an assignment to a mutable static scalar emits a store back to it. A
+static buffer expression produces the address of the buffer, which is why code
+such as `(SCRATCH + 0) as *i32` can hand raw storage to pointer code.
+
+String literals are collected into a read-only data section and referenced by
+labels. That keeps source strings out of the instruction stream while giving
+calls such as `println("hello")` a normal pointer value to pass to the hosted
+runtime.
 
 ### Boolean Operators and Short-Circuit Jumps
 
@@ -159,13 +179,13 @@ That creates the usual loop shape:
 
 Rexc can now emit assembly for typed functions, locals, returns, calls,
 arithmetic, division, comparisons, explicit casts, boolean operators, strings,
-address-of, dereference, pointer arithmetic, indexing, direct and indirect
-assignment, `if/else` branches, and `while` loops with `break` and `continue`.
-The i386 target is the default path for the current Drunix user runtime. The
-x86_64 target emits 64-bit Linux-compatible assembly using the System V calling
-convention.
+static storage, address-of, dereference, pointer arithmetic, indexing, direct
+and indirect assignment, `if/else` branches, and `while` loops with `break` and
+`continue`. The i386 target is the default path for the current Drunix user
+runtime. The x86_64 target emits 64-bit Linux-compatible assembly using the
+System V calling convention.
 
-The compiler still has not produced an executable by itself. Assembly is the
-input to the assembler, and the assembler produces an object file. To become a
-Drunix program, that object must be linked with the user runtime and the right
-linker script.
+The command-line driver can stop at assembly with `-S`, assemble an object with
+`-c`, or ask the host toolchain to produce an executable. For Drunix, the final
+link still needs the Drunix startup object, runtime archive, and linker script,
+which is the handoff Chapter 6 follows.
