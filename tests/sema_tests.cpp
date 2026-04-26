@@ -153,6 +153,18 @@ TEST_CASE(sema_accepts_static_mut_byte_buffer_as_str_storage)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_static_mut_i32_scalar)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"static mut ALLOC_OFFSET: i32 = 0;\n"
+		"fn bump() -> i32 { ALLOC_OFFSET = ALLOC_OFFSET + 1; return ALLOC_OFFSET; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_rejects_non_integer_string_index)
 {
 	rexc::Diagnostics diagnostics;

@@ -174,3 +174,15 @@ TEST_CASE(codegen_arm64_macos_emits_core_memory_helper_calls)
 	REQUIRE(assembly.find("bl _memcpy_u8") != std::string::npos);
 	REQUIRE(assembly.find("bl _str_copy_to") != std::string::npos);
 }
+
+TEST_CASE(codegen_arm64_macos_emits_static_i32_scalar_load_and_store)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"static mut ALLOC_OFFSET: i32 = 0;\n"
+		"fn bump() -> i32 { ALLOC_OFFSET = ALLOC_OFFSET + 1; return ALLOC_OFFSET; }\n");
+
+	REQUIRE(assembly.find("Lstatic_ALLOC_OFFSET:") != std::string::npos);
+	REQUIRE(assembly.find(".long 0") != std::string::npos);
+	REQUIRE(assembly.find("ldr w0, [x") != std::string::npos);
+	REQUIRE(assembly.find("str w0, [x") != std::string::npos);
+}

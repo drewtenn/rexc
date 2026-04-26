@@ -121,6 +121,7 @@ public:
 
 		collect_string_labels(module);
 		emit_string_section(module);
+		emit_static_scalar_section(module);
 		emit_static_buffer_section(module);
 
 		out_ << ".text\n";
@@ -137,6 +138,8 @@ private:
 	{
 		for (const auto &buffer : module.static_buffers)
 			validate_type(buffer.element_type);
+		for (const auto &scalar : module.static_scalars)
+			validate_type(scalar.type);
 		for (const auto &function : module.functions) {
 			validate_type(function.return_type);
 			for (const auto &parameter : function.parameters)
@@ -238,6 +241,10 @@ private:
 		if (statement.kind == ir::Statement::Kind::Assign) {
 			const auto &assign = static_cast<const ir::AssignStatement &>(statement);
 			emit_value(*assign.value, frame, slots);
+			if (slots.find(assign.name) == slots.end()) {
+				emit_static_scalar_store(assign.name);
+				return;
+			}
 			out_ << "\tstr x0, [x29, #" << slots.at(assign.name) << "]\n";
 			return;
 		}
@@ -347,6 +354,10 @@ private:
 		}
 		case ir::Value::Kind::Global: {
 			const auto &global = static_cast<const ir::GlobalValue &>(value);
+			if (global.type.kind != PrimitiveKind::Str) {
+				emit_static_scalar_load(global.name);
+				return;
+			}
 			out_ << "\tadrp x0, " << static_buffer_label(global.name) << "@PAGE\n";
 			out_ << "\tadd x0, x0, " << static_buffer_label(global.name) << "@PAGEOFF\n";
 			return;
@@ -676,9 +687,39 @@ private:
 		}
 	}
 
+	void emit_static_scalar_section(const ir::Module &module)
+	{
+		if (module.static_scalars.empty())
+			return;
+		out_ << ".data\n";
+		for (const auto &scalar : module.static_scalars) {
+			out_ << static_scalar_label(scalar.name) << ":\n";
+			out_ << "\t.long " << scalar.initializer_literal << "\n";
+		}
+	}
+
 	std::string static_buffer_label(const std::string &name) const
 	{
 		return "Lstatic_" + name;
+	}
+
+	std::string static_scalar_label(const std::string &name) const
+	{
+		return "Lstatic_" + name;
+	}
+
+	void emit_static_scalar_load(const std::string &name)
+	{
+		out_ << "\tadrp x8, " << static_scalar_label(name) << "@PAGE\n";
+		out_ << "\tadd x8, x8, " << static_scalar_label(name) << "@PAGEOFF\n";
+		out_ << "\tldr w0, [x8]\n";
+	}
+
+	void emit_static_scalar_store(const std::string &name)
+	{
+		out_ << "\tadrp x8, " << static_scalar_label(name) << "@PAGE\n";
+		out_ << "\tadd x8, x8, " << static_scalar_label(name) << "@PAGEOFF\n";
+		out_ << "\tstr w0, [x8]\n";
 	}
 
 	void emit_string_literals(const ir::Statement &statement)

@@ -57,6 +57,24 @@ TEST_CASE(parser_accepts_static_mut_byte_buffer)
 	REQUIRE_EQ(buffer.length_literal, std::string("1024"));
 }
 
+TEST_CASE(parser_accepts_static_mut_i32_scalar)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "static mut ALLOC_OFFSET: i32 = 0;\nfn main() -> i32 { return ALLOC_OFFSET; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE_EQ(result.module().static_scalars.size(), std::size_t(1));
+	const auto &scalar = result.module().static_scalars[0];
+	REQUIRE(scalar.is_mutable);
+	REQUIRE_EQ(scalar.name, std::string("ALLOC_OFFSET"));
+	REQUIRE_EQ(scalar.type.name, std::string("i32"));
+	REQUIRE_EQ(scalar.initializer_literal, std::string("0"));
+}
+
 TEST_CASE(parser_rejects_malformed_function)
 {
 	rexc::SourceFile source("test.rx", "fn main( -> i32 { return 0; }\n");

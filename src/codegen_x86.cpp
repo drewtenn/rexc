@@ -134,6 +134,7 @@ public:
 
 		collect_string_labels(module);
 		emit_string_section(module);
+		emit_static_scalar_section(module);
 		emit_static_buffer_section(module);
 
 		out_ << ".text\n";
@@ -268,6 +269,8 @@ private:
 		bool ok = true;
 		for (const auto &buffer : module.static_buffers)
 			ok = validate_type(buffer.element_type) && ok;
+		for (const auto &scalar : module.static_scalars)
+			ok = validate_type(scalar.type) && ok;
 		for (const auto &function : module.functions)
 			ok = validate_function(function) && ok;
 		return ok;
@@ -401,6 +404,10 @@ private:
 		if (statement.kind == ir::Statement::Kind::Assign) {
 			const auto &assign = static_cast<const ir::AssignStatement &>(statement);
 			emit_value(*assign.value, frame, slots);
+			if (slots.find(assign.name) == slots.end()) {
+				emit_static_scalar_store(assign.name);
+				return;
+			}
 			out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
 			     << slots.at(assign.name) << "(" << frame_pointer_register() << ")\n";
 			return;
@@ -527,6 +534,10 @@ private:
 		}
 		case ir::Value::Kind::Global: {
 			const auto &global = static_cast<const ir::GlobalValue &>(value);
+			if (global.type.kind != PrimitiveKind::Str) {
+				emit_static_scalar_load(global.name);
+				return;
+			}
 			if (target_ == CodegenTarget::X86_64) {
 				out_ << "\tleaq " << static_buffer_label(global.name) << "(%rip), %rax\n";
 			} else {
@@ -919,9 +930,43 @@ private:
 		}
 	}
 
+	void emit_static_scalar_section(const ir::Module &module)
+	{
+		if (module.static_scalars.empty())
+			return;
+		out_ << ".section .data\n";
+		for (const auto &scalar : module.static_scalars) {
+			out_ << static_scalar_label(scalar.name) << ":\n";
+			out_ << "\t.long " << scalar.initializer_literal << "\n";
+		}
+	}
+
 	std::string static_buffer_label(const std::string &name) const
 	{
 		return ".Lstatic_" + name;
+	}
+
+	std::string static_scalar_label(const std::string &name) const
+	{
+		return ".Lstatic_" + name;
+	}
+
+	void emit_static_scalar_load(const std::string &name)
+	{
+		if (target_ == CodegenTarget::X86_64) {
+			out_ << "\tmovl " << static_scalar_label(name) << "(%rip), %eax\n";
+			return;
+		}
+		out_ << "\tmovl " << static_scalar_label(name) << ", %eax\n";
+	}
+
+	void emit_static_scalar_store(const std::string &name)
+	{
+		if (target_ == CodegenTarget::X86_64) {
+			out_ << "\tmovl %eax, " << static_scalar_label(name) << "(%rip)\n";
+			return;
+		}
+		out_ << "\tmovl %eax, " << static_scalar_label(name) << "\n";
 	}
 
 	void emit_string_literals(const ir::Statement &statement)

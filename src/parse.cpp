@@ -109,6 +109,10 @@ private:
 			module.static_buffers.push_back(build_static_buffer(static_buffer));
 			return;
 		}
+		if (auto *static_scalar = context->staticScalar()) {
+			module.static_scalars.push_back(build_static_scalar(static_scalar));
+			return;
+		}
 		if (auto *extern_function = context->externFunction()) {
 			module.functions.push_back(build_extern_function(extern_function));
 			return;
@@ -127,6 +131,22 @@ private:
 		}
 
 		return ast::StaticBuffer{is_mutable, context->IDENT()->getText(),
+		                         ast::TypeName{context->primitiveType()->getText(),
+		                                       location(context->primitiveType())},
+		                         context->INTEGER()->getText(), location(context)};
+	}
+
+	ast::StaticScalar build_static_scalar(RexcParser::StaticScalarContext *context)
+	{
+		bool is_mutable = false;
+		for (auto *child : context->children) {
+			if (child->getText() == "mut") {
+				is_mutable = true;
+				break;
+			}
+		}
+
+		return ast::StaticScalar{is_mutable, context->IDENT()->getText(),
 		                         ast::TypeName{context->primitiveType()->getText(),
 		                                       location(context->primitiveType())},
 		                         context->INTEGER()->getText(), location(context)};

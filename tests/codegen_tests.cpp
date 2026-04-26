@@ -557,3 +557,15 @@ TEST_CASE(codegen_i386_emits_core_memory_helper_calls)
 	REQUIRE(assembly.find("call memcpy_u8") != std::string::npos);
 	REQUIRE(assembly.find("call str_copy_to") != std::string::npos);
 }
+
+TEST_CASE(codegen_i386_emits_static_i32_scalar_load_and_store)
+{
+	auto assembly = compile_to_assembly(
+		"static mut ALLOC_OFFSET: i32 = 0;\n"
+		"fn bump() -> i32 { ALLOC_OFFSET = ALLOC_OFFSET + 1; return ALLOC_OFFSET; }\n");
+
+	REQUIRE(assembly.find(".Lstatic_ALLOC_OFFSET:") != std::string::npos);
+	REQUIRE(assembly.find(".long 0") != std::string::npos);
+	REQUIRE(assembly.find("movl .Lstatic_ALLOC_OFFSET, %eax") != std::string::npos);
+	REQUIRE(assembly.find("movl %eax, .Lstatic_ALLOC_OFFSET") != std::string::npos);
+}

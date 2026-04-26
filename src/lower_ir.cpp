@@ -78,6 +78,8 @@ public:
 		ir::Module lowered;
 		for (const auto &buffer : module_.static_buffers)
 			lowered.static_buffers.push_back(lower_static_buffer(buffer));
+		for (const auto &scalar : module_.static_scalars)
+			lowered.static_scalars.push_back(lower_static_scalar(scalar));
 		for (const auto &function : module_.functions)
 			lowered.functions.push_back(lower_function(function));
 		return lowered;
@@ -90,6 +92,8 @@ private:
 	{
 		for (const auto &buffer : module_.static_buffers)
 			globals_[buffer.name] = GlobalInfo{PrimitiveType{PrimitiveKind::Str}};
+		for (const auto &scalar : module_.static_scalars)
+			globals_[scalar.name] = GlobalInfo{lower_type(scalar.type)};
 	}
 
 	void build_function_table()
@@ -242,8 +246,13 @@ private:
 		if (statement.kind == ast::Stmt::Kind::Assign) {
 			const auto &assign = static_cast<const ast::AssignStmt &>(statement);
 			auto it = locals.find(assign.name);
-			if (it == locals.end())
-				throw std::runtime_error("unknown local in IR lowering: " + assign.name);
+			if (it == locals.end()) {
+				auto global = globals_.find(assign.name);
+				if (global == globals_.end())
+					throw std::runtime_error("unknown name in IR lowering: " + assign.name);
+				return std::make_unique<ir::AssignStatement>(
+					assign.name, lower_expr(*assign.value, locals, global->second.type));
+			}
 			return std::make_unique<ir::AssignStatement>(
 				assign.name, lower_expr(*assign.value, locals, it->second));
 		}
@@ -320,6 +329,15 @@ private:
 		lowered.name = buffer.name;
 		lowered.element_type = lower_type(buffer.element_type);
 		lowered.length = static_cast<std::size_t>(std::stoull(buffer.length_literal));
+		return lowered;
+	}
+
+	ir::StaticScalar lower_static_scalar(const ast::StaticScalar &scalar)
+	{
+		ir::StaticScalar lowered;
+		lowered.name = scalar.name;
+		lowered.type = lower_type(scalar.type);
+		lowered.initializer_literal = scalar.initializer_literal;
 		return lowered;
 	}
 

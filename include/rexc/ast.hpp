@@ -182,8 +182,17 @@ struct StaticBuffer {
 	SourceLocation location;
 };
 
+struct StaticScalar {
+	bool is_mutable = false;
+	std::string name;
+	TypeName type;
+	std::string initializer_literal;
+	SourceLocation location;
+};
+
 struct Module {
 	std::vector<StaticBuffer> static_buffers;
+	std::vector<StaticScalar> static_scalars;
 	std::vector<Function> functions;
 };
 

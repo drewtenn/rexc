@@ -175,8 +175,15 @@ struct StaticBuffer {
 	std::size_t length = 0;
 };
 
+struct StaticScalar {
+	std::string name;
+	Type type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
+	std::string initializer_literal;
+};
+
 struct Module {
 	std::vector<StaticBuffer> static_buffers;
+	std::vector<StaticScalar> static_scalars;
 	std::vector<Function> functions;
 };
 

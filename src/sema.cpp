@@ -126,6 +126,29 @@ private:
 			globals_[buffer.name] = GlobalInfo{PrimitiveType{PrimitiveKind::Str},
 			                                   buffer.is_mutable};
 		}
+
+		for (const auto &scalar : module_.static_scalars) {
+			if (globals_.find(scalar.name) != globals_.end()) {
+				diagnostics_.error(scalar.location, "duplicate static '" + scalar.name + "'");
+				continue;
+			}
+
+			PrimitiveType type = check_type(scalar.type);
+			if (type != i32_type()) {
+				diagnostics_.error(scalar.type.location,
+				                   "static scalars currently require i32 type");
+			}
+			if (!scalar.is_mutable)
+				diagnostics_.error(scalar.location, "static scalar must be mutable");
+
+			auto initializer = parse_decimal_magnitude(scalar.initializer_literal);
+			if (!initializer || !integer_literal_fits(type, static_cast<std::int64_t>(*initializer))) {
+				diagnostics_.error(scalar.location,
+				                   "static scalar initializer does not fit in i32");
+			}
+
+			globals_[scalar.name] = GlobalInfo{type, scalar.is_mutable};
+		}
 	}
 
 	void build_function_table()
@@ -194,8 +217,21 @@ private:
 			const auto &assign = static_cast<const ast::AssignStmt &>(statement);
 			auto it = locals.find(assign.name);
 			if (it == locals.end()) {
-				diagnostics_.error(assign.location, "unknown name '" + assign.name + "'");
-				check_expr(locals, *assign.value);
+				auto global = globals_.find(assign.name);
+				if (global == globals_.end()) {
+					diagnostics_.error(assign.location, "unknown name '" + assign.name + "'");
+					check_expr(locals, *assign.value);
+					return;
+				}
+				if (!global->second.is_mutable)
+					diagnostics_.error(assign.location,
+					                   "cannot assign to immutable static '" + assign.name + "'");
+				auto value_type = check_expr(locals, *assign.value, global->second.type);
+				if (value_type && *value_type != global->second.type) {
+					diagnostics_.error(assign.location, "assignment type mismatch: expected '" +
+					                   format_type(global->second.type) + "' but got '" +
+					                   format_type(*value_type) + "'");
+				}
 				return;
 			}
 			if (!it->second.is_mutable)

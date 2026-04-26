@@ -54,6 +54,30 @@ TEST_CASE(lowering_preserves_static_byte_buffers)
 	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("str"));
 }
 
+TEST_CASE(lowering_preserves_static_i32_scalars)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "static mut ALLOC_OFFSET: i32 = 0;\n"
+	    "fn bump() -> i32 { ALLOC_OFFSET = ALLOC_OFFSET + 1; return ALLOC_OFFSET; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	REQUIRE_EQ(module.static_scalars.size(), std::size_t(1));
+	REQUIRE_EQ(module.static_scalars[0].name, std::string("ALLOC_OFFSET"));
+	REQUIRE_EQ(rexc::format_type(module.static_scalars[0].type), std::string("i32"));
+	REQUIRE_EQ(module.static_scalars[0].initializer_literal, std::string("0"));
+	REQUIRE_EQ(module.functions[0].body[0]->kind, rexc::ir::Statement::Kind::Assign);
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[1]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Global);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("i32"));
+}
+
 TEST_CASE(lowering_lowers_unary_minus_as_typed_unary_value)
 {
 	rexc::SourceFile source("test.rx", "fn main() -> i32 { return -1; }\n");

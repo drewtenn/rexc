@@ -8,11 +8,16 @@ compilationUnit
 item
 	: externFunction
 	| staticBuffer
+	| staticScalar
 	| functionDefinition
 	;
 
 staticBuffer
 	: 'static' 'mut'? IDENT ':' '[' primitiveType ';' INTEGER ']' ';'
+	;
+
+staticScalar
+	: 'static' 'mut'? IDENT ':' primitiveType '=' INTEGER ';'
 	;
 
 externFunction
