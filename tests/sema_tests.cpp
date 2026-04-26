@@ -581,7 +581,7 @@ TEST_CASE(sema_rejects_logical_operator_on_non_bool)
 	        std::string::npos);
 }
 
-TEST_CASE(sema_accepts_std_prelude_print_functions)
+TEST_CASE(sema_accepts_default_prelude_print_functions)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze(
@@ -592,7 +592,7 @@ TEST_CASE(sema_accepts_std_prelude_print_functions)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_accepts_std_prelude_read_line)
+TEST_CASE(sema_accepts_default_prelude_read_line)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze(
@@ -603,7 +603,7 @@ TEST_CASE(sema_accepts_std_prelude_read_line)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_accepts_std_prelude_string_helpers)
+TEST_CASE(sema_accepts_default_prelude_string_helpers)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze(
@@ -617,7 +617,7 @@ TEST_CASE(sema_accepts_std_prelude_string_helpers)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_rejects_std_prelude_wrong_argument_type)
+TEST_CASE(sema_rejects_default_prelude_wrong_argument_type)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze("fn main() -> i32 { println(1); return 0; }\n", diagnostics);
@@ -626,7 +626,7 @@ TEST_CASE(sema_rejects_std_prelude_wrong_argument_type)
 	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'str' but got 'i32'") != std::string::npos);
 }
 
-TEST_CASE(sema_rejects_std_prelude_strlen_wrong_argument_type)
+TEST_CASE(sema_rejects_default_prelude_strlen_wrong_argument_type)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze("fn main() -> i32 { return strlen(7); }\n", diagnostics);
@@ -635,7 +635,7 @@ TEST_CASE(sema_rejects_std_prelude_strlen_wrong_argument_type)
 	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'str' but got 'i32'") != std::string::npos);
 }
 
-TEST_CASE(sema_rejects_std_prelude_str_eq_wrong_argument_count)
+TEST_CASE(sema_rejects_default_prelude_str_eq_wrong_argument_count)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze("fn main() -> i32 { if str_eq(\"a\") { return 1; } return 0; }\n", diagnostics);
@@ -644,7 +644,7 @@ TEST_CASE(sema_rejects_std_prelude_str_eq_wrong_argument_count)
 	REQUIRE(diagnostics.format().find("function 'str_eq' expected 2 arguments but got 1") != std::string::npos);
 }
 
-TEST_CASE(sema_accepts_std_prelude_numeric_helpers)
+TEST_CASE(sema_accepts_default_prelude_numeric_helpers)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze(
@@ -664,7 +664,7 @@ TEST_CASE(sema_accepts_std_prelude_numeric_helpers)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_accepts_std_prelude_panic)
+TEST_CASE(sema_accepts_default_prelude_panic)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze("fn main() -> i32 { return panic(\"boom\"); }\n", diagnostics);
@@ -673,16 +673,54 @@ TEST_CASE(sema_accepts_std_prelude_panic)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_rejects_non_default_stdlib_helper_as_bare_name)
+TEST_CASE(sema_rejects_non_default_stdlib_helpers_as_bare_names)
 {
-	rexc::Diagnostics diagnostics;
+	{
+		rexc::Diagnostics diagnostics;
 
-	auto result = analyze("fn main() -> i32 { alloc_reset(); return 0; }\n",
-	                      diagnostics);
+		auto result = analyze(
+		    "static mut BUFFER: [u8; 16];\n"
+		    "fn main() -> i32 { return memset_u8(BUFFER + 0, 0 as u8, 16); }\n",
+		    diagnostics);
 
-	REQUIRE(!result.ok());
-	REQUIRE(diagnostics.format().find("unknown function 'alloc_reset'") !=
-	        std::string::npos);
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("unknown function 'memset_u8'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze("fn main() -> i32 { alloc_reset(); return 0; }\n",
+		                      diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("unknown function 'alloc_reset'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze("fn main() -> i32 { return alloc_remaining(); }\n",
+		                      diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("unknown function 'alloc_remaining'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "fn main() -> i32 { let value: str = alloc_i32_to_str(7); println(value); return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("unknown function 'alloc_i32_to_str'") !=
+		        std::string::npos);
+	}
 }
 
 TEST_CASE(sema_accepts_explicit_std_bridge_path_without_bare_bridge_name)
@@ -884,7 +922,7 @@ TEST_CASE(sema_rejects_user_function_that_collides_with_hidden_stdlib_symbol)
 	}
 }
 
-TEST_CASE(sema_accepts_core_memory_helpers)
+TEST_CASE(sema_accepts_all_stdlib_core_memory_helpers_as_bare_names)
 {
 	rexc::Diagnostics diagnostics;
 	rexc::SemanticOptions options;
@@ -905,7 +943,7 @@ TEST_CASE(sema_accepts_core_memory_helpers)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_accepts_alloc_helpers)
+TEST_CASE(sema_accepts_all_stdlib_alloc_helpers_as_bare_names)
 {
 	rexc::Diagnostics diagnostics;
 	rexc::SemanticOptions options;
@@ -930,7 +968,7 @@ TEST_CASE(sema_accepts_alloc_helpers)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_rejects_std_prelude_print_i32_wrong_argument_type)
+TEST_CASE(sema_rejects_default_prelude_print_i32_wrong_argument_type)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze("fn main() -> i32 { print_i32(\"7\"); return 0; }\n", diagnostics);
@@ -939,7 +977,7 @@ TEST_CASE(sema_rejects_std_prelude_print_i32_wrong_argument_type)
 	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'i32' but got 'str'") != std::string::npos);
 }
 
-TEST_CASE(sema_rejects_std_prelude_parse_i32_wrong_argument_type)
+TEST_CASE(sema_rejects_default_prelude_parse_i32_wrong_argument_type)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze("fn main() -> i32 { return parse_i32(7); }\n", diagnostics);
@@ -948,7 +986,7 @@ TEST_CASE(sema_rejects_std_prelude_parse_i32_wrong_argument_type)
 	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'str' but got 'i32'") != std::string::npos);
 }
 
-TEST_CASE(sema_rejects_duplicate_std_prelude_function)
+TEST_CASE(sema_rejects_duplicate_default_prelude_function)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze(
