@@ -46,11 +46,15 @@ struct Options {
 
 rexc::CodegenTarget parse_target(const std::string &target)
 {
-	if (target == "i386")
+	if (target == "i386" || target == "i386-linux" || target == "i386-elf" ||
+	    target == "i386-drunix" || target == "i686-linux" ||
+	    target == "i686-unknown-linux-gnu")
 		return rexc::CodegenTarget::I386;
-	if (target == "x86_64")
+	if (target == "x86_64" || target == "x86_64-linux" || target == "x86_64-elf" ||
+	    target == "x86_64-unknown-linux-gnu")
 		return rexc::CodegenTarget::X86_64;
-	if (target == "arm64-macos" || target == "aarch64-apple-darwin")
+	if (target == "arm64-macos" || target == "arm64-apple-darwin" ||
+	    target == "aarch64-apple-darwin")
 		return rexc::CodegenTarget::ARM64_MACOS;
 	throw std::runtime_error("unknown target: " + target);
 }
@@ -449,7 +453,8 @@ int main(int argc, char **argv)
 		return 0;
 	} catch (const std::exception &err) {
 		if (std::string(err.what()) == "usage") {
-			std::cerr << "usage: rexc input.rx [--target i386|x86_64|arm64-macos] "
+			std::cerr << "usage: rexc input.rx "
+			             "[--target i386|i386-linux|x86_64|x86_64-linux|arm64-macos] "
 			             "[-S|-c|--drunix-root path] -o output\n";
 			return 2;
 		}

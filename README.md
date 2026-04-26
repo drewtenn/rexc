@@ -147,6 +147,7 @@ build/rexc examples/add.rx --target x86_64 -o build/add-x86_64.elf
 build/rexc examples/add.rx --target arm64-macos -S -o build/add-arm64.s
 build/rexc examples/add.rx --target arm64-macos -c -o build/add-arm64.o
 build/rexc examples/add.rx --target arm64-macos -o build/add-arm64
+build/rexc examples/add.rx --target x86_64-linux -S -o build/add-x86_64-linux.s
 ```
 
 The default target is the native host target. On Apple Silicon macOS, omitting
@@ -156,6 +157,11 @@ target remains `i386`. Use `--target` whenever you want to cross-compile.
 `-S` writes assembly, while `-c` runs the target assembler and writes an object
 file. Omitting `-S` and `-c` asks Rexc to produce a linked command-line
 executable for the selected or default target.
+
+The short target names remain supported, and explicit aliases such as
+`i386-linux`, `i386-elf`, `i386-drunix`, `x86_64-linux`,
+`x86_64-elf`, `arm64-apple-darwin`, and `aarch64-apple-darwin` map to the same
+current adapters.
 
 For x86 targets on Linux-style hosts, executable linking uses the host C linker
 driver (`clang` or `cc`) with `-m32` for `i386` and `-m64` for `x86_64`. On
