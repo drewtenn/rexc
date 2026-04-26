@@ -4,7 +4,7 @@
 
 **Goal:** Decide and implement Rexc's default prelude policy by narrowing which stdlib functions are available as bare names while preserving runtime emission and explicit stdlib paths.
 
-**Architecture:** Split stdlib declarations into three uses: all runtime declarations, default bare prelude declarations, and disabled stdlib declarations for compiling the stdlib itself. Semantic analysis and IR lowering should use the same policy enum so accepted source and lowered symbols cannot diverge. This slice does not build ordinary stdlib module loading; explicit `std::...` bridge paths keep working where `std_*` symbols already provide them.
+**Architecture:** Split stdlib declarations into three uses: all runtime declarations, default bare prelude declarations, and disabled stdlib declarations for compiling the stdlib itself. Semantic analysis and IR lowering should use matching policy enums so accepted source and lowered symbols cannot diverge. This slice does not build ordinary stdlib module loading; explicit `std::...` bridge paths keep working where `std_*` symbols already provide them.
 
 **Tech Stack:** C++17, existing Rexc AST/sema/lower/codegen pipeline, embedded `.rx` stdlib source, Catch2-style `rexc_tests`.
 
@@ -59,7 +59,7 @@ Rationale:
 - Modify: `include/rexc/sema.hpp`
   - Replace the boolean prelude option with an explicit `StdlibSymbolPolicy`.
 - Modify: `include/rexc/lower_ir.hpp`
-  - Mirror the same `StdlibSymbolPolicy` for lowering.
+  - Mirror the sema choices with a distinct `LowerStdlibSymbolPolicy` for lowering.
 - Modify: `src/sema.cpp`
   - Register bare stdlib names according to policy.
   - Register explicit `std::...` bridge paths for all stdlib declarations when policy is not `None`.
@@ -347,7 +347,7 @@ struct SemanticOptions {
 };
 ```
 
-- [x] **Step 4: Add the same policy enum to lowering options**
+- [x] **Step 4: Add the matching policy enum to lowering options**
 
 In `include/rexc/lower_ir.hpp`, replace:
 
@@ -777,7 +777,8 @@ TEST_CASE(sema_rejects_memory_helpers_as_default_bare_names)
 	rexc::Diagnostics diagnostics;
 
 	auto result = analyze(
-	    "fn main() -> i32 { static mut BUFFER: [u8; 4]; memset_u8(BUFFER as *u8, 0 as u8, 4); return 0; }\n",
+	    "static mut BUFFER: [u8; 4];\n"
+	    "fn main() -> i32 { memset_u8(BUFFER + 0, 0 as u8, 4); return 0; }\n",
 	    diagnostics);
 
 	REQUIRE(!result.ok());

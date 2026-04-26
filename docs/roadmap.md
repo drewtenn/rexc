@@ -275,9 +275,9 @@ Planned work:
 - finalize public/private item rules; **done for the current module model**
 - decide the default prelude policy and which names remain always available;
   **done for the current module model**: default bare names are user-facing
-  prelude helpers only, public stdlib helpers remain reachable through
-  `std::...` bridge paths, and compiler internals/tests use explicit `All`
-  policy for bootstrap helpers;
+  prelude helpers only, bridge-backed stdlib paths remain reachable through
+  `std::...`, and compiler internals/tests use explicit `All` policy for
+  bootstrap helpers;
 - add clearer namespace rules for stdlib paths and user modules;
 - refine package search roots and command-line behavior;
 - add diagnostics for dependency cycles and conflicting exports;
