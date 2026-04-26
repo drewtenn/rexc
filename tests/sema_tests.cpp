@@ -817,6 +817,45 @@ TEST_CASE(sema_rejects_user_function_that_collides_with_hidden_stdlib_symbol)
 		REQUIRE(diagnostics.format().find("duplicate function '__rexc_empty_string'") !=
 		        std::string::npos);
 	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "mod std_io { pub fn println(value: str) -> i32 { return 0; } }\n"
+		    "fn main() -> i32 { return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate function 'std_io_println'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "mod sys { pub extern fn write(fd: i32, buffer: str, len: i32) -> i32; }\n"
+		    "fn main() -> i32 { return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate function 'sys_write'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "mod std_io { pub static mut println: i32 = 0; }\n"
+		    "fn main() -> i32 { return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate static 'std_io_println'") !=
+		        std::string::npos);
+	}
 }
 
 TEST_CASE(sema_accepts_core_memory_helpers)

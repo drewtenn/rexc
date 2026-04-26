@@ -187,9 +187,23 @@ private:
 		}
 	}
 
+	void reserve_stdlib_symbols()
+	{
+		for (const auto &symbol : stdlib::reserved_runtime_symbols())
+			reserved_stdlib_function_symbols_.insert(symbol);
+	}
+
+	bool collides_with_reserved_stdlib_symbol(
+	    const std::vector<std::string> &module_path, const std::string &name) const
+	{
+		return reserved_stdlib_function_symbols_.find(symbol_item_path(module_path, name)) !=
+		       reserved_stdlib_function_symbols_.end();
+	}
+
 	void build_module_table()
 	{
 		if (include_stdlib_symbols()) {
+			reserve_stdlib_symbols();
 			for (const auto &function : stdlib::stdlib_functions()) {
 				if (auto path = stdlib_path_for_symbol(function.name)) {
 					reserve_stdlib_module_path(*path);
@@ -217,8 +231,13 @@ private:
 	{
 		for (const auto &buffer : module_.static_buffers) {
 			std::string key = canonical_item_path(buffer.module_path, buffer.name);
-			if (globals_.find(key) != globals_.end()) {
-				diagnostics_.error(buffer.location, "duplicate static '" + key + "'");
+			std::string symbol = symbol_item_path(buffer.module_path, buffer.name);
+			bool duplicate_global = globals_.find(key) != globals_.end();
+			if (duplicate_global ||
+			    collides_with_reserved_stdlib_symbol(buffer.module_path, buffer.name)) {
+				diagnostics_.error(buffer.location,
+				                   "duplicate static '" + (duplicate_global ? key : symbol) +
+				                       "'");
 				continue;
 			}
 			note_module_path(buffer.module_path);
@@ -242,8 +261,13 @@ private:
 
 		for (const auto &scalar : module_.static_scalars) {
 			std::string key = canonical_item_path(scalar.module_path, scalar.name);
-			if (globals_.find(key) != globals_.end()) {
-				diagnostics_.error(scalar.location, "duplicate static '" + key + "'");
+			std::string symbol = symbol_item_path(scalar.module_path, scalar.name);
+			bool duplicate_global = globals_.find(key) != globals_.end();
+			if (duplicate_global ||
+			    collides_with_reserved_stdlib_symbol(scalar.module_path, scalar.name)) {
+				diagnostics_.error(scalar.location,
+				                   "duplicate static '" + (duplicate_global ? key : symbol) +
+				                       "'");
 				continue;
 			}
 			note_module_path(scalar.module_path);
@@ -270,8 +294,6 @@ private:
 	void build_function_table()
 	{
 		if (include_stdlib_symbols()) {
-			for (const auto &symbol : stdlib::reserved_runtime_symbols())
-				reserved_stdlib_function_symbols_.insert(symbol);
 			for (const auto &function : stdlib::stdlib_functions()) {
 				FunctionInfo info{SourceLocation{}, function.return_type, function.parameters};
 				info.visibility = ast::Visibility::Public;
@@ -291,12 +313,15 @@ private:
 
 		for (const auto &function : module_.functions) {
 			std::string key = canonical_item_path(function.module_path, function.name);
-			if (functions_.find(key) != functions_.end() ||
-			    (function.module_path.empty() &&
-			     reserved_stdlib_function_symbols_.find(function.name) !=
-			         reserved_stdlib_function_symbols_.end()) ||
-			    globals_.find(key) != globals_.end()) {
-				diagnostics_.error(function.location, "duplicate function '" + key + "'");
+			std::string symbol = symbol_item_path(function.module_path, function.name);
+			bool duplicate_item =
+			    functions_.find(key) != functions_.end() || globals_.find(key) != globals_.end();
+			if (duplicate_item ||
+			    collides_with_reserved_stdlib_symbol(function.module_path,
+			                                         function.name)) {
+				diagnostics_.error(
+				    function.location,
+				    "duplicate function '" + (duplicate_item ? key : symbol) + "'");
 				continue;
 			}
 			note_module_path(function.module_path);
