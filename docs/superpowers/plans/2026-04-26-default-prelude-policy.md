@@ -908,7 +908,7 @@ git commit -m "docs: document default prelude policy"
 **Files:**
 - No source edits expected.
 
-- [ ] **Step 1: Run the full build and unit executable**
+- [x] **Step 1: Run the full build and unit executable**
 
 ```bash
 cmake --build build
@@ -917,7 +917,7 @@ build/rexc_tests
 
 Expected: build succeeds and every unit test prints `PASS`.
 
-- [ ] **Step 2: Run the full CTest suite**
+- [x] **Step 2: Run the full CTest suite**
 
 ```bash
 ctest --test-dir build --output-on-failure
@@ -929,7 +929,7 @@ Expected:
 100% tests passed, 0 tests failed out of 4
 ```
 
-- [ ] **Step 3: Check the working tree**
+- [x] **Step 3: Check the working tree**
 
 ```bash
 git status --short
@@ -937,7 +937,7 @@ git status --short
 
 Expected: clean working tree after commits.
 
-- [ ] **Step 4: Summarize behavior for the user**
+- [x] **Step 4: Summarize behavior for the user**
 
 Report:
 
