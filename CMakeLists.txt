@@ -105,12 +105,14 @@ add_library(rexc_core
 	src/sema.cpp
 	src/ir.cpp
 	src/lower_ir.cpp
+	src/target.cpp
 	src/codegen_x86.cpp
 	src/codegen_arm64.cpp
 	src/types.cpp
 	src/stdlib/stdlib.cpp
 	"${REXC_STDLIB_GENERATED_SOURCE}"
 	src/stdlib/sys/runtime_i386_linux.cpp
+	src/stdlib/sys/runtime_i386_drunix.cpp
 	src/stdlib/sys/runtime_x86_64_linux.cpp
 	src/stdlib/sys/runtime_arm64_macos.cpp
 	${REXC_ANTLR_GENERATED_SOURCES}
@@ -131,6 +133,7 @@ add_executable(rexc_tests
 	tests/ir_tests.cpp
 	tests/codegen_tests.cpp
 	tests/codegen_arm64_tests.cpp
+	tests/target_tests.cpp
 	tests/types_tests.cpp
 	tests/stdlib_tests.cpp
 )

@@ -160,8 +160,9 @@ executable for the selected or default target.
 
 The short target names remain supported, and explicit aliases such as
 `i386-linux`, `i386-elf`, `i386-drunix`, `x86_64-linux`,
-`x86_64-elf`, `arm64-apple-darwin`, and `aarch64-apple-darwin` map to the same
-current adapters.
+`x86_64-elf`, `arm64-apple-darwin`, and `aarch64-apple-darwin` preserve their
+runtime target identity. The Linux and ELF aliases share Linux-compatible
+runtime adapters, while `i386-drunix` selects the Drunix userland adapter.
 
 For x86 targets on Linux-style hosts, executable linking uses the host C linker
 driver (`clang` or `cc`) with `-m32` for `i386` and `-m64` for `x86_64`. On
@@ -246,10 +247,12 @@ at a Drunix checkout that has `user/user.ld`, `user/lib/crt0.o`, and
 `user/lib/libc.a`:
 
 ```sh
-build/rexc examples/add.rx --target i386 --drunix-root /path/to/DrunixOS -o build/add.drunix
+build/rexc examples/add.rx --target i386-drunix --drunix-root /path/to/DrunixOS -o build/add.drunix
 ```
 
-Drunix linking currently targets the i386 runtime path.
+For compatibility, `--drunix-root` also treats i386 aliases as the
+`i386-drunix` runtime target. Drunix executable links include Rexc's hosted
+standard-library runtime object before `user/lib/libc.a`.
 
 ## Targets
 
@@ -257,11 +260,12 @@ Rexc currently supports Linux-compatible x86 targets and a Darwin ARM64 target:
 
 | Target | CLI option | Assembler mode | Object class | Notes |
 | --- | --- | --- | --- | --- |
-| `i386` | `--target i386` | `--32` | `ELF32` | Default on non-Darwin hosts; matches the current Drunix user runtime. |
-| `x86_64` | `--target x86_64` | `--64` | `ELF64` | Uses the Linux/System V x86_64 calling convention. |
+| `i386-linux` / `i386-elf` | `--target i386`, `--target i386-linux`, or `--target i386-elf` | `--32` | `ELF32` | Default on non-Darwin hosts; uses Linux-compatible i386 runtime hooks. |
+| `i386-drunix` | `--target i386-drunix --drunix-root path` | `--32` | `ELF32` | Uses the Drunix userland runtime adapter and Drunix linker script/startup objects. |
+| `x86_64-linux` / `x86_64-elf` | `--target x86_64`, `--target x86_64-linux`, or `--target x86_64-elf` | `--64` | `ELF64` | Uses the Linux/System V x86_64 calling convention and runtime hooks. |
 | `arm64-macos` | omitted on macOS or `--target arm64-macos` | Apple `as -arch arm64` | Mach-O 64-bit arm64 object | Uses Darwin symbol names and Apple ARM64 calling convention. |
 
-Both targets emit assembly for functions named in the Rexc source. Final
+All targets emit assembly for functions named in the Rexc source. Final
 executables still need a startup object such as `crt0.o`, a runtime library,
 and a linker script or linker defaults that match the selected ABI.
 
@@ -342,7 +346,7 @@ source .rx
    produces a Mach-O executable. Passing `--target i386` or `--target x86_64`
    cross-links ELF output with `x86_64-elf-as` and `x86_64-elf-ld`.
 
-10. **Drunix link**: `build/rexc input.rx --target i386 --drunix-root /path/to/DrunixOS -o
+10. **Drunix link**: `build/rexc input.rx --target i386-drunix --drunix-root /path/to/DrunixOS -o
     output.drunix` assembles a temporary i386 object and links it with Drunix's
     startup object, runtime archive, and user linker script. Drunix's current
     checked-in userland runtime is i386-focused; x86_64 output needs an
@@ -479,7 +483,7 @@ Rexc's stdlib should move toward this Rust-style shape:
 | `core` | Target-independent primitives and compiler-known contracts. No OS, process, file, terminal, or heap dependency. | Keep primitive operations, string/slice contracts, panic/abort hooks, and eventually traits here. |
 | `alloc` | Heap-backed library types that require an allocator but not an OS. | Add after Rexc has allocator hooks; this is where owned strings, vectors, and boxed values should live. |
 | `std` | Hosted OS integration layered on `core` and `alloc`. | Keep console I/O, process exit, files, environment, arguments, and platform services here. |
-| `sys`/runtime adapters | Narrow target- and OS-specific bridge code. | Split by target triple such as `i386-linux`, `x86_64-linux`, `arm64-macos`, and later Drunix; keep assembly here only when ABI or syscall details require it. |
+| `sys`/runtime adapters | Narrow target- and OS-specific bridge code. | Split by target triple such as `i386-linux`, `i386-drunix`, `x86_64-linux`, and `arm64-macos`; keep assembly here only when ABI or syscall details require it. |
 
 Critical rule: stdlib behavior should be implemented in portable Rexc. Split
 code by target only at the lowest hardware or host boundary: primitive read,
@@ -619,7 +623,7 @@ make -C "$DRUNIX/user" lib/crt0.o lib/libc.a
 Compile and link the final Drunix ELF executable:
 
 ```sh
-build/rexc examples/add.rx --target i386 --drunix-root "$DRUNIX" -o build/add.drunix
+build/rexc examples/add.rx --target i386-drunix --drunix-root "$DRUNIX" -o build/add.drunix
 ```
 
 The command above is equivalent to compiling assembly, assembling an i386

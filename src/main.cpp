@@ -12,6 +12,7 @@
 #include "rexc/sema.hpp"
 #include "rexc/source.hpp"
 #include "rexc/stdlib.hpp"
+#include "rexc/target.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -34,30 +35,15 @@ struct Options {
 	std::string input_path;
 	std::string output_path;
 	std::string drunix_root;
-	rexc::CodegenTarget target =
+	rexc::TargetTriple target =
 #if defined(__APPLE__)
-		rexc::CodegenTarget::ARM64_MACOS;
+		rexc::TargetTriple::ARM64Macos;
 #else
-		rexc::CodegenTarget::I386;
+		rexc::TargetTriple::I386Linux;
 #endif
 	OutputMode output_mode = OutputMode::Assembly;
 	bool output_mode_selected = false;
 };
-
-rexc::CodegenTarget parse_target(const std::string &target)
-{
-	if (target == "i386" || target == "i386-linux" || target == "i386-elf" ||
-	    target == "i386-drunix" || target == "i686-linux" ||
-	    target == "i686-unknown-linux-gnu")
-		return rexc::CodegenTarget::I386;
-	if (target == "x86_64" || target == "x86_64-linux" || target == "x86_64-elf" ||
-	    target == "x86_64-unknown-linux-gnu")
-		return rexc::CodegenTarget::X86_64;
-	if (target == "arm64-macos" || target == "arm64-apple-darwin" ||
-	    target == "aarch64-apple-darwin")
-		return rexc::CodegenTarget::ARM64_MACOS;
-	throw std::runtime_error("unknown target: " + target);
-}
 
 void select_output_mode(Options &options, OutputMode mode)
 {
@@ -89,7 +75,11 @@ Options parse_options(int argc, char **argv)
 			continue;
 		}
 		if (arg == "--target" && i + 1 < argc) {
-			options.target = parse_target(argv[++i]);
+			std::string target_name = argv[++i];
+			auto parsed_target = rexc::parse_target_triple(target_name);
+			if (!parsed_target)
+				throw std::runtime_error("unknown target: " + target_name);
+			options.target = *parsed_target;
 			continue;
 		}
 		if (arg == "--drunix-root" && i + 1 < argc) {
@@ -107,6 +97,11 @@ Options parse_options(int argc, char **argv)
 		options.output_mode = OutputMode::Executable;
 		options.output_mode_selected = true;
 	}
+
+	if (options.output_mode == OutputMode::DrunixExecutable &&
+	    rexc::codegen_target(options.target) == rexc::CodegenTarget::I386)
+		options.target = rexc::TargetTriple::I386Drunix;
+
 	return options;
 }
 
@@ -177,9 +172,10 @@ void require_file(const std::string &path, const std::string &description)
 }
 
 void assemble_object(const std::string &assembly_path, const std::string &object_path,
-                     rexc::CodegenTarget target)
+                     rexc::TargetTriple target)
 {
-	if (target == rexc::CodegenTarget::ARM64_MACOS) {
+	auto machine = rexc::codegen_target(target);
+	if (machine == rexc::CodegenTarget::ARM64_MACOS) {
 		if (!command_exists("as"))
 			throw std::runtime_error("no Apple assembler found");
 		std::string command = "as -arch arm64 -o " + shell_quote(object_path) +
@@ -198,7 +194,7 @@ void assemble_object(const std::string &assembly_path, const std::string &object
 		throw std::runtime_error("no GNU assembler found");
 	}
 
-	std::string mode = target == rexc::CodegenTarget::I386 ? "--32" : "--64";
+	std::string mode = machine == rexc::CodegenTarget::I386 ? "--32" : "--64";
 	std::string command = assembler + " " + mode + " -o " +
 	                      shell_quote(object_path) + " " +
 	                      shell_quote(assembly_path);
@@ -206,7 +202,7 @@ void assemble_object(const std::string &assembly_path, const std::string &object
 }
 
 std::string write_and_assemble_hosted_runtime(const std::string &output_path,
-                                              rexc::CodegenTarget target)
+                                              rexc::TargetTriple target)
 {
 	std::string runtime_assembly = rexc::stdlib::hosted_runtime_assembly(target);
 	if (runtime_assembly.empty())
@@ -227,10 +223,11 @@ std::string write_and_assemble_hosted_runtime(const std::string &output_path,
 }
 
 void link_drunix_object(const std::string &object_path, const std::string &output_path,
-                        const std::string &drunix_root, rexc::CodegenTarget target)
+                        const std::string &runtime_object_path,
+                        const std::string &drunix_root, rexc::TargetTriple target)
 {
-	if (target != rexc::CodegenTarget::I386)
-		throw std::runtime_error("Drunix linking currently supports only the i386 target");
+	if (target != rexc::TargetTriple::I386Drunix)
+		throw std::runtime_error("Drunix linking currently supports only the i386-drunix target");
 
 	std::string user_dir = drunix_root + "/user";
 	std::string linker_script = user_dir + "/user.ld";
@@ -244,17 +241,19 @@ void link_drunix_object(const std::string &object_path, const std::string &outpu
 	std::string command = linker + " -m elf_i386 -T " +
 	                      shell_quote(linker_script) + " -o " +
 	                      shell_quote(output_path) + " " + shell_quote(crt0) +
-	                      " " + shell_quote(object_path) + " " +
-	                      shell_quote(libc);
+	                      " " + shell_quote(object_path);
+	if (!runtime_object_path.empty())
+		command += " " + shell_quote(runtime_object_path);
+	command += " " + shell_quote(libc);
 	run_tool(command, "Drunix link failed");
 }
 
 void link_darwin_arm64_object(const std::string &object_path,
                               const std::string &runtime_object_path,
                               const std::string &output_path,
-                              rexc::CodegenTarget target)
+                              rexc::TargetTriple target)
 {
-	if (target != rexc::CodegenTarget::ARM64_MACOS)
+	if (!rexc::is_darwin_target(target))
 		throw std::runtime_error("Darwin linking currently supports only the arm64-macos target");
 	if (!command_exists("clang"))
 		throw std::runtime_error("no clang linker driver found");
@@ -303,19 +302,22 @@ void write_cross_elf_startup(const std::string &assembly_path, rexc::CodegenTarg
 void link_cross_elf_object(const std::string &object_path,
                            const std::string &runtime_object_path,
                            const std::string &output_path,
-                           rexc::CodegenTarget target)
+                           rexc::TargetTriple target)
 {
-	if (target == rexc::CodegenTarget::ARM64_MACOS)
+	if (rexc::is_darwin_target(target))
 		throw std::runtime_error("internal error: ARM64 object reached ELF linker");
+	if (rexc::is_drunix_target(target))
+		throw std::runtime_error("internal error: Drunix object reached ELF linker");
 	if (!command_exists("x86_64-elf-as") || !command_exists("x86_64-elf-ld"))
 		throw std::runtime_error("no x86_64-elf-as/x86_64-elf-ld toolchain found");
 
 	std::string startup_assembly = output_path + ".crt0.s.tmp";
 	std::string startup_object = output_path + ".crt0.o.tmp";
-	write_cross_elf_startup(startup_assembly, target);
+	auto machine = rexc::codegen_target(target);
+	write_cross_elf_startup(startup_assembly, machine);
 	try {
 		assemble_object(startup_assembly, startup_object, target);
-		std::string linker_mode = target == rexc::CodegenTarget::I386 ? "elf_i386" : "elf_x86_64";
+		std::string linker_mode = machine == rexc::CodegenTarget::I386 ? "elf_i386" : "elf_x86_64";
 		std::string command = "x86_64-elf-ld -m " + linker_mode + " -o " +
 		                      shell_quote(output_path) + " " + shell_quote(startup_object) +
 		                      " " + shell_quote(object_path);
@@ -335,17 +337,20 @@ void link_cross_elf_object(const std::string &object_path,
 void link_host_x86_object(const std::string &object_path,
                           const std::string &runtime_object_path,
                           const std::string &output_path,
-                          rexc::CodegenTarget target)
+                          rexc::TargetTriple target)
 {
-	if (target == rexc::CodegenTarget::ARM64_MACOS)
+	if (rexc::is_darwin_target(target))
 		throw std::runtime_error("internal error: ARM64 object reached x86 linker");
+	if (rexc::is_drunix_target(target))
+		throw std::runtime_error("internal error: Drunix object reached x86 linker");
 	if (command_succeeds("uname -s | grep -q Darwin")) {
 		link_cross_elf_object(object_path, runtime_object_path, output_path, target);
 		return;
 	}
 
 	std::string linker = find_tool("clang", "cc", "C linker driver");
-	std::string mode = target == rexc::CodegenTarget::I386 ? "-m32" : "-m64";
+	std::string mode =
+		rexc::codegen_target(target) == rexc::CodegenTarget::I386 ? "-m32" : "-m64";
 	std::string command = linker + " " + mode + " " + shell_quote(object_path);
 	if (!runtime_object_path.empty())
 		command += " " + shell_quote(runtime_object_path);
@@ -356,9 +361,11 @@ void link_host_x86_object(const std::string &object_path,
 void link_executable_object(const std::string &object_path,
                             const std::string &runtime_object_path,
                             const std::string &output_path,
-                            rexc::CodegenTarget target)
+                            rexc::TargetTriple target)
 {
-	if (target == rexc::CodegenTarget::ARM64_MACOS) {
+	if (rexc::is_drunix_target(target))
+		throw std::runtime_error("i386-drunix executable links require --drunix-root");
+	if (rexc::is_darwin_target(target)) {
 		link_darwin_arm64_object(object_path, runtime_object_path, output_path,
 		                         target);
 		return;
@@ -393,10 +400,11 @@ int main(int argc, char **argv)
 		}
 
 		auto ir = rexc::lower_to_ir(parsed.module());
+		auto machine = rexc::codegen_target(options.target);
 		rexc::CodegenResult codegen =
-			options.target == rexc::CodegenTarget::ARM64_MACOS
+			machine == rexc::CodegenTarget::ARM64_MACOS
 				? rexc::emit_arm64_macos_assembly(ir, diagnostics)
-				: rexc::emit_x86_assembly(ir, diagnostics, options.target);
+				: rexc::emit_x86_assembly(ir, diagnostics, machine);
 		if (!codegen.ok()) {
 			std::cerr << diagnostics.format();
 			return 1;
@@ -449,24 +457,31 @@ int main(int argc, char **argv)
 
 		std::string assembly_path = options.output_path + ".s.tmp";
 		std::string object_path = options.output_path + ".o.tmp";
+		std::string runtime_object_path;
 		write_file(assembly_path, codegen.assembly());
 		try {
 			assemble_object(assembly_path, object_path, options.target);
-			link_drunix_object(object_path, options.output_path, options.drunix_root,
-			                   options.target);
+			runtime_object_path = write_and_assemble_hosted_runtime(options.output_path,
+			                                                        options.target);
+			link_drunix_object(object_path, options.output_path, runtime_object_path,
+			                   options.drunix_root, options.target);
 		} catch (...) {
 			remove_if_present(assembly_path);
 			remove_if_present(object_path);
+			if (!runtime_object_path.empty())
+				remove_if_present(runtime_object_path);
 			remove_if_present(options.output_path);
 			throw;
 		}
 		remove_if_present(assembly_path);
 		remove_if_present(object_path);
+		if (!runtime_object_path.empty())
+			remove_if_present(runtime_object_path);
 		return 0;
 	} catch (const std::exception &err) {
 		if (std::string(err.what()) == "usage") {
 			std::cerr << "usage: rexc input.rx "
-			             "[--target i386|i386-linux|x86_64|x86_64-linux|arm64-macos] "
+			             "[--target i386|i386-linux|i386-drunix|x86_64|x86_64-linux|arm64-macos] "
 			             "[-S|-c|--drunix-root path] -o output\n";
 			return 2;
 		}

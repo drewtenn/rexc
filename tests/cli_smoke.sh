@@ -29,6 +29,10 @@ grep -F -q 'pushq %rbp' "${tmp_dir}/types64.s"
 test -s "${tmp_dir}/add-i386-linux.s"
 grep -q ".globl main" "${tmp_dir}/add-i386-linux.s"
 
+"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target i386-drunix -S -o "${tmp_dir}/add-i386-drunix.s"
+test -s "${tmp_dir}/add-i386-drunix.s"
+grep -q ".globl main" "${tmp_dir}/add-i386-drunix.s"
+
 "${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target x86_64-linux -S -o "${tmp_dir}/add-x86_64-linux.s"
 test -s "${tmp_dir}/add-x86_64-linux.s"
 grep -q ".globl main" "${tmp_dir}/add-x86_64-linux.s"

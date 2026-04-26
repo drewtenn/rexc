@@ -1,5 +1,6 @@
 #include "rexc/codegen.hpp"
 #include "rexc/stdlib.hpp"
+#include "rexc/target.hpp"
 #include "test_support.hpp"
 
 #include <fstream>
@@ -45,6 +46,7 @@ TEST_CASE(stdlib_uses_rx_files_as_canonical_source)
 	std::ifstream std_fs(source_dir + "/src/stdlib/std/fs.rx");
 	std::ifstream std_path(source_dir + "/src/stdlib/std/path.rx");
 	std::ifstream i386_linux_runtime(source_dir + "/src/stdlib/sys/runtime_i386_linux.cpp");
+	std::ifstream i386_drunix_runtime(source_dir + "/src/stdlib/sys/runtime_i386_drunix.cpp");
 	std::ifstream x86_64_linux_runtime(source_dir + "/src/stdlib/sys/runtime_x86_64_linux.cpp");
 	std::ifstream arm64_macos_runtime(source_dir + "/src/stdlib/sys/runtime_arm64_macos.cpp");
 	std::ifstream old_i386_runtime(source_dir + "/src/stdlib/sys/runtime_i386.cpp");
@@ -58,6 +60,7 @@ TEST_CASE(stdlib_uses_rx_files_as_canonical_source)
 	REQUIRE(std_fs.is_open());
 	REQUIRE(std_path.is_open());
 	REQUIRE(i386_linux_runtime.is_open());
+	REQUIRE(i386_drunix_runtime.is_open());
 	REQUIRE(x86_64_linux_runtime.is_open());
 	REQUIRE(arm64_macos_runtime.is_open());
 	REQUIRE(!old_i386_runtime.is_open());
@@ -351,9 +354,12 @@ TEST_CASE(stdlib_declares_prelude_functions)
 
 TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 {
-	auto i386 = rexc::stdlib::hosted_runtime_assembly(rexc::CodegenTarget::I386);
-	auto x86_64 = rexc::stdlib::hosted_runtime_assembly(rexc::CodegenTarget::X86_64);
-	auto arm64 = rexc::stdlib::hosted_runtime_assembly(rexc::CodegenTarget::ARM64_MACOS);
+	auto i386 = rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::I386Linux);
+	auto i386_drunix =
+		rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::I386Drunix);
+	auto x86_64 =
+		rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::X86_64Linux);
+	auto arm64 = rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::ARM64Macos);
 
 	REQUIRE(contains(i386, "print:"));
 	REQUIRE(contains(i386, "println:"));
@@ -400,6 +406,24 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "call sys_exit"));
 	REQUIRE(!contains(i386, "sys_read_line:"));
 	REQUIRE(contains(i386, "int $0x80"));
+
+	REQUIRE(contains(i386_drunix, "print:"));
+	REQUIRE(contains(i386_drunix, "println:"));
+	REQUIRE(contains(i386_drunix, "read_line:"));
+	REQUIRE(contains(i386_drunix, "sys_write:"));
+	REQUIRE(contains(i386_drunix, "sys_read:"));
+	REQUIRE(contains(i386_drunix, "sys_exit:"));
+	REQUIRE(contains(i386_drunix, "sys_file_open_read:"));
+	REQUIRE(contains(i386_drunix, "sys_file_create_write:"));
+	REQUIRE(contains(i386_drunix, "sys_file_close:"));
+	REQUIRE(contains(i386_drunix, "sys_args_len:"));
+	REQUIRE(contains(i386_drunix, "sys_arg:"));
+	REQUIRE(contains(i386_drunix, "sys_env_len:"));
+	REQUIRE(contains(i386_drunix, "sys_env_at:"));
+	REQUIRE(contains(i386_drunix, ".globl environ"));
+	REQUIRE(contains(i386_drunix, "movl $8, %eax"));
+	REQUIRE(contains(i386_drunix, "int $0x80"));
+	REQUIRE(!contains(i386_drunix, "__rexc_argc"));
 
 	REQUIRE(contains(x86_64, "print:"));
 	REQUIRE(contains(x86_64, "println:"));
@@ -498,13 +522,19 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 
 TEST_CASE(stdlib_runtime_dispatch_returns_different_target_assemblies)
 {
-	auto i386 = rexc::stdlib::hosted_runtime_assembly(rexc::CodegenTarget::I386);
-	auto x86_64 = rexc::stdlib::hosted_runtime_assembly(rexc::CodegenTarget::X86_64);
-	auto arm64 = rexc::stdlib::hosted_runtime_assembly(rexc::CodegenTarget::ARM64_MACOS);
+	auto i386 = rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::I386Linux);
+	auto i386_drunix =
+		rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::I386Drunix);
+	auto x86_64 =
+		rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::X86_64Linux);
+	auto arm64 = rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::ARM64Macos);
 
 	REQUIRE(i386.find("int $0x80") != std::string::npos);
+	REQUIRE(i386_drunix.find("int $0x80") != std::string::npos);
+	REQUIRE(i386_drunix.find(".globl environ") != std::string::npos);
 	REQUIRE(x86_64.find("syscall") != std::string::npos);
 	REQUIRE(arm64.find("bl _write") != std::string::npos);
+	REQUIRE(i386 != i386_drunix);
 	REQUIRE(i386 != x86_64);
 	REQUIRE(x86_64 != arm64);
 }

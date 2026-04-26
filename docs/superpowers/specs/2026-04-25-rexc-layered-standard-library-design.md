@@ -43,20 +43,6 @@ fn main() -> i32 {
 }
 ```
 
-Initial prelude functions:
-
-| Function | Type | Behavior |
-| --- | --- | --- |
-| `print` | `fn(str) -> i32` | Writes a null-terminated string to stdout without adding a newline. Returns bytes written or a negative error code. |
-| `println` | `fn(str) -> i32` | Writes a string, then writes `\n`. Returns bytes written including the newline or a negative error code. |
-| `read_line` | `fn() -> str` | Reads from stdin into a Rexc-owned static null-terminated buffer and returns it. The buffer is overwritten by the next `read_line` call. |
-| `exit` | `fn(i32) -> i32` | Terminates the process with the given status. The return type is `i32` only because Rexc does not have `void` or never types yet. |
-
-`read_line` uses a fixed-size `static mut [u8; 1024]` buffer in Rexc source.
-It calls the target `sys_read` primitive, strips one trailing newline when
-present, and always null-terminates the buffer. If reading fails or reaches EOF
-before reading bytes, it returns an empty string.
-
 ## Language Surface
 
 The current grammar only allows calls inside expressions, which makes
@@ -235,7 +221,6 @@ The README should gain a `Standard Library` section that documents:
 - Imports or package management.
 - Heap allocation, owned strings, slices, vectors, or formatting macros.
 - Generic traits such as Rust `Display` or C++ stream overloads.
-- Drunix `std` adapter support.
 - A stable ABI promise for the prelude function names.
 
 ## Rust-Style Roadmap
@@ -305,7 +290,7 @@ Split runtime support by target triple instead of only CPU family:
 - `i386-linux` or `i386-elf` for Linux-compatible `int $0x80` paths;
 - `x86_64-linux` for Linux `syscall` paths;
 - `arm64-macos` for Darwin symbol names and libc calls;
-- `i386-drunix` for Drunix userland once that adapter is ready.
+- `i386-drunix` for Drunix userland.
 
 These adapters should expose a tiny internal ABI: read bytes, write bytes,
 exit, and later allocate/deallocate. Their job is to isolate platform and

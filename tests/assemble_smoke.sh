@@ -141,7 +141,7 @@ SECTIONS
 LDS
 
 	"${build_dir}/rexc" "${repo_dir}/examples/add.rx" \
-		--target i386 \
+		--target i386-drunix \
 		--drunix-root "${drunix_dir}" \
 		-o "${tmp_dir}/add.drunix"
 	test -s "${tmp_dir}/add.drunix"

@@ -92,14 +92,18 @@ std::string portable_stdlib_assembly(CodegenTarget target)
 	return emitted.assembly();
 }
 
-std::string sys_runtime_assembly(CodegenTarget target)
+std::string sys_runtime_assembly(TargetTriple target)
 {
 	switch (target) {
-	case CodegenTarget::I386:
+	case TargetTriple::I386Linux:
+	case TargetTriple::I386Elf:
 		return i386_linux_hosted_runtime_assembly();
-	case CodegenTarget::X86_64:
+	case TargetTriple::I386Drunix:
+		return i386_drunix_hosted_runtime_assembly();
+	case TargetTriple::X86_64Linux:
+	case TargetTriple::X86_64Elf:
 		return x86_64_linux_hosted_runtime_assembly();
-	case CodegenTarget::ARM64_MACOS:
+	case TargetTriple::ARM64Macos:
 		return arm64_macos_hosted_runtime_assembly();
 	}
 	return "";
@@ -127,9 +131,10 @@ const FunctionDecl *find_prelude_function(const std::string &name)
 	return nullptr;
 }
 
-std::string hosted_runtime_assembly(CodegenTarget target)
+std::string hosted_runtime_assembly(TargetTriple target)
 {
-	return sys_runtime_assembly(target) + "\n" + portable_stdlib_assembly(target);
+	return sys_runtime_assembly(target) + "\n" +
+	       portable_stdlib_assembly(codegen_target(target));
 }
 
 } // namespace rexc::stdlib
