@@ -804,6 +804,19 @@ TEST_CASE(sema_rejects_user_function_that_collides_with_hidden_stdlib_symbol)
 		REQUIRE(diagnostics.format().find("duplicate function 'sys_write'") !=
 		        std::string::npos);
 	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "extern fn __rexc_empty_string() -> i32;\n"
+		    "fn main() -> i32 { return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate function '__rexc_empty_string'") !=
+		        std::string::npos);
+	}
 }
 
 TEST_CASE(sema_accepts_core_memory_helpers)

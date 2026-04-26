@@ -192,6 +192,7 @@ const std::vector<std::string> &reserved_runtime_symbols()
 		result.push_back("__rexc_argc");
 		result.push_back("__rexc_argv");
 		result.push_back("__rexc_envp");
+		result.push_back("__rexc_empty_string");
 		result.push_back("environ");
 		return result;
 	}();
