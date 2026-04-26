@@ -1,0 +1,42 @@
+{
+  "name": "rexc",
+  "displayName": "Rexc",
+  "description": "Syntax highlighting and editor support for Rexc source files.",
+  "version": "0.1.0",
+  "publisher": "rexc",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/drewtenn/rexc.git",
+    "directory": "tools/vscode-rexc"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "rexc",
+        "aliases": [
+          "Rex",
+          "Rexc",
+          "rexc"
+        ],
+        "extensions": [
+          ".rx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "rexc",
+        "scopeName": "source.rexc",
+        "path": "./syntaxes/rexc.tmLanguage.json"
+      }
+    ]
+  }
+}
