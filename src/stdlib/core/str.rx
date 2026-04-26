@@ -32,6 +32,24 @@ fn str_starts_with(value: str, prefix: str) -> bool {
 	return true;
 }
 
+fn str_ends_with(value: str, suffix: str) -> bool {
+	let value_len: i32 = strlen(value);
+	let suffix_len: i32 = strlen(suffix);
+	if suffix_len > value_len {
+		return false;
+	}
+
+	let value_start: i32 = value_len - suffix_len;
+	let mut index: i32 = 0;
+	while suffix[index] != 0 {
+		if value[value_start + index] != suffix[index] {
+			return false;
+		}
+		index = index + 1;
+	}
+	return true;
+}
+
 fn str_contains_at(value: str, needle: str, start: i32) -> bool {
 	let mut index: i32 = 0;
 	while needle[index] != 0 {
@@ -43,17 +61,24 @@ fn str_contains_at(value: str, needle: str, start: i32) -> bool {
 	return true;
 }
 
-fn str_contains(value: str, needle: str) -> bool {
+fn str_find(value: str, needle: str) -> i32 {
 	if str_is_empty(needle) {
-		return true;
+		return 0;
 	}
 
 	let mut start: i32 = 0;
 	while value[start] != 0 {
 		if str_contains_at(value, needle, start) {
-			return true;
+			return start;
 		}
 		start = start + 1;
+	}
+	return -1;
+}
+
+fn str_contains(value: str, needle: str) -> bool {
+	if str_find(value, needle) >= 0 {
+		return true;
 	}
 	return false;
 }

@@ -391,7 +391,9 @@ standard functions without module syntax:
 | `str_is_empty` | `fn(str) -> bool` | Returns whether a null-terminated string has zero bytes before its terminator. |
 | `str_eq` | `fn(str, str) -> bool` | Compares two null-terminated byte strings for equality. |
 | `str_starts_with` | `fn(str, str) -> bool` | Returns whether the first string starts with the second string. |
+| `str_ends_with` | `fn(str, str) -> bool` | Returns whether the first string ends with the second string. |
 | `str_contains` | `fn(str, str) -> bool` | Returns whether the first string contains the second string. |
+| `str_find` | `fn(str, str) -> i32` | Returns the first byte index of the second string in the first, or `-1` when absent. |
 | `print_i32` | `fn(i32) -> i32` | Writes a signed decimal integer without adding a newline. |
 | `println_i32` | `fn(i32) -> i32` | Writes a signed decimal integer followed by `\n`. |
 | `parse_i32` | `fn(str) -> i32` | Parses a signed decimal integer, returning `0` for invalid or overflow input. |
@@ -402,7 +404,7 @@ standard functions without module syntax:
 buffer, and overwrites the same buffer on the next `read_line` call. It is
 implemented in Rexc using a `static mut [u8; 1024]` buffer and the primitive
 `sys_read` hook. `strlen`, `str_is_empty`, `str_eq`, `str_starts_with`,
-`str_contains`, and `parse_i32` are early `core`-style
+`str_ends_with`, `str_contains`, `str_find`, and `parse_i32` are early `core`-style
 target-independent contracts implemented in Rexc source. `parse_i32` accepts
 an optional leading `-` followed by decimal digits; empty strings, invalid
 characters, and overflow return `0` until Rexc has richer result types.
@@ -429,8 +431,8 @@ printf 'friend\n' | build/std_io
 Assembly-only (`-S`) and object-only (`-c`) builds can reference standard
 library symbols, but they do not include the runtime object. Source-level
 prelude names are `print`, `println`, `read_line`, `strlen`, `str_is_empty`,
-`str_eq`, `str_starts_with`, `str_contains`, `print_i32`, `println_i32`,
-`parse_i32`, `read_i32`, and `exit`. ELF assembly
+`str_eq`, `str_starts_with`, `str_ends_with`, `str_contains`, `str_find`,
+`print_i32`, `println_i32`, `parse_i32`, `read_i32`, and `exit`. ELF assembly
 references those names directly. `arm64-macos` assembly references Darwin
 symbols with leading underscores. The hosted target adapters provide only the
 primitive `sys_read`, `sys_write`, and `sys_exit` hooks needed by the Rexc
@@ -461,10 +463,10 @@ primitive `sys` adapters. Embedded C++ source strings are temporary bootstrap
 bridges, not the desired home for portable stdlib code.
 
 Near-term stdlib work should continue moving portable implementations out of
-target adapters. String length, comparison, emptiness, prefix/search helpers,
-integer formatting, parsing, line reading, and later collection logic should be
-implemented once in Rexc library source, with only `read`, `write`, `exit`,
-allocation, and similar host hooks supplied per target.
+target adapters. String length, comparison, emptiness, prefix/suffix/search
+helpers, integer formatting, parsing, line reading, and later collection logic
+should be implemented once in Rexc library source, with only `read`, `write`,
+`exit`, allocation, and similar host hooks supplied per target.
 
 ## Operators And Control Flow
 

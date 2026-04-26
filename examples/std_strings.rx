@@ -1,5 +1,5 @@
 fn main() -> i32 {
-    if str_eq("rexc", "rexc") && str_starts_with("rexc", "re") && str_contains("rexc", "ex") && !str_is_empty("rexc") {
+    if str_eq("rexc", "rexc") && str_starts_with("rexc", "re") && str_ends_with("rexc", "xc") && str_contains("rexc", "ex") && str_find("rexc", "ex") == 1 && !str_is_empty("rexc") {
         return strlen("hello");
     }
     return 0;

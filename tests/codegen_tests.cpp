@@ -486,11 +486,13 @@ TEST_CASE(codegen_x86_64_emits_call_statement)
 TEST_CASE(codegen_i386_emits_std_string_helper_calls)
 {
 	auto assembly = compile_to_assembly(
-		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") && str_starts_with(\"hello\", \"he\") && str_contains(\"hello\", \"ell\") && !str_is_empty(\"hello\") { return strlen(\"hello\"); } return 0; }\n");
+		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") && str_starts_with(\"hello\", \"he\") && str_ends_with(\"hello\", \"lo\") && str_contains(\"hello\", \"ell\") && str_find(\"hello\", \"ell\") == 1 && !str_is_empty(\"hello\") { return strlen(\"hello\"); } return 0; }\n");
 
 	REQUIRE(assembly.find("call str_eq") != std::string::npos);
 	REQUIRE(assembly.find("call str_starts_with") != std::string::npos);
+	REQUIRE(assembly.find("call str_ends_with") != std::string::npos);
 	REQUIRE(assembly.find("call str_contains") != std::string::npos);
+	REQUIRE(assembly.find("call str_find") != std::string::npos);
 	REQUIRE(assembly.find("call str_is_empty") != std::string::npos);
 	REQUIRE(assembly.find("call strlen") != std::string::npos);
 	REQUIRE(assembly.find("addl $8, %esp") != std::string::npos);
@@ -500,12 +502,14 @@ TEST_CASE(codegen_i386_emits_std_string_helper_calls)
 TEST_CASE(codegen_x86_64_emits_std_string_helper_calls)
 {
 	auto assembly = compile_to_assembly(
-		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") && str_starts_with(\"hello\", \"he\") && str_contains(\"hello\", \"ell\") && !str_is_empty(\"hello\") { return strlen(\"hello\"); } return 0; }\n",
+		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") && str_starts_with(\"hello\", \"he\") && str_ends_with(\"hello\", \"lo\") && str_contains(\"hello\", \"ell\") && str_find(\"hello\", \"ell\") == 1 && !str_is_empty(\"hello\") { return strlen(\"hello\"); } return 0; }\n",
 		rexc::CodegenTarget::X86_64);
 
 	REQUIRE(assembly.find("call str_eq") != std::string::npos);
 	REQUIRE(assembly.find("call str_starts_with") != std::string::npos);
+	REQUIRE(assembly.find("call str_ends_with") != std::string::npos);
 	REQUIRE(assembly.find("call str_contains") != std::string::npos);
+	REQUIRE(assembly.find("call str_find") != std::string::npos);
 	REQUIRE(assembly.find("call str_is_empty") != std::string::npos);
 	REQUIRE(assembly.find("call strlen") != std::string::npos);
 	REQUIRE(assembly.find("popq %rdi") != std::string::npos);
