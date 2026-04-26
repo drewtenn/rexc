@@ -59,6 +59,19 @@ TEST_CASE(sema_rejects_wrong_arity)
 	REQUIRE(diagnostics.format().find("expected 1 arguments but got 2") != std::string::npos);
 }
 
+TEST_CASE(sema_rejects_call_statements_until_supported)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "extern fn print(x: str) -> i32;\nfn main() -> i32 { print(\"hello\"); return 0; }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("call statements are not supported yet") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_rejects_unknown_local)
 {
 	rexc::Diagnostics diagnostics;

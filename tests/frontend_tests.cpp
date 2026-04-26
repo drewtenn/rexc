@@ -297,6 +297,10 @@ TEST_CASE(parser_accepts_call_statement)
 	REQUIRE_EQ(stmt.value->kind, rexc::ast::Expr::Kind::Call);
 	const auto &call = static_cast<const rexc::ast::CallExpr &>(*stmt.value);
 	REQUIRE_EQ(call.callee, std::string("println"));
+	REQUIRE_EQ(call.arguments.size(), std::size_t(1));
+	REQUIRE_EQ(call.arguments[0]->kind, rexc::ast::Expr::Kind::String);
+	const auto &argument = static_cast<const rexc::ast::StringExpr &>(*call.arguments[0]);
+	REQUIRE_EQ(argument.value, std::string("hello"));
 }
 
 TEST_CASE(parser_rejects_non_call_expression_statement)

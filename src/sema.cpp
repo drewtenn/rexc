@@ -225,6 +225,11 @@ private:
 			return;
 		}
 
+		if (statement.kind == ast::Stmt::Kind::Expr) {
+			diagnostics_.error(statement.location, "call statements are not supported yet");
+			return;
+		}
+
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
 		auto value_type = check_expr(locals, *ret.value, function_return_type);
 		if (value_type && *value_type != function_return_type) {
