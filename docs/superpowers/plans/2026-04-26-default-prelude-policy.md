@@ -62,7 +62,8 @@ Rationale:
   - Mirror the sema choices with a distinct `LowerStdlibSymbolPolicy` for lowering.
 - Modify: `src/sema.cpp`
   - Register bare stdlib names according to policy.
-  - Register explicit `std::...` bridge paths for all stdlib declarations when policy is not `None`.
+  - Register explicit `std::...` bridge paths for bridge-backed `std_*`
+    declarations when policy is not `None`.
 - Modify: `src/lower_ir.cpp`
   - Apply the same policy as sema so lowered calls match accepted calls.
 - Modify: `tests/stdlib_tests.cpp`
