@@ -31,51 +31,12 @@ fn read_line() -> str {
 	return READ_LINE_BUFFER;
 }
 
-fn print_digit(value: i32) -> i32 {
-	if value == 0 { return sys_write(1, "0", 1); }
-	if value == 1 { return sys_write(1, "1", 1); }
-	if value == 2 { return sys_write(1, "2", 1); }
-	if value == 3 { return sys_write(1, "3", 1); }
-	if value == 4 { return sys_write(1, "4", 1); }
-	if value == 5 { return sys_write(1, "5", 1); }
-	if value == 6 { return sys_write(1, "6", 1); }
-	if value == 7 { return sys_write(1, "7", 1); }
-	if value == 8 { return sys_write(1, "8", 1); }
-	return sys_write(1, "9", 1);
-}
-
-fn print_i32_positive(value: i32) -> i32 {
-	if value >= 10 {
-		let quotient: i32 = value / 10;
-		let count: i32 = print_i32_positive(quotient);
-		return count + print_digit(value - quotient * 10);
-	}
-	return print_digit(value);
-}
-
-fn print_i32_negative_digits(value: i32) -> i32 {
-	if value <= -10 {
-		let quotient: i32 = value / 10;
-		let count: i32 = print_i32_negative_digits(quotient);
-		return count + print_digit(-(value - quotient * 10));
-	}
-	return print_digit(-value);
-}
-
 fn print_i32(value: i32) -> i32 {
-	if value == 0 {
-		return print_digit(0);
-	}
-	if value < 0 {
-		let count: i32 = sys_write(1, "-", 1);
-		return count + print_i32_negative_digits(value);
-	}
-	return print_i32_positive(value);
+	return print(alloc_i32_to_str(value));
 }
 
 fn println_i32(value: i32) -> i32 {
-	let count: i32 = print_i32(value);
-	return count + sys_write(1, "\n", 1);
+	return println(alloc_i32_to_str(value));
 }
 
 fn read_i32() -> i32 {

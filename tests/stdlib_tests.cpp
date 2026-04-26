@@ -36,6 +36,12 @@ TEST_CASE(stdlib_uses_rx_files_as_canonical_source)
 	REQUIRE(alloc.is_open());
 	REQUIRE(std_io.is_open());
 	REQUIRE(std_process.is_open());
+
+	std::ostringstream std_io_text;
+	std_io_text << std_io.rdbuf();
+	REQUIRE(contains(std_io_text.str(), "print(alloc_i32_to_str(value))"));
+	REQUIRE(contains(std_io_text.str(), "println(alloc_i32_to_str(value))"));
+	REQUIRE(!contains(std_io_text.str(), "fn print_i32_positive"));
 }
 
 TEST_CASE(stdlib_declares_prelude_functions)
