@@ -302,6 +302,25 @@ TEST_CASE(lowering_lowers_cast_expression)
 	REQUIRE_EQ(rexc::format_type(cast.value->type), std::string("char"));
 }
 
+TEST_CASE(lowering_lowers_u8_pointer_to_str_cast)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "static mut BUFFER: [u8; 16];\nfn main() -> str { return (BUFFER + 0) as str; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Cast);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("str"));
+	const auto &cast = static_cast<const rexc::ir::CastValue &>(*ret.value);
+	REQUIRE_EQ(rexc::format_type(cast.value->type), std::string("*u8"));
+}
+
 TEST_CASE(lowering_lowers_pointer_address_deref_and_indirect_assignment)
 {
 	rexc::SourceFile source(

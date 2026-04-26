@@ -570,6 +570,15 @@ TEST_CASE(codegen_i386_emits_static_i32_scalar_load_and_store)
 	REQUIRE(assembly.find("movl %eax, .Lstatic_ALLOC_OFFSET") != std::string::npos);
 }
 
+TEST_CASE(codegen_i386_emits_u8_pointer_to_str_cast_as_noop)
+{
+	auto assembly = compile_to_assembly(
+		"static mut BUFFER: [u8; 16];\nfn main() -> str { return (BUFFER + 0) as str; }\n");
+
+	REQUIRE(assembly.find(".Lstatic_BUFFER") != std::string::npos);
+	REQUIRE(assembly.find("call") == std::string::npos);
+}
+
 TEST_CASE(codegen_i386_emits_alloc_helper_calls)
 {
 	auto assembly = compile_to_assembly(

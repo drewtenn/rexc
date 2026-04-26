@@ -474,6 +474,18 @@ TEST_CASE(sema_rejects_str_casts)
 	REQUIRE(diagnostics.format().find("cannot cast 'str' to 'u32'") != std::string::npos);
 }
 
+TEST_CASE(sema_accepts_u8_pointer_to_str_cast)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"static mut BUFFER: [u8; 16];\n"
+		"fn main() -> str { return (BUFFER + 0) as str; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_rejects_unsupported_char_casts)
 {
 	rexc::Diagnostics diagnostics;
