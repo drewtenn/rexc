@@ -1,0 +1,42 @@
+fn parse_i32(value: str) -> i32 {
+	let mut index: i32 = 0;
+	let mut result: i32 = 0;
+	let mut negative: bool = false;
+	if value[0] == 45 {
+		negative = true;
+		index = 1;
+		if value[index] == 0 {
+			return 0;
+		}
+	}
+	while value[index] != 0 {
+		let byte: u8 = value[index];
+		if byte < 48 || byte > 57 {
+			return 0;
+		}
+		let digit: i32 = (byte as i32) - 48;
+		if negative {
+			if result < -214748364 {
+				return 0;
+			}
+			if result == -214748364 {
+				if digit > 8 {
+					return 0;
+				}
+			}
+			result = result * 10 - digit;
+		} else {
+			if result > 214748364 {
+				return 0;
+			}
+			if result == 214748364 {
+				if digit > 7 {
+					return 0;
+				}
+			}
+			result = result * 10 + digit;
+		}
+		index = index + 1;
+	}
+	return result;
+}

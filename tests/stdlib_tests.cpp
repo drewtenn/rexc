@@ -2,6 +2,8 @@
 #include "rexc/stdlib.hpp"
 #include "test_support.hpp"
 
+#include <fstream>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -11,18 +13,26 @@ bool contains(const std::string &text, const std::string &needle)
 	return text.find(needle) != std::string::npos;
 }
 
-std::size_t count_occurrences(const std::string &text, const std::string &needle)
-{
-	std::size_t count = 0;
-	std::size_t offset = 0;
-	while ((offset = text.find(needle, offset)) != std::string::npos) {
-		++count;
-		offset += needle.size();
-	}
-	return count;
-}
-
 } // namespace
+
+TEST_CASE(stdlib_uses_rx_files_as_canonical_source)
+{
+	const std::string source_dir = REXC_SOURCE_DIR;
+	std::ifstream glue(source_dir + "/src/stdlib/stdlib.cpp");
+	REQUIRE(glue.is_open());
+	std::ostringstream glue_text;
+	glue_text << glue.rdbuf();
+	REQUIRE(!contains(glue_text.str(), "const char *portable_stdlib_source()"));
+
+	std::ifstream core_str(source_dir + "/src/stdlib/core/str.rx");
+	std::ifstream core_num(source_dir + "/src/stdlib/core/num.rx");
+	std::ifstream std_io(source_dir + "/src/stdlib/std/io.rx");
+	std::ifstream std_process(source_dir + "/src/stdlib/std/process.rx");
+	REQUIRE(core_str.is_open());
+	REQUIRE(core_num.is_open());
+	REQUIRE(std_io.is_open());
+	REQUIRE(std_process.is_open());
+}
 
 TEST_CASE(stdlib_declares_prelude_functions)
 {

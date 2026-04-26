@@ -65,6 +65,34 @@ add_custom_command(
 	VERBATIM
 )
 
+set(REXC_STDLIB_RX_SOURCES
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/str.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/num.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/io.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/process.rx"
+)
+
+set(REXC_STDLIB_GENERATED_SOURCE
+	"${CMAKE_CURRENT_BINARY_DIR}/generated/stdlib/source.cpp"
+)
+
+add_custom_command(
+	OUTPUT "${REXC_STDLIB_GENERATED_SOURCE}"
+	COMMAND "${CMAKE_COMMAND}" -E make_directory
+	        "${CMAKE_CURRENT_BINARY_DIR}/generated/stdlib"
+	COMMAND "${CMAKE_COMMAND}"
+	        "-DREXC_STDLIB_RX_SOURCES=${REXC_STDLIB_RX_SOURCES}"
+	        "-DREXC_STDLIB_TEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/source.cpp.in"
+	        "-DREXC_STDLIB_OUTPUT=${REXC_STDLIB_GENERATED_SOURCE}"
+	        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_stdlib_source.cmake"
+	DEPENDS
+	        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_stdlib_source.cmake"
+	        "${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/source.cpp.in"
+	        ${REXC_STDLIB_RX_SOURCES}
+	COMMENT "Embedding Rexc stdlib source"
+	VERBATIM
+)
+
 add_library(rexc_core
 	src/source.cpp
 	src/diagnostics.cpp
@@ -77,6 +105,7 @@ add_library(rexc_core
 	src/codegen_arm64.cpp
 	src/types.cpp
 	src/stdlib/stdlib.cpp
+	"${REXC_STDLIB_GENERATED_SOURCE}"
 	src/stdlib/core/library.cpp
 	src/stdlib/std/library.cpp
 	src/stdlib/sys/runtime_i386.cpp
@@ -106,6 +135,9 @@ add_executable(rexc_tests
 
 target_include_directories(rexc_tests PRIVATE tests)
 target_link_libraries(rexc_tests PRIVATE rexc_core)
+target_compile_definitions(rexc_tests PRIVATE
+	REXC_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 
 add_test(NAME rexc_tests COMMAND rexc_tests)
 

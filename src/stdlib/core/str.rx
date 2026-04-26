@@ -1,0 +1,18 @@
+fn strlen(value: str) -> i32 {
+	let mut index: i32 = 0;
+	while value[index] != 0 {
+		index = index + 1;
+	}
+	return index;
+}
+
+fn str_eq(lhs: str, rhs: str) -> bool {
+	let mut index: i32 = 0;
+	while lhs[index] == rhs[index] {
+		if lhs[index] == 0 {
+			return true;
+		}
+		index = index + 1;
+	}
+	return false;
+}

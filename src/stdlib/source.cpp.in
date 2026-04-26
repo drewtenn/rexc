@@ -1,0 +1,12 @@
+#include "stdlib/source.hpp"
+
+#include <string>
+
+namespace rexc::stdlib {
+
+std::string portable_stdlib_source()
+{
+	return R"REXC_STDLIB(@REXC_STDLIB_SOURCE@)REXC_STDLIB";
+}
+
+} // namespace rexc::stdlib

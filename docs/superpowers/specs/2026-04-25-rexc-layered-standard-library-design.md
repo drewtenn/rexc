@@ -21,10 +21,12 @@ architecture, adapted to Rexc's current bootstrap state:
   that bridge `std` calls to Darwin, Linux-compatible ELF, Drunix, or other
   platform interfaces.
 
-The current target assembly strings are a bootstrap mechanism, not the desired
-long-term stdlib shape. They should provide narrow ABI/syscall hooks while
-portable library behavior moves into Rexc library source or another shared
-runtime form.
+The current target assembly strings are a bootstrap mechanism, not the stdlib
+implementation strategy. They should provide only narrow ABI/syscall hooks
+while portable library behavior lives in Rexc source. If Rexc cannot express a
+needed stdlib operation yet, that missing language or compiler feature is the
+next task; do not reimplement the operation in per-target assembly to sidestep
+the blocker.
 
 ## First Milestone
 
@@ -47,13 +49,13 @@ Initial prelude functions:
 | --- | --- | --- |
 | `print` | `fn(str) -> i32` | Writes a null-terminated string to stdout without adding a newline. Returns bytes written or a negative error code. |
 | `println` | `fn(str) -> i32` | Writes a string, then writes `\n`. Returns bytes written including the newline or a negative error code. |
-| `read_line` | `fn() -> str` | Reads from stdin into a runtime-owned null-terminated buffer and returns it. The buffer is overwritten by the next `read_line` call. |
+| `read_line` | `fn() -> str` | Reads from stdin into a Rexc-owned static null-terminated buffer and returns it. The buffer is overwritten by the next `read_line` call. |
 | `exit` | `fn(i32) -> i32` | Terminates the process with the given status. The return type is `i32` only because Rexc does not have `void` or never types yet. |
 
-`read_line` uses a fixed-size runtime buffer of 1024 bytes in this milestone.
-It strips one trailing newline when present and always null-terminates the
-buffer. If reading fails or reaches EOF before reading bytes, it returns an
-empty string.
+`read_line` uses a fixed-size `static mut [u8; 1024]` buffer in Rexc source.
+It calls the target `sys_read` primitive, strips one trailing newline when
+present, and always null-terminates the buffer. If reading fails or reaches EOF
+before reading bytes, it returns an empty string.
 
 ## Language Surface
 
@@ -69,6 +71,17 @@ exit(1);
 The parser should accept call expression statements only. General expression
 statements such as `1 + 2;` are not useful yet and should stay invalid to avoid
 silent ignored values.
+
+The stdlib is allowed to drive small language additions when they remove
+portable behavior from `sys`. The first examples are:
+
+- `str[index]` byte indexing, so string algorithms can inspect bytes in Rexc;
+- `static mut NAME: [u8; N];`, so `std` can own fixed buffers in Rexc source;
+- indirect assignment through arbitrary address expressions, so Rexc can write
+  terminators into those buffers with `*(buffer + index) = 0`.
+
+Future stdlib work should follow the same rule: implement the missing Rexc
+feature first, then implement the library behavior in Rexc.
 
 The semantic analyzer should treat prelude standard functions as module-level
 function declarations that exist before user functions are checked. User code
@@ -97,27 +110,29 @@ symbol prefixing path for Mach-O (`_println`, `_print`, `_read_line`, `_exit`).
 If user-defined names later need separate namespaces, the runtime symbol table
 can move to reserved names such as `__rexc_std_print`.
 
-After this bootstrap milestone, the compiler metadata should become a catalog
-of library items rather than the implementation home for the library. Portable
-functions such as byte-string comparisons, integer formatting, parsing, and
-eventually collection helpers should be implemented once above the target
-runtime adapters. Target-specific files should be reserved for calling
-conventions, symbol naming, syscalls, libc shims, allocator hooks, and process
-startup/termination details.
+After this bootstrap milestone, the compiler metadata should be only a catalog
+of library items. The implementation home for portable library behavior is
+Rexc source compiled into the hosted runtime object. Portable functions such as
+byte-string comparisons, integer formatting, parsing, line reading, and
+eventually collection helpers must be implemented once above the target runtime
+adapters. Target-specific files are reserved for calling conventions, symbol
+naming, syscalls, libc shims, allocator hooks, and process startup/termination
+details.
 
 The current compiler should reflect that direction in its source layout:
 
 - `include/rexc/stdlib.hpp`: public compiler-facing catalog API;
 - `src/stdlib/core/`: target-independent catalog entries;
 - `src/stdlib/std/`: hosted prelude catalog entries;
-- `src/stdlib/stdlib.cpp`: aggregate catalog facade used by the compiler;
-- `src/stdlib/sys/`: target runtime adapters and bootstrap assembly hooks.
+- `src/stdlib/stdlib.cpp`: aggregate catalog facade and bootstrap compiler for
+  Rexc stdlib source;
+- `src/stdlib/sys/`: target runtime adapters for primitive host hooks only.
 
 Early catalog entries should record whether an item belongs conceptually to
-`core`, future `alloc`, hosted `std`, or target `sys`. During bootstrap, some
-`core`-style functions may still be emitted through target runtime objects, but
-that should be treated as an implementation limitation rather than the desired
-library boundary.
+`core`, future `alloc`, hosted `std`, or target `sys`. During bootstrap, if a
+`core` or `std` function seems to require target assembly, treat that as a Rexc
+capability gap and close the gap in the compiler or language before
+continuing.
 
 ## Runtime And Linking
 
@@ -160,11 +175,10 @@ syscalls:
 - i386: `int $0x80`, `read = 3`, `write = 4`, `exit = 1`;
 - x86_64: `syscall`, `read = 0`, `write = 1`, `exit = 60`.
 
-For Darwin ARM64 executables, the runtime can call libc functions (`write`,
-`read`, `_exit`) through `clang` linking, or use Darwin syscalls directly. The
-preferred first implementation is libc calls because the executable already
-links through `clang -arch arm64` and that keeps syscall numbering out of the
-compiler.
+For Darwin ARM64 executables, `sys_write` and `sys_read` call libc `write` and
+`read` through `clang` linking. `sys_exit` uses the primitive Darwin exit
+syscall directly so Rexc's public `exit` wrapper does not recursively call
+itself.
 
 ## Testing
 
@@ -220,18 +234,49 @@ The README should gain a `Standard Library` section that documents:
 - Drunix `std` adapter support.
 - A stable ABI promise for the prelude function names.
 
-## Rust-Like Roadmap
+## Rust-Style Roadmap
+
+### Critical Rule: Rexc First
+
+The standard library should be implemented in portable Rexc by default. This
+is not optional polish; it is the roadmap's main constraint. Code should split
+by target only at the lowest host or hardware boundary, such as `read`,
+`write`, `exit`, and future allocation primitives. `sys` exists to expose those
+primitive effects, not to become a parallel standard library written in
+assembly.
+
+When stdlib work hits a missing Rexc capability, the next step is to implement
+that capability in Rexc's compiler, IR, or backends, then continue the library
+work in Rexc source. Examples:
+
+- Need to inspect string bytes? Add `str[index]`, then write `strlen` and
+  `str_eq` in Rexc.
+- Need a line buffer? Add `static mut [u8; N]`, global buffer references, and
+  byte stores, then write `read_line` in Rexc.
+- Need owned strings or vectors? Add the allocator contract and ownership
+  model required for `alloc`, then implement the collection in Rexc.
+- Need errors? Add the needed enum/result representation, then replace
+  sentinel return values with typed results.
+
+Canonical stdlib source files should be `.rx` files. C++ files in
+`src/stdlib/` may describe the catalog, load/embed those `.rx` sources, compile
+them into the hosted runtime object, and provide primitive `sys` adapters.
+They must not be the long-term home for portable stdlib implementation text.
+An embedded C++ string such as `portable_stdlib_source()` is a temporary
+bootstrap bridge only; the roadmap is to move that text into real
+`src/stdlib/core/*.rx` and `src/stdlib/std/*.rx` files.
 
 Rexc should grow the standard library in layers rather than by adding every new
 function to every architecture-specific assembly file.
 
-### Stage 1: Bootstrap Hosted Runtime
+### Stage 1: Rexc-Compiled Hosted Runtime
 
-Keep the current prelude and generated runtime object model for now. This gives
+Keep the current prelude and generated runtime object model, but compile the
+portable implementation from Rexc source into that runtime object. This gives
 Rexc working command-line programs while the language is still missing modules,
 imports, ownership, heap allocation, traits, slices, and result types. The
-important constraint is that new assembly routines should be treated as
-temporary bootstrap hooks unless they are genuinely target-specific.
+constraint is strict: new assembly is acceptable only for the lowest
+target-specific primitive hooks.
 
 ### Stage 2: Target Triple Runtime Adapters
 
@@ -242,9 +287,11 @@ Split runtime support by target triple instead of only CPU family:
 - `arm64-macos` for Darwin symbol names and libc calls;
 - `i386-drunix` for Drunix userland once that adapter is ready.
 
-These adapters should expose a small internal ABI: read bytes, write bytes,
-exit, and later allocate/deallocate. Their job is to isolate platform details,
-not to duplicate portable stdlib algorithms.
+These adapters should expose a tiny internal ABI: read bytes, write bytes,
+exit, and later allocate/deallocate. Their job is to isolate platform and
+hardware details at the lowest possible level, not to duplicate portable
+stdlib algorithms. `read_line`, string scanning, integer parsing, formatting,
+buffer management, and similar behavior must remain above this layer in Rexc.
 
 ### Stage 3: Portable `core`
 
@@ -256,11 +303,11 @@ This layer must not assume an OS or heap.
 ### Stage 4: Portable Library Implementations
 
 Implement reusable library logic once above the runtime adapters. String
-length/equality, integer formatting, integer parsing, and later formatting
-building blocks should live here instead of being rewritten for i386, x86_64,
-and ARM64. The implementation language can start as compiler-emitted IR or
-portable runtime source, then move into Rexc source as the language becomes
-self-hosting enough.
+length/equality, integer formatting, integer parsing, line reading, and later
+formatting building blocks should live here instead of being rewritten for
+i386, x86_64, and ARM64. The implementation language is Rexc source. If that
+source cannot yet express the operation, implement the missing Rexc capability
+first.
 
 ### Stage 5: Add `alloc`
 

@@ -1,8 +1,19 @@
 #include "library.hpp"
 
-#include "stdlib/type_helpers.hpp"
-
 namespace rexc::stdlib::std_layer {
+namespace {
+
+PrimitiveType i32_type()
+{
+	return PrimitiveType{PrimitiveKind::SignedInteger, 32};
+}
+
+PrimitiveType str_type()
+{
+	return PrimitiveType{PrimitiveKind::Str};
+}
+
+} // namespace
 
 const std::vector<FunctionDecl> &prelude_functions()
 {

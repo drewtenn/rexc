@@ -365,12 +365,15 @@ target-independent contract layer. A future `alloc` layer will own heap-backed
 types once Rexc has an allocator contract. `std` is the hosted layer linked
 into normal command-line executables.
 
-The current implementation is still a bootstrap stage: hosted `std` functions
-are declared by compiler metadata and implemented by small target runtime
-objects. That keeps executable I/O working while the language grows enough to
-move portable library behavior into Rexc source. Over time, target-specific
-assembly should shrink to ABI/syscall adapters, not contain the whole standard
-library.
+The current implementation is still a bootstrap stage, but the direction is
+Rexc-first and portable by default: hosted `std` functions are declared by
+compiler metadata and portable behavior is compiled from Rexc source into the
+hosted runtime object. Code should split by target only at the lowest host or
+hardware boundary. Target-specific assembly is limited to primitive
+ABI/syscall adapters such as `read`, `write`, `exit`, and future allocation
+hooks. When stdlib work needs a language feature Rexc does not have yet, the
+roadmap is to implement that Rexc capability and then keep moving in Rexc
+source.
 
 The source tree mirrors those layers: `src/stdlib/core/` contains
 target-independent catalog entries, `src/stdlib/std/` contains hosted prelude
@@ -383,7 +386,7 @@ standard functions without module syntax:
 | --- | --- | --- |
 | `print` | `fn(str) -> i32` | Writes a string to stdout without adding a newline. |
 | `println` | `fn(str) -> i32` | Writes a string to stdout followed by `\n`. |
-| `read_line` | `fn() -> str` | Reads one stdin line into a runtime-owned 1024-byte buffer and returns it as `str`. |
+| `read_line` | `fn() -> str` | Reads one stdin line into a Rexc-owned static 1024-byte buffer and returns it as `str`. |
 | `strlen` | `fn(str) -> i32` | Returns the byte length of a null-terminated string. |
 | `str_eq` | `fn(str, str) -> bool` | Compares two null-terminated byte strings for equality. |
 | `print_i32` | `fn(i32) -> i32` | Writes a signed decimal integer without adding a newline. |
@@ -393,12 +396,12 @@ standard functions without module syntax:
 | `exit` | `fn(i32) -> i32` | Terminates the process with the given status. |
 
 `read_line` strips one trailing newline when present, always null-terminates the
-buffer, and overwrites the same buffer on the next `read_line` call.
-`strlen`, `str_eq`, and `parse_i32` are modeled as early `core`-style
-target-independent contracts, even though the bootstrap implementation still
-emits them through target runtime objects. `parse_i32` accepts an optional
-leading `-` followed by decimal digits; empty strings, invalid characters, and
-overflow return `0` until Rexc has richer result types.
+buffer, and overwrites the same buffer on the next `read_line` call. It is
+implemented in Rexc using a `static mut [u8; 1024]` buffer and the primitive
+`sys_read` hook. `strlen`, `str_eq`, and `parse_i32` are early `core`-style
+target-independent contracts implemented in Rexc source. `parse_i32` accepts
+an optional leading `-` followed by decimal digits; empty strings, invalid
+characters, and overflow return `0` until Rexc has richer result types.
 
 Example:
 
@@ -424,13 +427,13 @@ library symbols, but they do not include the runtime object. Source-level
 prelude names are `print`, `println`, `read_line`, `strlen`, `str_eq`,
 `print_i32`, `println_i32`, `parse_i32`, `read_i32`, and `exit`. ELF assembly
 references those names directly. `arm64-macos` assembly references Darwin
-symbols with leading underscores. The hosted Darwin runtime provides Rexc's
-stdlib symbols except `_exit`, which is normally supplied by libc when linked
-with `clang`.
+symbols with leading underscores. The hosted target adapters provide only the
+primitive `sys_read`, `sys_write`, and `sys_exit` hooks needed by the Rexc
+stdlib source.
 
 ### Standard Library Roadmap
 
-Rexc's stdlib should move toward this Rust-like shape:
+Rexc's stdlib should move toward this Rust-style shape:
 
 | Layer | Role | Rexc direction |
 | --- | --- | --- |
@@ -439,11 +442,24 @@ Rexc's stdlib should move toward this Rust-like shape:
 | `std` | Hosted OS integration layered on `core` and `alloc`. | Keep console I/O, process exit, files, environment, arguments, and platform services here. |
 | `sys`/runtime adapters | Narrow target- and OS-specific bridge code. | Split by target triple such as `i386-linux`, `x86_64-linux`, `arm64-macos`, and later Drunix; keep assembly here only when ABI or syscall details require it. |
 
-Near-term stdlib work should prefer portable implementations over duplicating
-logic in every architecture file. For example, string comparison, integer
-formatting, parsing, and later collection logic should eventually be implemented
-once in Rexc library source or portable runtime code, with only `read`, `write`,
-`exit`, allocation, and similar host hooks supplied per target.
+Critical rule: stdlib behavior should be implemented in portable Rexc. Split
+code by target only at the lowest hardware or host boundary: primitive read,
+write, exit, allocation, and similar effects. Do not sidestep a missing Rexc
+capability by copying the behavior into each architecture file. If `std` needs
+byte indexing, static buffers, slices, allocation, result types, or another
+language feature, implement that feature in Rexc's compiler/backend first, then
+implement the library operation in Rexc.
+
+Canonical stdlib implementation files should be `.rx` files. C++ in
+`src/stdlib/` should catalog, load/embed, and compile those files, plus provide
+primitive `sys` adapters. Embedded C++ source strings are temporary bootstrap
+bridges, not the desired home for portable stdlib code.
+
+Near-term stdlib work should continue moving portable implementations out of
+target adapters. String comparison, integer formatting, parsing, line reading,
+and later collection logic should be implemented once in Rexc library source,
+with only `read`, `write`, `exit`, allocation, and similar host hooks supplied
+per target.
 
 ## Operators And Control Flow
 

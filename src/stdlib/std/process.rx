@@ -1,0 +1,5 @@
+extern fn sys_exit(status: i32) -> i32;
+
+fn exit(status: i32) -> i32 {
+	return sys_exit(status);
+}
