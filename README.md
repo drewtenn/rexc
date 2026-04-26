@@ -498,9 +498,9 @@ The prelude catalog should also become Rexc-source driven. Instead of keeping
 parallel C++ signature lists for ordinary stdlib functions, the compiler should
 parse the stdlib `.rx` modules first, extract their public function signatures,
 and inject or import those declarations into user programs during semantic
-analysis and IR lowering. C++ `library.cpp` files should shrink toward loading
-stdlib modules, exposing truly compiler-known hooks, and describing primitive
-runtime boundaries only.
+analysis and IR lowering. The old per-layer C++ `library.cpp`/`library.hpp`
+catalog stubs have been removed; compiler-facing glue now lives in
+`src/stdlib/stdlib.cpp`, source embedding, and primitive `sys` adapters.
 
 Near-term stdlib work should continue moving portable implementations out of
 target adapters and removing duplicated metadata. String length, comparison,

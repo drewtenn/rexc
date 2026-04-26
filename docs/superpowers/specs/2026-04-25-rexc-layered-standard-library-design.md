@@ -275,9 +275,10 @@ stdlib function signatures should not need a parallel C++ declaration table
 once Rexc can parse the relevant library modules before user code. The
 compiler should load the stdlib `.rx` modules, extract their public function
 signatures, and make those declarations available to user modules through the
-prelude/import mechanism used by semantic analysis and IR lowering. C++ catalog
-files such as `library.cpp` should shrink toward module loading, primitive
-runtime hooks, and genuinely compiler-magical items only.
+prelude/import mechanism used by semantic analysis and IR lowering. The old
+per-layer C++ `library.cpp`/`library.hpp` catalog stubs are no longer part of
+the design; C++ stdlib code should be limited to source embedding, aggregate
+compiler glue, primitive runtime hooks, and genuinely compiler-magical items.
 
 Rexc should grow the standard library in layers rather than by adding every new
 function to every architecture-specific assembly file.
