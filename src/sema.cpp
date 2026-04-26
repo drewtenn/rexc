@@ -292,7 +292,7 @@ private:
 		for (const auto &function : module_.functions) {
 			std::string key = canonical_item_path(function.module_path, function.name);
 			if (functions_.find(key) != functions_.end() ||
-			    (!function.is_extern && function.module_path.empty() &&
+			    (function.module_path.empty() &&
 			     reserved_stdlib_function_symbols_.find(function.name) !=
 			         reserved_stdlib_function_symbols_.end()) ||
 			    globals_.find(key) != globals_.end()) {

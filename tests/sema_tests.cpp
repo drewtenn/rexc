@@ -417,11 +417,14 @@ TEST_CASE(sema_accepts_string_byte_indexing)
 TEST_CASE(sema_accepts_static_mut_byte_buffer_as_str_storage)
 {
 	rexc::Diagnostics diagnostics;
+	rexc::SemanticOptions options;
+	options.stdlib_symbols = rexc::StdlibSymbolPolicy::None;
 	auto result = analyze(
 		"static mut READ_LINE_BUFFER: [u8; 1024];\n"
 		"extern fn sys_read(fd: i32, buffer: *u8, len: i32) -> i32;\n"
 		"fn use_buffer() -> str { let mut index: i32 = 0; let count: i32 = sys_read(0, READ_LINE_BUFFER + index, 1); *(READ_LINE_BUFFER + index) = 0; return READ_LINE_BUFFER; }\n",
-		diagnostics);
+		diagnostics,
+		options);
 
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
@@ -781,6 +784,19 @@ TEST_CASE(sema_rejects_user_function_that_collides_with_hidden_stdlib_symbol)
 
 		auto result = analyze(
 		    "fn sys_write(fd: i32, buffer: str, len: i32) -> i32 { return 0; }\n"
+		    "fn main() -> i32 { return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate function 'sys_write'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "extern fn sys_write(fd: i32, buffer: str, len: i32) -> i32;\n"
 		    "fn main() -> i32 { return 0; }\n",
 		    diagnostics);
 
