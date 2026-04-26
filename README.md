@@ -405,6 +405,7 @@ standard functions without module syntax:
 | `str_copy_to` | `fn(*u8, str, i32) -> i32` | Copies a string into a raw byte buffer, null-terminates when capacity allows, and returns bytes copied. |
 | `alloc_bytes` | `fn(i32) -> *u8` | Reserves bytes from the bootstrap bump arena and returns a raw byte pointer. |
 | `alloc_str_copy` | `fn(str) -> str` | Copies a string into the bootstrap bump arena and returns the allocated string view. |
+| `alloc_str_concat` | `fn(str, str) -> str` | Concatenates two strings into the bootstrap bump arena and returns the allocated string view. |
 | `alloc_remaining` | `fn() -> i32` | Returns remaining bytes in the bootstrap bump arena. |
 | `alloc_reset` | `fn() -> i32` | Resets the bootstrap bump arena offset to zero. |
 | `print_i32` | `fn(i32) -> i32` | Writes a signed decimal integer without adding a newline. |
@@ -422,9 +423,9 @@ implemented in Rexc using a `static mut [u8; 1024]` buffer and the primitive
 target-independent contracts implemented in Rexc source. `memset_u8`,
 `memcpy_u8`, and `str_copy_to` provide raw byte-buffer building blocks for
 future `alloc` work while Rexc is still growing ownership and heap types.
-`alloc_bytes`, `alloc_str_copy`, `alloc_remaining`, and `alloc_reset` are the
-first bootstrap `alloc` surface: a portable bump arena implemented in Rexc with
-a static byte buffer and mutable scalar offset.
+`alloc_bytes`, `alloc_str_copy`, `alloc_str_concat`, `alloc_remaining`, and
+`alloc_reset` are the first bootstrap `alloc` surface: a portable bump arena
+implemented in Rexc with a static byte buffer and mutable scalar offset.
 `parse_i32` accepts
 an optional leading `-` followed by decimal digits; empty strings, invalid
 characters, and overflow return `0` until Rexc has richer result types.

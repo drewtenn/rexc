@@ -418,7 +418,8 @@ TEST_CASE(sema_accepts_alloc_helpers)
 		"  let p: *u8 = alloc_bytes(8);\n"
 		"  memset_u8(p, 65 as u8, 8);\n"
 		"  let copied: str = alloc_str_copy(\"hello\");\n"
-		"  if str_eq(copied, \"hello\") { return alloc_remaining(); }\n"
+		"  let joined: str = alloc_str_concat(copied, \"!\");\n"
+		"  if str_eq(joined, \"hello!\") { return alloc_remaining(); }\n"
 		"  return 0;\n"
 		"}\n",
 		diagnostics);

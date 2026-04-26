@@ -582,10 +582,11 @@ TEST_CASE(codegen_i386_emits_u8_pointer_to_str_cast_as_noop)
 TEST_CASE(codegen_i386_emits_alloc_helper_calls)
 {
 	auto assembly = compile_to_assembly(
-		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); if str_eq(copied, \"hello\") { return alloc_remaining(); } return 0; }\n");
+		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); if str_eq(joined, \"hello!\") { return alloc_remaining(); } return 0; }\n");
 
 	REQUIRE(assembly.find("call alloc_reset") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_bytes") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_str_copy") != std::string::npos);
+	REQUIRE(assembly.find("call alloc_str_concat") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_remaining") != std::string::npos);
 }
