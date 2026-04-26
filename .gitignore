@@ -48,4 +48,4 @@ generated/
 # macOS
 .DS_Store
 
-.*vsix
+*.vsix
