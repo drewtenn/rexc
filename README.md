@@ -123,6 +123,29 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+## VS Code Extension
+
+The VS Code extension lives in `tools/vscode-rexc`. It is made of static
+extension metadata, language configuration, and TextMate grammar files, so the
+build validates those files and packages them into a VSIX.
+
+Prerequisites:
+
+- Node.js with `npx`
+- VS Code, if you want to launch or install the extension locally
+
+Build the extension from the repository root with:
+
+```sh
+cd tools/vscode-rexc
+node scripts/verify-extension.mjs
+npx --yes @vscode/vsce package --no-dependencies
+```
+
+The packaging command writes a `rexc-<version>.vsix` file in
+`tools/vscode-rexc`. Install it from VS Code with
+**Extensions: Install from VSIX...**.
+
 ## Build A macOS arm64 Compiler
 
 On Apple Silicon macOS, build and verify a native `arm64` `rexc` executable:
