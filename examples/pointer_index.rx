@@ -1,7 +1,0 @@
-// Pointer arithmetic and indexing example used by CLI smoke tests.
-fn main() -> i32 {
-    let mut x: i32 = 7;
-    let p: *i32 = &x;
-    *(p + 0) = 9;
-    return p[1 - 1];
-}

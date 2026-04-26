@@ -1,0 +1,8 @@
+// Exported from the `math` module for `main.rx`.
+pub fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+pub fn double(value: i32) -> i32 {
+    return add(value, value);
+}

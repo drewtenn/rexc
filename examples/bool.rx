@@ -1,6 +1,0 @@
-// Boolean operator example used by CLI smoke tests.
-fn main() -> bool {
-    let left: bool = 1 < 2;
-    let right: bool = false;
-    return !right && (left || right);
-}

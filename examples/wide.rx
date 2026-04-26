@@ -1,6 +1,11 @@
-// 64-bit primitive example for the x86_64 target.
+// 64-bit primitive tour for x86_64 and arm64 targets.
+fn bump(value: i64) -> i64 {
+    return value + 1;
+}
+
 fn main() -> i64 {
     let min: i64 = -9223372036854775808;
+    let max: i64 = 9223372036854775807;
     let all: u64 = 18446744073709551615;
-    return min + 1;
+    return bump(min) + (max - max);
 }

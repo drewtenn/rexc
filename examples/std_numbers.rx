@@ -1,7 +1,0 @@
-fn main() -> i32 {
-    println("number?");
-    let value: i32 = read_i32();
-    print("double: ");
-    println_i32(value + value);
-    return parse_i32("-7") + 12;
-}

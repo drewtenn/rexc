@@ -1,0 +1,75 @@
+// Core language tour: functions, primitives, statics, control flow, casts, and pointers.
+static mut COUNTER: i32 = 1;
+static mut SCRATCH: [u8; 16];
+
+fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+fn primitives() -> i32 {
+    let signed: i32 = -42;
+    let unsigned: u32 = 4000000000;
+    let ok: bool = true;
+    let letter: char = 'x';
+    let letter_code: u32 = letter as u32;
+    let greeting: str = "hello";
+    return signed + 42 + letter_code as i32;
+}
+
+fn control_flow() -> i32 {
+    let mut value: i32 = 0;
+    while value < 10 {
+        value = value + 1;
+        if value == 3 {
+            continue;
+        }
+        if value == 7 {
+            break;
+        }
+    }
+
+    if value >= 7 {
+        return value;
+    } else {
+        return 0;
+    }
+}
+
+fn truth_table() -> i32 {
+    let left: bool = 1 < 2;
+    let right: bool = false;
+    if !right && (left || right) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+fn casts() -> i32 {
+    let letter: u32 = 'A' as u32;
+    let low: i32 = 300 as u8 as i32;
+    let flag: i32 = true as i32;
+    return letter as i32 + low + flag;
+}
+
+fn pointers() -> i32 {
+    let mut value: i32 = 7;
+    let p: *i32 = &value;
+    *p = 9;
+    *(p + 0) = *p + 1;
+    return p[1 - 1];
+}
+
+fn statics() -> i32 {
+    COUNTER = COUNTER + 1;
+    let p: *i32 = (SCRATCH + 0) as *i32;
+    *p = COUNTER;
+    return *p;
+}
+
+fn main() -> i32 {
+    if truth_table() == 1 && control_flow() == 7 && casts() == 110 && pointers() == 10 && statics() == 2 && primitives() == 120 {
+        return add(20, 22);
+    }
+    return 1;
+}

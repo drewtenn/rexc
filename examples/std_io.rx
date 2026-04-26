@@ -1,7 +1,0 @@
-fn main() -> i32 {
-    println("hello from rexc");
-    print("echo: ");
-    let line: str = read_line();
-    println(line);
-    return 0;
-}

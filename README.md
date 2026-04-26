@@ -173,19 +173,31 @@ dist/rexc-macos-arm64.tar.gz.sha256
 
 ## Compile, Assemble, And Link
 
+The checked-in examples are intentionally compact tours rather than one file
+per feature:
+
+- `examples/core.rx`: functions, primitive values, statics, control flow,
+  casts, pointers, and indexing.
+- `examples/wide.rx`: 64-bit integer behavior for 64-bit targets.
+- `examples/stdlib.rx`: hosted stdlib console, parsing, formatting, and string
+  helpers.
+- `examples/modules/main.rx`: file-backed modules, `use`, and inline qualified
+  module calls.
+
 ```sh
-build/rexc examples/add.rx -S -o build/add.s
-build/rexc examples/add.rx -c -o build/add.o
-build/rexc examples/add.rx -o build/add
-build/rexc examples/branch.rx --target i386 -S -o build/branch32.s
-build/rexc examples/add.rx --target i386 -o build/add-i386.elf
+build/rexc examples/core.rx -S -o build/core.s
+build/rexc examples/core.rx -c -o build/core.o
+build/rexc examples/core.rx -o build/core
+build/rexc examples/modules/main.rx -S -o build/modules.s
+build/rexc examples/core.rx --target i386 -S -o build/core32.s
+build/rexc examples/core.rx --target i386 -o build/core-i386.elf
 build/rexc examples/wide.rx --target x86_64 -S -o build/wide64.s
 build/rexc examples/wide.rx --target x86_64 -c -o build/wide64.o
-build/rexc examples/add.rx --target x86_64 -o build/add-x86_64.elf
-build/rexc examples/add.rx --target arm64-macos -S -o build/add-arm64.s
-build/rexc examples/add.rx --target arm64-macos -c -o build/add-arm64.o
-build/rexc examples/add.rx --target arm64-macos -o build/add-arm64
-build/rexc examples/add.rx --target x86_64-linux -S -o build/add-x86_64-linux.s
+build/rexc examples/core.rx --target x86_64 -o build/core-x86_64.elf
+build/rexc examples/core.rx --target arm64-macos -S -o build/core-arm64.s
+build/rexc examples/core.rx --target arm64-macos -c -o build/core-arm64.o
+build/rexc examples/core.rx --target arm64-macos -o build/core-arm64
+build/rexc examples/core.rx --target x86_64-linux -S -o build/core-x86_64-linux.s
 ```
 
 The default target is the native host target. On Apple Silicon macOS, omitting
@@ -213,10 +225,10 @@ command-line executable.
 Examples on macOS:
 
 ```sh
-build/rexc examples/add.rx -o build/add-arm64
-build/rexc examples/add.rx --target i386 -o build/add-i386.elf
-build/rexc examples/add.rx --target x86_64 -o build/add-x86_64.elf
-file build/add-arm64 build/add-i386.elf build/add-x86_64.elf
+build/rexc examples/core.rx -o build/core-arm64
+build/rexc examples/core.rx --target i386 -o build/core-i386.elf
+build/rexc examples/core.rx --target x86_64 -o build/core-x86_64.elf
+file build/core-arm64 build/core-i386.elf build/core-x86_64.elf
 ```
 
 ### Build A Darwin arm64 Executable
@@ -227,11 +239,11 @@ executable in one invocation:
 ```sh
 cmake --preset macos-arm64-release
 cmake --build --preset macos-arm64-release
-build/macos-arm64-release/rexc examples/add.rx \
+build/macos-arm64-release/rexc examples/core.rx \
     --target arm64-macos \
-    -o build/macos-arm64-release/add-arm64
-file build/macos-arm64-release/add-arm64
-build/macos-arm64-release/add-arm64
+    -o build/macos-arm64-release/core-arm64
+file build/macos-arm64-release/core-arm64
+build/macos-arm64-release/core-arm64
 echo $?
 ```
 
@@ -242,7 +254,7 @@ Mach-O 64-bit executable arm64
 ```
 
 The final `echo $?` prints the Rexc `main` return value. For
-`examples/add.rx`, that value is `42`.
+`examples/core.rx`, that value is `42`.
 
 Under the hood, Rexc emits temporary Darwin ARM64 assembly, assembles it with
 Apple `as -arch arm64`, then links the object with `clang -arch arm64` and the
@@ -253,20 +265,20 @@ This flow creates a Darwin command-line executable, not a `.app` bundle. To put
 the executable inside a minimal app bundle manually:
 
 ```sh
-mkdir -p build/AddRexc.app/Contents/MacOS
-cp build/macos-arm64-release/add-arm64 build/AddRexc.app/Contents/MacOS/AddRexc
-cat > build/AddRexc.app/Contents/Info.plist <<'PLIST'
+mkdir -p build/CoreRexc.app/Contents/MacOS
+cp build/macos-arm64-release/core-arm64 build/CoreRexc.app/Contents/MacOS/CoreRexc
+cat > build/CoreRexc.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>AddRexc</string>
+  <string>CoreRexc</string>
   <key>CFBundleIdentifier</key>
-  <string>dev.rexc.add</string>
+  <string>dev.rexc.core</string>
   <key>CFBundleName</key>
-  <string>AddRexc</string>
+  <string>CoreRexc</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleVersion</key>
@@ -285,7 +297,7 @@ at a Drunix checkout that has `user/user.ld`, `user/lib/crt0.o`, and
 `user/lib/libc.a`:
 
 ```sh
-build/rexc examples/add.rx --target i386-drunix --drunix-root /path/to/DrunixOS -o build/add.drunix
+build/rexc examples/core.rx --target i386-drunix --drunix-root /path/to/DrunixOS -o build/add.drunix
 ```
 
 For compatibility, `--drunix-root` also treats i386 aliases as the
@@ -301,11 +313,13 @@ items `pub` when other modules need to reach them.
 
 ```rust
 // main.rx
-pub mod math;
+mod math;
 use math::add;
 
 fn main() -> i32 {
-    return add(20, 22);
+    let imported: i32 = add(20, 22);
+    let qualified: i32 = math::double(21);
+    return imported + qualified - 42;
 }
 ```
 
@@ -314,11 +328,15 @@ fn main() -> i32 {
 pub fn add(a: i32, b: i32) -> i32 {
     return a + b;
 }
+
+pub fn double(value: i32) -> i32 {
+    return add(value, value);
+}
 ```
 
 `use path::to::item;` imports the final item name into the current module, so
 call sites can write `add(...)` instead of `math::add(...)`. Qualified calls
-such as `math::add(...)` remain available without a `use`.
+such as `math::double(...)` remain available inline with or without a `use`.
 
 The entry file's directory is always searched first. Extra package roots are
 searched afterward, in the order they appear on the command line:
@@ -539,8 +557,8 @@ fn main() -> i32 {
 Executable builds link the hosted `std` runtime automatically:
 
 ```sh
-build/rexc examples/std_io.rx -o build/std_io
-printf 'friend\n' | build/std_io
+build/rexc examples/stdlib.rx -o build/stdlib
+printf 'friend\nsecond\n21\n' | build/stdlib
 ```
 
 Assembly-only (`-S`) and object-only (`-c`) builds can reference standard
@@ -703,14 +721,14 @@ make -C "$DRUNIX/user" lib/crt0.o lib/libc.a
 Compile and link the final Drunix ELF executable:
 
 ```sh
-build/rexc examples/add.rx --target i386-drunix --drunix-root "$DRUNIX" -o build/add.drunix
+build/rexc examples/core.rx --target i386-drunix --drunix-root "$DRUNIX" -o build/add.drunix
 ```
 
 The command above is equivalent to compiling assembly, assembling an i386
 object, and linking it with the Drunix user runtime:
 
 ```sh
-build/rexc examples/add.rx --target i386 -S -o build/add.s
+build/rexc examples/core.rx --target i386 -S -o build/add.s
 x86_64-elf-as --32 -o build/add.o build/add.s
 x86_64-elf-ld -m elf_i386 \
   -T "$DRUNIX/user/user.ld" \
@@ -737,7 +755,7 @@ the linker pulls only the archive members needed by the program.
 To produce a 32-bit Linux-compatible object:
 
 ```sh
-build/rexc examples/add.rx --target i386 -c -o build/add32.o
+build/rexc examples/core.rx --target i386 -c -o build/add32.o
 ```
 
 To produce a 64-bit Linux-compatible object:

@@ -1,0 +1,9 @@
+// File-backed module tour: both `use` imports and inline qualified calls.
+mod math;
+use math::add;
+
+fn main() -> i32 {
+    let imported: i32 = add(20, 22);
+    let qualified: i32 = math::double(21);
+    return imported + qualified - 42;
+}
