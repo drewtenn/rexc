@@ -51,6 +51,7 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	auto parse_i32 = rexc::stdlib::find_prelude_function("parse_i32");
 	auto read_i32 = rexc::stdlib::find_prelude_function("read_i32");
 	auto exit = rexc::stdlib::find_prelude_function("exit");
+	auto panic = rexc::stdlib::find_prelude_function("panic");
 
 	REQUIRE(print != nullptr);
 	REQUIRE(println != nullptr);
@@ -67,6 +68,7 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE(parse_i32 != nullptr);
 	REQUIRE(read_i32 != nullptr);
 	REQUIRE(exit != nullptr);
+	REQUIRE(panic != nullptr);
 	REQUIRE_EQ(print->layer, rexc::stdlib::Layer::Std);
 	REQUIRE_EQ(print->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(print->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
@@ -130,6 +132,10 @@ TEST_CASE(stdlib_declares_prelude_functions)
 	REQUIRE_EQ(exit->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(exit->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(exit->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(panic->layer, rexc::stdlib::Layer::Std);
+	REQUIRE_EQ(panic->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(panic->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(panic->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 }
 
 TEST_CASE(stdlib_emits_hosted_runtime_symbols)
@@ -153,6 +159,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "parse_i32:"));
 	REQUIRE(contains(i386, "read_i32:"));
 	REQUIRE(contains(i386, "exit:"));
+	REQUIRE(contains(i386, "panic:"));
 	REQUIRE(contains(i386, "sys_write:"));
 	REQUIRE(contains(i386, "sys_read:"));
 	REQUIRE(contains(i386, "sys_exit:"));
@@ -177,6 +184,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "parse_i32:"));
 	REQUIRE(contains(x86_64, "read_i32:"));
 	REQUIRE(contains(x86_64, "exit:"));
+	REQUIRE(contains(x86_64, "panic:"));
 	REQUIRE(contains(x86_64, "sys_write:"));
 	REQUIRE(contains(x86_64, "sys_read:"));
 	REQUIRE(contains(x86_64, "sys_exit:"));
@@ -201,6 +209,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "_println_i32:"));
 	REQUIRE(contains(arm64, "_parse_i32:"));
 	REQUIRE(contains(arm64, "_read_i32:"));
+	REQUIRE(contains(arm64, "_panic:"));
 	REQUIRE(contains(arm64, "_sys_write:"));
 	REQUIRE(contains(arm64, "_sys_read:"));
 	REQUIRE(contains(arm64, "_sys_exit:"));

@@ -538,3 +538,10 @@ TEST_CASE(codegen_x86_64_emits_std_numeric_helper_calls)
 	REQUIRE(assembly.find("call parse_i32") != std::string::npos);
 	REQUIRE(assembly.find("call read_i32") != std::string::npos);
 }
+
+TEST_CASE(codegen_x86_emits_std_panic_call)
+{
+	auto assembly = compile_to_assembly("fn main() -> i32 { return panic(\"boom\"); }\n");
+
+	REQUIRE(assembly.find("call panic") != std::string::npos);
+}

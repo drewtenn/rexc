@@ -370,6 +370,15 @@ TEST_CASE(sema_accepts_std_prelude_numeric_helpers)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_std_prelude_panic)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { return panic(\"boom\"); }\n", diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_rejects_std_prelude_print_i32_wrong_argument_type)
 {
 	rexc::Diagnostics diagnostics;

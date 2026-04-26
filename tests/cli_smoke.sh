@@ -114,6 +114,21 @@ grep -F -q 'bl _read_i32' "${tmp_dir}/std-numbers-arm64.s"
 grep -F -q 'bl _println_i32' "${tmp_dir}/std-numbers-arm64.s"
 grep -F -q 'bl _parse_i32' "${tmp_dir}/std-numbers-arm64.s"
 
+cat > "${tmp_dir}/std-panic.rx" <<'RX'
+fn main() -> i32 {
+    return panic("boom");
+}
+RX
+
+"${build_dir}/rexc" "${tmp_dir}/std-panic.rx" --target i386 -S -o "${tmp_dir}/std-panic32.s"
+grep -F -q 'call panic' "${tmp_dir}/std-panic32.s"
+
+"${build_dir}/rexc" "${tmp_dir}/std-panic.rx" --target x86_64 -S -o "${tmp_dir}/std-panic64.s"
+grep -F -q 'call panic' "${tmp_dir}/std-panic64.s"
+
+"${build_dir}/rexc" "${tmp_dir}/std-panic.rx" --target arm64-macos -S -o "${tmp_dir}/std-panic-arm64.s"
+grep -F -q 'bl _panic' "${tmp_dir}/std-panic-arm64.s"
+
 if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 cat > "${tmp_dir}/std-i32-edges.rx" <<'RX'
 fn main() -> i32 {

@@ -2,6 +2,7 @@ static mut READ_LINE_BUFFER: [u8; 1024];
 
 extern fn sys_write(fd: i32, buffer: str, len: i32) -> i32;
 extern fn sys_read(fd: i32, buffer: *u8, len: i32) -> i32;
+extern fn sys_exit(status: i32) -> i32;
 
 fn print(value: str) -> i32 {
 	return sys_write(1, value, strlen(value));
@@ -79,4 +80,11 @@ fn println_i32(value: i32) -> i32 {
 
 fn read_i32() -> i32 {
 	return parse_i32(read_line());
+}
+
+fn panic(message: str) -> i32 {
+	sys_write(1, "panic: ", 7);
+	sys_write(1, message, strlen(message));
+	sys_write(1, "\n", 1);
+	return sys_exit(101);
 }

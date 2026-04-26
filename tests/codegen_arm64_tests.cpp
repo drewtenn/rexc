@@ -155,3 +155,10 @@ TEST_CASE(codegen_arm64_macos_emits_std_numeric_helper_calls)
 	REQUIRE(assembly.find("bl _parse_i32") != std::string::npos);
 	REQUIRE(assembly.find("bl _read_i32") != std::string::npos);
 }
+
+TEST_CASE(codegen_arm64_macos_emits_std_panic_call)
+{
+	auto assembly = compile_to_arm64_assembly("fn main() -> i32 { return panic(\"boom\"); }\n");
+
+	REQUIRE(assembly.find("bl _panic") != std::string::npos);
+}

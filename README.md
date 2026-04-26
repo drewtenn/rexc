@@ -399,6 +399,7 @@ standard functions without module syntax:
 | `parse_i32` | `fn(str) -> i32` | Parses a signed decimal integer, returning `0` for invalid or overflow input. |
 | `read_i32` | `fn() -> i32` | Reads one input line and parses it as `i32`. |
 | `exit` | `fn(i32) -> i32` | Terminates the process with the given status. |
+| `panic` | `fn(str) -> i32` | Writes `panic: ` plus the message, then terminates with status `101`. |
 
 `read_line` strips one trailing newline when present, always null-terminates the
 buffer, and overwrites the same buffer on the next `read_line` call. It is
@@ -433,10 +434,11 @@ library symbols, but they do not include the runtime object. Source-level
 prelude names are `print`, `println`, `read_line`, `strlen`, `str_is_empty`,
 `str_eq`, `str_starts_with`, `str_ends_with`, `str_contains`, `str_find`,
 `print_i32`, `println_i32`, `parse_i32`, `read_i32`, and `exit`. ELF assembly
-references those names directly. `arm64-macos` assembly references Darwin
-symbols with leading underscores. The hosted target adapters provide only the
-primitive `sys_read`, `sys_write`, and `sys_exit` hooks needed by the Rexc
-stdlib source.
+references those names directly. `panic` is also in the hosted prelude and is
+implemented in Rexc on top of `sys_write` and `sys_exit`. `arm64-macos`
+assembly references Darwin symbols with leading underscores. The hosted target
+adapters provide only the primitive `sys_read`, `sys_write`, and `sys_exit`
+hooks needed by the Rexc stdlib source.
 
 ### Standard Library Roadmap
 
