@@ -1,458 +1,453 @@
-# Rexc Layered Standard Library Design
+# Rexc Compiler Roadmap
 
-## Status
+Updated: 2026-04-26
 
-This document was refreshed on 2026-04-26 to match the current project state
-while keeping the Rust-style roadmap. It is no longer only a first-milestone
-proposal: Rexc now has a Rexc-source standard library, source-derived prelude
-metadata, target-triple runtime adapters, a bootstrap `alloc` layer, inline
-modules/imports, and hosted executable linking for the supported targets.
+This roadmap tracks Rexc as a portable compiler first, not only as a
+standard-library design or a Drunix-specific tool. Rexc should build and run as
+a normal host compiler on macOS, Linux, and Windows while still producing
+useful systems programs for Drunix and other explicit output targets.
 
-The roadmap remains important. The current implementation is intentionally a
-bootstrap: many APIs are flat prelude names, `alloc` is a bump arena, error
-handling uses integer sentinels, and ownership, traits, slices, file-backed
-modules, and package management are still future work.
+The stages below are grouped by state:
 
-Worktree note: there is active parser work toward `pub` visibility,
-`mod name;` file-backed module declarations, `ParseOptions`, and a
-`parse_file_tree` API. Treat that as in-progress until it is fully wired
-through `src/parse.cpp`, the CLI, sema/lowering expectations, and a fresh
-build.
+- **Completed phases** are implemented enough to build on, though individual
+  details may still need polish.
+- **Active phase** is the work currently being wired through the compiler.
+- **Future phases** describe the next durable compiler capabilities in a likely
+  order. They are milestones, not fixed release promises.
 
-## Purpose
+## Guiding Rules
 
-Rexc needs a small standard library path that feels familiar to Rust and C++
-without forcing the language to grow every major systems-language feature at
-once. The library is layered after Rust's `core` / `alloc` / `std` model,
-adapted to Rexc's bootstrap state:
+- Keep the pipeline explicit: source text becomes an AST, the AST becomes typed
+  IR, typed IR becomes target assembly, and assembly becomes an object or
+  executable.
+- Keep host portability first: core compiler code should stay OS-neutral, with
+  host-specific filesystem, process, toolchain, assembler, and linker behavior
+  isolated behind small boundaries.
+- Keep Drunix visible as a target: target and runtime choices should continue
+  to explain how a Rexc program becomes a Drunix user program.
+- Keep portable behavior in Rexc source whenever the language can express it.
+  Target-specific C++ or assembly should stay at ABI, syscall, libc, startup,
+  and linker boundaries.
+- Add compiler features when the standard library needs them instead of copying
+  portable library behavior into every target runtime adapter.
+- Land each stage with parser, semantic, IR, backend, CLI, and smoke coverage
+  appropriate to the surface it changes.
 
-- `core`: target-independent declarations and portable contracts that do not
-  assume an operating system or heap.
-- `alloc`: allocator-backed helpers and owned-style abstractions. Today this
-  is a portable bump arena implemented in Rexc source.
-- `std`: hosted facilities built on top of `core` and `alloc`, linked into
-  normal command-line executable builds.
-- `sys`/target runtime adapters: small target- and OS-specific hooks for
-  syscalls, libc calls, process startup data, files, and future allocator
-  primitives.
+## Current Snapshot
 
-The critical design rule still holds: portable standard-library behavior
-belongs in Rexc source. Target assembly is only for the lowest hardware or host
-boundary. If Rexc source cannot express a needed library operation, the next
-task is to improve the language, IR, or backend instead of duplicating that
-operation in every target adapter.
+Rexc's host portability goal is macOS, Linux, and Windows. The compiler
+currently supports a small but complete output pipeline:
 
-## Current Architecture
-
-The current source layout is:
-
-- `include/rexc/stdlib.hpp`: public compiler-facing catalog API.
-- `src/stdlib/core/*.rx`: portable target-independent functions.
-- `src/stdlib/alloc/alloc.rx`: bootstrap bump allocator and owned-style
-  helpers.
-- `src/stdlib/std/*.rx`: hosted I/O, process, file, and path helpers.
-- `src/stdlib/sys/runtime_*.cpp`: target-triple-specific primitive adapters.
-- `src/stdlib/stdlib.cpp`: aggregate facade that derives function metadata
-  from `.rx` source and compiles the portable stdlib into hosted runtime
-  assembly.
-- `src/stdlib/source.cpp.in` and `cmake/generate_stdlib_source.cmake`: CMake
-  source embedding bridge for the `.rx` standard-library files.
-
-`CMakeLists.txt` embeds these canonical `.rx` files into the generated
-`stdlib/source.cpp` build artifact:
-
-- `src/stdlib/core/str.rx`
-- `src/stdlib/core/mem.rx`
-- `src/stdlib/core/num.rx`
-- `src/stdlib/alloc/alloc.rx`
-- `src/stdlib/std/io.rx`
-- `src/stdlib/std/process.rx`
-- `src/stdlib/std/fs.rx`
-- `src/stdlib/std/path.rx`
-
-`stdlib::prelude_functions()` now parses the embedded source units and derives
-public function signatures from the Rexc AST. Public means a non-extern
-function whose name does not start with `_` and whose parameter and return
-types resolve to current primitive Rexc types. This replaced the old per-layer
-C++ `library.cpp`/`library.hpp` catalog stubs.
-
-`stdlib::hosted_runtime_assembly(target)` emits the selected `sys` runtime
-adapter, then appends assembly generated by compiling the embedded portable
-Rexc stdlib source for the target architecture. While compiling the stdlib
-itself, semantic analysis and IR lowering run with `include_stdlib_prelude =
-false` so the library resolves against its own definitions and explicit
-`extern fn sys_*` hooks.
-
-## Language Surface Implemented For The Stdlib
-
-The original first milestone added call statements such as:
-
-```rust
-println("hello");
-exit(1);
+```text
+source .rx
+  -> ANTLR lexer and parser
+  -> AST
+  -> semantic analysis
+  -> typed IR
+  -> target assembly
+  -> assembler object
+  -> hosted or Drunix executable link
 ```
 
-That is implemented as `callExpression ';'`; general ignored expression
-statements are still not part of the grammar.
-
-Additional language and compiler support now used by the stdlib includes:
-
-- byte indexing through postfix indexing, such as `value[index]`;
-- `static mut NAME: [u8; N];` byte buffers;
-- `static mut NAME: i32 = 0;` scalar state for bootstrap allocation;
-- indirect assignment through arbitrary address expressions, such as
-  `*(buffer + index) = 0`;
-- pointer arithmetic and indexing for raw bootstrap buffers;
-- inline `mod name { ... }` declarations;
-- `use path::to::item;` imports;
-- qualified calls such as `math::add(1, 2)` and stdlib paths such as
-  `std::io::println("hi")`.
-
-Current modules are inline source structure, not file-backed modules or a
-package system. For stdlib module paths, compiler glue maps exported symbols
-such as `std_io_println` to canonical paths such as `std::io::println` while
-also preserving the flat symbol name.
-
-The current worktree has partial parser-facing changes for `pub` items and
-file-backed modules. Those changes point at the next module-system direction,
-but the stdlib design should still consider the build-passing module surface to
-be inline modules, `use` imports, and compiler-provided stdlib paths until the
-loader work is completed.
-
-## Current Public Surface
-
-The compiler currently injects all public stdlib functions into the prelude.
-That is broader than the final desired shape, but it keeps examples and tests
-working while module/import ergonomics mature. Functions with `std_` prefixes
-also have canonical std module paths.
-
-### `core`
-
-From `src/stdlib/core/str.rx`:
-
-- `strlen(str) -> i32`
-- `str_is_empty(str) -> bool`
-- `str_eq(str, str) -> bool`
-- `str_starts_with(str, str) -> bool`
-- `str_ends_with(str, str) -> bool`
-- `str_find(str, str) -> i32`
-- `str_contains(str, str) -> bool`
-- `parse_bool(str) -> bool`
-
-From `src/stdlib/core/num.rx`:
-
-- `parse_i32(str) -> i32`
-
-From `src/stdlib/core/mem.rx`:
-
-- `memset_u8(*u8, u8, i32) -> i32`
-- `memcpy_u8(*u8, *u8, i32) -> i32`
-- `str_copy_to(*u8, str, i32) -> i32`
-- `slice_u8_len(*u8, i32) -> i32`
-- `slice_u8_is_empty(*u8, i32) -> bool`
-- `slice_u8_get_or(*u8, i32, i32, u8) -> u8`
-- `slice_u8_copy_to(*u8, *u8, i32) -> i32`
-- `error_none() -> i32`
-- `error_invalid_argument() -> i32`
-- `error_out_of_memory() -> i32`
-- `error_not_found() -> i32`
-- `result_is_ok(i32) -> bool`
-- `result_is_err(i32) -> bool`
-- `result_unwrap_or_i32(i32, i32) -> i32`
-
-These are not final slice or `Result` types. They are simple portable helpers
-that let Rexc exercise core-like contracts before richer data representation
-exists.
-
-### `alloc`
-
-From `src/stdlib/alloc/alloc.rx`:
-
-- arena state: `static mut ALLOC_ARENA: [u8; 65536]` and
-  `static mut ALLOC_OFFSET: i32 = 0`;
-- arena helpers: `alloc_remaining`, `alloc_used`, `alloc_capacity`,
-  `alloc_can_allocate`, `alloc_reset`, and `alloc_bytes`;
-- string helpers: `alloc_str_copy`, `alloc_str_concat`,
-  `alloc_i32_to_str`, `alloc_bool_to_str`, and `alloc_char_to_str`;
-- owned-style string aliases: `owned_str_clone`, `owned_str_len`,
-  `owned_str_is_empty`, and `owned_str_concat`;
-- boxed integer helpers: `box_i32_new`, `box_i32_read`, and
-  `box_i32_write`;
-- vector-shaped integer helpers: `vec_i32_new`, `vec_i32_len`,
-  `vec_i32_capacity`, `vec_i32_push`, and `vec_i32_get_or`.
-
-This is a real implemented layer, but it is still a bootstrap layer. It returns
-raw pointers or `str` views into a static arena, has no deallocation, and does
-not provide ownership, lifetimes, generic boxes, or generic vectors.
-
-### `std`
-
-From `src/stdlib/std/io.rx`:
-
-- `print(str) -> i32`
-- `println(str) -> i32`
-- `read_line() -> str`
-- `print_i32(i32) -> i32`
-- `println_i32(i32) -> i32`
-- `print_bool(bool) -> i32`
-- `println_bool(bool) -> i32`
-- `print_char(char) -> i32`
-- `println_char(char) -> i32`
-- `read_i32() -> i32`
-- `read_bool() -> bool`
-- `panic(str) -> i32`
-- path-style aliases: `std_io_print`, `std_io_println`,
-  `std_io_read_line`
-
-`read_line` uses a Rexc-owned `static mut READ_LINE_BUFFER: [u8; 1024]`,
-reads one byte at a time through `sys_read`, strips one trailing newline, and
-always null-terminates. The returned `str` points at the same buffer every
-time, so the next `read_line` overwrites the previous value.
-
-From `src/stdlib/std/process.rx`:
-
-- `exit(i32) -> i32`
-- `std_process_exit(i32) -> i32`
-- `abort(i32) -> i32`
-- `panic_abort(str, i32) -> i32`
-- `args_len() -> i32`
-- `arg_at(i32) -> str`
-- `env_get(str) -> str`
-- `std_env_get(str) -> str`
-
-From `src/stdlib/std/fs.rx`:
-
-- `file_open_read(str) -> i32`
-- `file_create_write(str) -> i32`
-- `file_close(i32) -> i32`
-- `file_read(i32, *u8, i32) -> i32`
-- `file_write_str(i32, str) -> i32`
-- `std_fs_open_read(str) -> i32`
-- `std_fs_create_write(str) -> i32`
-
-From `src/stdlib/std/path.rx`:
-
-- `path_is_absolute(str) -> bool`
-- `path_join(str, str) -> str`
-- `std_path_join(str, str) -> str`
-
-The `std_*` symbol forms are current compiler bridges for module paths. For
-example, source can call `std::io::println("hi")`, and lowering resolves that
-to the runtime symbol `std_io_println`.
-
-## Runtime And Linking
-
-Executable builds automatically include the hosted stdlib runtime object.
-Assembly-only (`-S`) and object-only (`-c`) builds may reference stdlib
-symbols, but they do not include the runtime object; the final link must supply
-those symbols.
-
-Supported target triples and aliases are:
-
-- `i386-linux`: aliases `i386`, `i386-linux`, `i686-linux`, and
-  `i686-unknown-linux-gnu`;
-- `i386-elf`;
-- `i386-drunix`;
-- `x86_64-linux`: aliases `x86_64`, `x86_64-linux`, and
-  `x86_64-unknown-linux-gnu`;
-- `x86_64-elf`;
-- `arm64-macos`: aliases `arm64-macos`, `arm64-apple-darwin`, and
-  `aarch64-apple-darwin`.
-
-The current target runtime adapters are:
-
-- `runtime_i386_linux.cpp` for Linux-compatible i386 syscall paths;
-- `runtime_i386_drunix.cpp` for Drunix userland syscall/link behavior;
-- `runtime_x86_64_linux.cpp` for Linux-compatible x86_64 syscall paths;
-- `runtime_arm64_macos.cpp` for Darwin ARM64 libc/syscall paths.
-
-Primitive `sys` hooks now include:
-
-- `sys_read`, `sys_write`, and `sys_exit`;
-- `sys_file_open_read`, `sys_file_create_write`, and `sys_file_close`;
-- `sys_args_len`, `sys_arg`, `sys_env_len`, and `sys_env_at`.
-
-Linux-compatible ELF startup code captures `argc`, `argv`, and `envp` into
-`__rexc_argc`, `__rexc_argv`, and `__rexc_envp` so the hosted `std` process
-helpers can use them. The Drunix adapter uses the Drunix `environ` symbol for
-environment access and currently returns no command-line arguments. Darwin
-ARM64 uses libc `read`, `write`, `open`, and `close`, Darwin process globals
-for arguments and environment, and the primitive Darwin exit syscall for
-`sys_exit`.
-
-Drunix linking is no longer out of scope. Passing `--drunix-root` selects the
-`i386-drunix` runtime path for i386 targets, assembles the hosted stdlib
-runtime object, and links it with Drunix `crt0.o`, `libc.a`, and `user.ld`.
-
-## Testing
-
-The current tests cover the stdlib at several levels:
-
-- parser/frontend tests for call statements, static buffers/scalars, modules,
-  imports, qualified names, indexing, and pointer operations;
-- semantic tests for stdlib prelude visibility, std module path calls,
-  duplicate names, type checking, mutable globals, and import errors;
-- IR and codegen tests for module symbol mangling, static data, stdlib calls,
-  pointer indexing, indirect stores, and architecture-specific symbol names;
-- stdlib tests proving `.rx` files are canonical, old C++ catalog stubs are
-  absent, prelude declarations are source-derived, layer tags are correct, and
-  hosted runtime assembly contains the expected portable and `sys` symbols;
-- CLI and assemble smoke tests for common target and stdlib flows.
-
-Example programs exercising the current stdlib live in:
-
-- `examples/std_io.rx`
-- `examples/std_two_lines.rx`
-- `examples/std_strings.rx`
-- `examples/std_numbers.rx`
-
-## Documentation
-
-The README now has a `Standard Library` section that documents the layered
-model, the current prelude, `read_line` buffer behavior, executable runtime
-linking, and the roadmap. This spec should remain the more detailed design and
-roadmap reference, while the README stays user-facing.
-
-## Non-Goals And Current Limits
-
-- Completed file-backed modules, package management, and external dependency
-  resolution.
-- Generic traits such as Rust `Display` or C++ stream overloads.
-- Real `Result`/`Option`/enum representations.
-- Owned strings, generic vectors, generic boxes, lifetimes, or deallocation.
-- Stable ABI promises for prelude or `std_*` symbol names.
-- A final module/prelude policy. Today all public stdlib functions are
-  injected into the prelude as a bootstrap convenience.
-- Rich filesystem errors. File helpers currently return raw integer status or
-  descriptor values.
-
-## Rust-Style Roadmap
-
-### Critical Rule: Rexc First
-
-The standard library should continue to be implemented in portable Rexc by
-default. This is not optional polish; it is the roadmap's main constraint.
-Code should split by target only at the lowest host or hardware boundary, such
-as `read`, `write`, `exit`, file descriptors, process startup data, and future
-allocation primitives. `sys` exists to expose those primitive effects, not to
-become a parallel standard library written in assembly.
-
-When stdlib work hits a missing Rexc capability, the next step is to implement
-that capability in Rexc's compiler, IR, or backends, then continue the library
-work in Rexc source. Examples:
-
-- Need to inspect string bytes? Use `str[index]`, then write string helpers in
-  Rexc.
-- Need reusable buffers? Use `static mut [u8; N]`, global references, pointer
-  arithmetic, and indirect stores, then write buffer logic in Rexc.
-- Need owned strings or vectors? Improve the allocator contract and ownership
-  model, then implement collections in Rexc.
-- Need errors? Add enum/result representation, then replace sentinel return
-  values with typed results.
-
-Canonical stdlib implementation files should remain `.rx` files. C++ in
-`src/stdlib/` should catalog, embed, and compile those files, plus provide
-primitive `sys` adapters. It must not become the long-term home for portable
-stdlib implementation text.
-
-### Stage 1: Rexc-Compiled Hosted Runtime
-
-Status: implemented for the current bootstrap.
-
-Rexc compiles embedded `.rx` standard-library source into the hosted runtime
-object and appends it after the target-specific `sys` adapter. Ordinary public
-stdlib function signatures are now derived from parsed Rexc source instead of
-parallel hand-written C++ tables.
-
-Remaining work:
-
-- make diagnostics for stdlib parse/sema/codegen failures more direct than
-  embedding failure text in generated assembly;
-- narrow the always-on prelude once module imports are ergonomic enough;
-- finish and wire the file-backed module loader, then load real stdlib source
-  files directly instead of relying on CMake embedding.
-
-### Stage 2: Target Triple Runtime Adapters
-
-Status: implemented for the current supported targets.
-
-Runtime support is split by target triple:
-
-- `i386-linux` and `i386-elf`;
-- `i386-drunix`;
-- `x86_64-linux` and `x86_64-elf`;
-- `arm64-macos`.
-
-Remaining work:
-
-- keep adapter APIs narrow as `std` grows;
-- add allocator hooks when `alloc` moves beyond the static bump arena;
-- close target-specific gaps, such as Drunix command-line argument support,
-  without moving portable behavior into assembly.
-
-### Stage 3: Portable `core`
-
-Status: partially implemented.
-
-Current `core` has string length/comparison/search helpers, integer and bool
-parsing, byte memory helpers, slice-shaped `u8` helpers, and integer sentinel
-helpers that mimic some result behavior.
-
-Remaining work:
-
-- replace slice-shaped helpers with real slice types once Rexc can represent
-  them;
-- replace integer error sentinels with typed results;
-- add panic/abort contracts that fit the future type and module system;
-- keep all target-independent algorithms in `.rx` source.
-
-### Stage 4: Portable Library Implementations
-
-Status: ongoing, with the first major algorithms implemented.
-
-String scanning, line reading, integer parsing, bool parsing, integer/bool/char
-formatting, path joining, simple process/env helpers, and allocation-backed
-string helpers are now portable Rexc source.
-
-Remaining work:
-
-- broaden formatting beyond `i32`, `bool`, and `char`;
-- add richer parsing and validation once result types exist;
-- avoid exposing too many implementation helpers directly through the prelude;
-- keep expanding tests that prove algorithms are emitted once above `sys`.
-
-### Stage 5: Add `alloc`
-
-Status: bootstrap layer implemented.
-
-`alloc` currently uses a 65536-byte static bump arena and scalar offset. It
-supports raw byte allocation, string copies/concatenation, primitive formatting
-to strings, owned-style string aliases, a boxed `i32`, and a fixed-capacity
-`i32` vector layout.
-
-Remaining work:
-
-- introduce real allocator hooks and a replacement policy for out-of-memory
-  behavior;
-- add ownership/lifetime rules before presenting owned strings and vectors as
-  stable language/library types;
-- generalize boxes and vectors once generics or another type abstraction
-  exists.
-
-### Stage 6: Grow Hosted `std`
-
-Status: initial hosted surface implemented.
-
-`std` now covers console I/O, process exit, panic output, command-line/env
-queries on supported hosts, file open/read/write/close primitives, and simple
-path helpers. It also exposes path-style aliases through names such as
-`std_io_println`, which source can call as `std::io::println`.
-
-Remaining work:
-
-- decide the long-term prelude versus module-path API;
-- add typed errors for files, environment, parsing, and allocation;
-- flesh out arguments, environment, filesystem, and path APIs into real hosted
-  modules;
-- keep target adapters limited to ABI/syscall/libc details while hosted logic
-  remains in Rexc source.
+The language currently includes functions, extern functions, primitive scalar
+types, pointers, string literals, locals, mutable locals, assignments, indirect
+pointer stores, calls as expressions and statements, `return`, `if/else`,
+`while`, `break`, `continue`, arithmetic, comparisons, boolean operators,
+explicit casts, pointer arithmetic, indexing, static buffers and scalars,
+inline modules, `use` imports, and qualified calls.
+
+The currently implemented output target families are:
+
+- `i386-linux` / `i386-elf`
+- `i386-drunix`
+- `x86_64-linux` / `x86_64-elf`
+- `arm64-macos`
+
+Executable builds can include a hosted runtime and the Rexc-source standard
+library. Drunix builds use the `i386-drunix` runtime path with `--drunix-root`
+and link against Drunix startup objects, runtime archive, and linker script.
+
+## Completed Phases
+
+### Phase 0: Project Skeleton, Build, And Test Harness
+
+Status: completed.
+
+Rexc has a CMake build, generated ANTLR parser, reusable `rexc_core` library,
+CLI executable, unit tests, parser architecture tests, CLI smoke tests, assemble
+smoke tests, examples, and book/documentation build support.
+
+Delivered:
+
+- compiler library and CLI split;
+- pinned ANTLR tool/runtime generation;
+- `ctest` integration;
+- smoke examples in `examples/`;
+- book sources in `docs/`.
+
+Exit criteria already met:
+
+- `cmake --build build` produces the compiler and tests;
+- `ctest --test-dir build --output-on-failure` exercises the core pipeline and
+  available smoke workflows.
+
+### Phase 1: Source Text To AST
+
+Status: completed for the current language surface.
+
+The parser accepts top-level items, functions, extern declarations, static
+buffers/scalars, statements, expressions, primitive types, pointer types,
+literals, module structure, imports, and qualified call names. It preserves
+source locations for diagnostics and converts the ANTLR parse tree into the
+AST in `include/rexc/ast.hpp`.
+
+Delivered:
+
+- grammar in `grammar/Rexc.g4`;
+- parser entry points in `include/rexc/parse.hpp` and `src/parse.cpp`;
+- AST data model for source-level modules, declarations, statements, and
+  expressions.
+
+Remaining polish:
+
+- keep parser diagnostics direct and source-oriented as grammar complexity
+  grows;
+- avoid letting grammar support get ahead of semantic and backend support.
+
+### Phase 2: Semantic Analysis And Type Model
+
+Status: completed for primitive Rexc programs.
+
+Semantic analysis validates names, duplicate declarations, function calls,
+return types, initializer and assignment types, mutability, pointer operations,
+arithmetic, comparisons, logical operators, cast rules, loop-only control flow,
+and integer literal ranges.
+
+Delivered:
+
+- primitive type model for signed integers, unsigned integers, `bool`, `char`,
+  `str`, and pointers;
+- target-aware constraints for values that parse and type-check but cannot be
+  emitted by every backend;
+- diagnostics for invalid frontend programs.
+
+Remaining polish:
+
+- improve diagnostic recovery so one syntax or type error does not hide nearby
+  actionable errors;
+- make future module visibility and import errors as clear as local name
+  errors.
+
+### Phase 3: Typed IR Lowering
+
+Status: completed for the current frontend.
+
+Checked AST modules lower into a smaller typed IR. The backend receives
+resolved primitive types, lowered control flow, validated assignments, typed
+calls, and target-independent operation nodes instead of raw parser structure.
+
+Delivered:
+
+- IR model in `include/rexc/ir.hpp`;
+- lowering in `src/lower_ir.cpp`;
+- tests for arithmetic, calls, control flow, casts, statics, pointer operations,
+  module symbol names, and stdlib calls.
+
+Remaining polish:
+
+- keep IR independent from textual source conveniences;
+- add explicit IR forms as richer data types, modules, and aggregate operations
+  arrive.
+
+### Phase 4: x86 Assembly, Objects, And Executables
+
+Status: completed for current x86 targets.
+
+Rexc emits GNU-style assembly for `i386` and `x86_64`, can assemble object
+files, and can link Linux-compatible ELF executables. The Drunix path can link
+an `i386-drunix` executable using Drunix userland startup and runtime inputs.
+
+Delivered:
+
+- i386 code generation for the supported 32-bit scalar and pointer surface;
+- x86_64 code generation, including 64-bit integer support;
+- signed and unsigned arithmetic/comparison behavior;
+- stack frames, calls, branches, loops, string data, pointer addressing,
+  indirect stores, and static data;
+- `-S`, `-c`, and executable output modes;
+- Drunix link mode through `--drunix-root`.
+
+Remaining polish:
+
+- add more ABI stress coverage around calls, returns, and mixed-width values;
+- keep Drunix integration aligned with Drunix userland runtime changes;
+- decide whether Rexc should eventually write object files directly or keep
+  using external assemblers.
+
+### Phase 5: Darwin ARM64 Backend
+
+Status: completed for native macOS command-line programs.
+
+Rexc supports the `arm64-macos` target, emits Darwin ARM64 assembly, assembles
+with Apple `as`, links with the host toolchain, and can build a native
+command-line executable on Apple Silicon macOS.
+
+Delivered:
+
+- ARM64 code generation path;
+- Darwin symbol and calling-convention handling;
+- native macOS default target selection on Apple Silicon;
+- macOS release preset and packaging flow.
+
+Remaining polish:
+
+- broaden ARM64 backend parity tests against the x86 backends;
+- decide whether ARM64 should grow Linux or Drunix target variants.
+
+### Phase 6: Rexc-Source Standard Library Bootstrap
+
+Status: completed as a bootstrap, not as a final library design.
+
+The standard library now has `core`, `alloc`, `std`, and narrow `sys` runtime
+layers. Portable library behavior lives in `.rx` files, compiler-facing
+function metadata is derived from embedded Rexc source, and hosted executable
+builds compile the portable stdlib into the runtime object.
+
+Delivered:
+
+- `src/stdlib/core/*.rx` for string, memory, number, slice-shaped, and
+  sentinel-result helpers;
+- `src/stdlib/alloc/alloc.rx` with a static bump arena, string helpers,
+  primitive formatting, boxed `i32`, and vector-shaped `i32` helpers;
+- `src/stdlib/std/*.rx` for console I/O, process/env helpers, file primitives,
+  and path helpers;
+- target adapters for i386 Linux-like, i386 Drunix, x86_64 Linux-like, and
+  Darwin ARM64 runtime hooks;
+- stdlib source embedding through CMake;
+- source-derived prelude function signatures;
+- qualified stdlib paths such as `std::io::println`.
+
+Known limits:
+
+- the prelude is intentionally too broad;
+- `alloc` is a static bump arena with no deallocation;
+- errors are integer sentinels instead of typed `Result` values;
+- stdlib source is embedded at build time instead of loaded through the module
+  system;
+- `std_*` symbol names are compiler bridges, not a stable ABI.
+
+## Active Phase
+
+### Phase 7: Real Module Loading
+
+Status: in progress.
+
+The next compiler step is to move from inline modules and compiler-embedded
+stdlib units toward file-backed modules. Parser-facing support is underway for
+`pub` visibility, `mod name;` declarations, parse options, package search
+paths, and a `parse_file_tree` entry point.
+
+Target shape:
+
+- `mod name { ... }` continues to support inline modules;
+- `mod name;` loads a sibling module file or directory module;
+- `pub` controls which items can cross module boundaries;
+- `use path::to::item;` resolves through loaded module trees;
+- the CLI can parse a package or source tree from an entry file;
+- semantic analysis reports unresolved, private, duplicate, and ambiguous
+  imports with useful source locations;
+- stdlib `.rx` files can eventually be loaded as real modules instead of only
+  embedded by CMake.
+
+Exit criteria:
+
+- parser, frontend, sema, IR, codegen, stdlib, and CLI tests all pass with
+  file-backed modules enabled;
+- examples can use module files outside one monolithic source file;
+- the stdlib can be addressed through stable module paths without injecting
+  every public helper into the prelude.
+
+## Future Phases
+
+### Phase 8: Module Policy, Packages, And Public API Shape
+
+Goal: make Rexc programs scale beyond single files.
+
+Planned work:
+
+- finalize public/private item rules;
+- decide the default prelude policy and which names remain always available;
+- add clearer namespace rules for stdlib paths and user modules;
+- define package search roots and command-line flags;
+- add diagnostics for dependency cycles and conflicting exports;
+- document the module model in the README and book.
+
+Exit criteria:
+
+- a multi-file Rexc program can compile without custom compiler glue;
+- stdlib imports look like ordinary Rexc imports;
+- private items stay private across module boundaries;
+- package/module failures produce actionable diagnostics.
+
+### Phase 9: Rich Data Representation
+
+Goal: give Rexc enough data shapes to replace bootstrap library conventions.
+
+Planned work:
+
+- real array and slice types instead of helper pairs like pointer plus length;
+- structs with field access and field assignment;
+- enums and tagged values;
+- typed `Option` and `Result`;
+- richer lvalue handling for locals, dereferences, indexes, and fields;
+- ABI and IR rules for aggregates across all supported targets.
+
+Exit criteria:
+
+- stdlib helpers stop using integer sentinels for ordinary fallible operations;
+- string, file, parse, env, and allocation APIs can return typed results;
+- aggregate values lower through IR and emit correctly on x86 and ARM64.
+
+### Phase 10: Allocation, Ownership, And Collections
+
+Goal: move `alloc` from a bootstrap arena into a deliberate library layer.
+
+Planned work:
+
+- allocator hooks in the target runtime adapters;
+- a stable allocation contract for hosted targets and Drunix;
+- owned strings backed by allocator-managed storage;
+- boxes and vectors that are not hard-coded to `i32`;
+- ownership and lifetime rules, or another explicit resource model, before
+  deallocation becomes user-visible;
+- out-of-memory behavior expressed with typed results or panic contracts.
+
+Exit criteria:
+
+- `alloc` can be implemented mostly in Rexc source on top of target allocator
+  primitives;
+- owned strings and vectors have tests that cover allocation, mutation,
+  passing, returning, and failure behavior;
+- target adapters expose allocation primitives without absorbing portable
+  collection logic.
+
+### Phase 11: Generics, Traits, And Formatting
+
+Goal: remove type-specific duplication once the core data model is strong
+enough.
+
+Planned work:
+
+- choose a minimal generic function/type model;
+- add trait-like contracts only when there is a concrete use in the stdlib;
+- generalize `box_i32`, `vec_i32`, parsing, and formatting helpers;
+- replace one-off print helpers with a principled formatting story;
+- keep monomorphization or dynamic dispatch choices visible in IR and backend
+  tests.
+
+Exit criteria:
+
+- library authors can write one vector or formatting implementation instead of
+  one per primitive type;
+- generated symbols and diagnostics remain understandable;
+- compile-time costs and emitted code size stay observable in tests.
+
+### Phase 12: Host Portability, Runtime, And Target Maturity
+
+Goal: make Rexc reliable as a compiler host on macOS, Linux, and Windows while
+keeping output targets explicit and well tested.
+
+Planned work:
+
+- build and test the compiler as a normal host tool on macOS, Linux, and
+  Windows;
+- isolate path handling, process execution, temporary files, environment
+  access, and toolchain discovery behind portable host abstractions;
+- document dependency setup for all three major host operating systems;
+- fill Drunix command-line argument support;
+- add x86_64 Drunix runtime/link support when Drunix userland has matching
+  startup and ABI pieces;
+- keep host support separate from output target support, and keep Linux-like,
+  ELF, Drunix, and Darwin target triples explicit;
+- grow file, environment, process, and path behavior through portable stdlib
+  code over narrow `sys` hooks;
+- improve temporary-file and linker-driver behavior in the CLI;
+- evaluate direct object emission after the assembly path is well covered.
+
+Exit criteria:
+
+- macOS, Linux, and Windows host builds are documented and covered by CI or an
+  equivalent repeatable verification path;
+- each supported target has documented assemble, object, executable, and stdlib
+  expectations;
+- Drunix-linked examples run through the same high-level CLI flow as hosted
+  examples;
+- runtime adapters stay small and target-specific.
+
+### Phase 13: Diagnostics, Tooling, And Developer Experience
+
+Goal: make Rexc easier to use, debug, and evolve.
+
+Planned work:
+
+- structured diagnostics with ranges, notes, and suggestions;
+- direct stdlib parse/sema/codegen diagnostics instead of hidden embedded
+  runtime failure text;
+- richer CLI help and target reporting;
+- VS Code extension improvements for grammar highlighting and diagnostics;
+- formatter or style checker once the language syntax stabilizes;
+- expanded examples and book chapters for modules, stdlib, and Drunix linking.
+
+Exit criteria:
+
+- common user mistakes point to the source span that caused them;
+- failed stdlib builds read like compiler errors, not backend artifacts;
+- examples cover the normal path for new Rexc users.
+
+### Phase 14: Optimization And Backend Architecture
+
+Goal: keep emitted code simple now, then optimize once semantics are stronger.
+
+Planned work:
+
+- define which optimizations belong in IR versus target backends;
+- add simple constant folding and dead-code cleanup when it improves clarity;
+- preserve debugability for teaching and Drunix integration;
+- add backend conformance tests shared across x86 and ARM64;
+- consider register allocation improvements only after richer programs demand
+  them.
+
+Exit criteria:
+
+- optimizations are tested as semantic-preserving transformations;
+- backend differences remain intentional and documented;
+- generated assembly stays inspectable enough for the project goals.
+
+### Phase 15: Self-Hosting Horizon
+
+Goal: make Rexc capable enough to implement substantial parts of its own
+tooling or libraries in Rexc.
+
+This is a long-horizon phase, not near-term work. Before it becomes practical,
+Rexc needs real modules, richer data types, allocation, collections, useful
+error handling, file I/O, and enough language ergonomics to write medium-sized
+programs without fighting the compiler.
+
+Possible milestones:
+
+- write nontrivial command-line tools in Rexc;
+- move more build-time stdlib generation logic into Rexc;
+- experiment with parsing or code-generation utilities written in Rexc;
+- eventually evaluate whether a Rexc-in-Rexc compiler component is useful.
+
+## Cross-Cutting Work
+
+These items do not belong to one phase, but they should be checked whenever a
+phase changes the compiler surface:
+
+- update examples that show the intended user-facing style;
+- update README and book chapters when behavior changes;
+- keep `docs/roadmap.md` current after major milestones;
+- run core tests and smoke tests before calling a phase complete;
+- avoid documenting bootstrap names, symbols, or helper APIs as stable unless
+  the project is ready to support them.
