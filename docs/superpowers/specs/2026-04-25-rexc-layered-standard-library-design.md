@@ -303,11 +303,11 @@ This layer must not assume an OS or heap.
 ### Stage 4: Portable Library Implementations
 
 Implement reusable library logic once above the runtime adapters. String
-length/equality, integer formatting, integer parsing, line reading, and later
-formatting building blocks should live here instead of being rewritten for
-i386, x86_64, and ARM64. The implementation language is Rexc source. If that
-source cannot yet express the operation, implement the missing Rexc capability
-first.
+length, equality, emptiness, prefix/search helpers, integer formatting, integer
+parsing, line reading, and later formatting building blocks should live here
+instead of being rewritten for i386, x86_64, and ARM64. The implementation
+language is Rexc source. If that source cannot yet express the operation,
+implement the missing Rexc capability first.
 
 ### Stage 5: Add `alloc`
 

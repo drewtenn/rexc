@@ -320,7 +320,7 @@ TEST_CASE(sema_accepts_std_prelude_string_helpers)
 	auto result = analyze(
 		"fn main() -> i32 {\n"
 		"  let n: i32 = strlen(\"hello\");\n"
-		"  if str_eq(\"a\", \"a\") { return n; } else { return 0; }\n"
+		"  if str_eq(\"a\", \"a\") && str_starts_with(\"hello\", \"he\") && str_contains(\"hello\", \"ell\") && !str_is_empty(\"hello\") { return n; } else { return 0; }\n"
 		"}\n",
 		diagnostics);
 

@@ -134,9 +134,12 @@ TEST_CASE(codegen_arm64_macos_emits_call_statement)
 TEST_CASE(codegen_arm64_macos_emits_std_string_helper_calls)
 {
 	auto assembly = compile_to_arm64_assembly(
-		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") { return strlen(\"hello\"); } return 0; }\n");
+		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") && str_starts_with(\"hello\", \"he\") && str_contains(\"hello\", \"ell\") && !str_is_empty(\"hello\") { return strlen(\"hello\"); } return 0; }\n");
 
 	REQUIRE(assembly.find("bl _str_eq") != std::string::npos);
+	REQUIRE(assembly.find("bl _str_starts_with") != std::string::npos);
+	REQUIRE(assembly.find("bl _str_contains") != std::string::npos);
+	REQUIRE(assembly.find("bl _str_is_empty") != std::string::npos);
 	REQUIRE(assembly.find("bl _strlen") != std::string::npos);
 }
 

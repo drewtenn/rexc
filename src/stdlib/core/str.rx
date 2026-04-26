@@ -6,6 +6,10 @@ fn strlen(value: str) -> i32 {
 	return index;
 }
 
+fn str_is_empty(value: str) -> bool {
+	return value[0] == 0;
+}
+
 fn str_eq(lhs: str, rhs: str) -> bool {
 	let mut index: i32 = 0;
 	while lhs[index] == rhs[index] {
@@ -13,6 +17,43 @@ fn str_eq(lhs: str, rhs: str) -> bool {
 			return true;
 		}
 		index = index + 1;
+	}
+	return false;
+}
+
+fn str_starts_with(value: str, prefix: str) -> bool {
+	let mut index: i32 = 0;
+	while prefix[index] != 0 {
+		if value[index] != prefix[index] {
+			return false;
+		}
+		index = index + 1;
+	}
+	return true;
+}
+
+fn str_contains_at(value: str, needle: str, start: i32) -> bool {
+	let mut index: i32 = 0;
+	while needle[index] != 0 {
+		if value[start + index] != needle[index] {
+			return false;
+		}
+		index = index + 1;
+	}
+	return true;
+}
+
+fn str_contains(value: str, needle: str) -> bool {
+	if str_is_empty(needle) {
+		return true;
+	}
+
+	let mut start: i32 = 0;
+	while value[start] != 0 {
+		if str_contains_at(value, needle, start) {
+			return true;
+		}
+		start = start + 1;
 	}
 	return false;
 }
