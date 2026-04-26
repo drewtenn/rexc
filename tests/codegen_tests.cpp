@@ -458,3 +458,21 @@ TEST_CASE(codegen_x86_64_emits_strings_and_unsigned_division)
 	REQUIRE(assembly.find("xorq %rdx, %rdx") != std::string::npos);
 	REQUIRE(assembly.find("divq %rcx") != std::string::npos);
 }
+
+TEST_CASE(codegen_i386_emits_call_statement)
+{
+	auto assembly = compile_to_assembly("fn main() -> i32 { println(\"hello\"); return 0; }\n");
+
+	REQUIRE(assembly.find("call println") != std::string::npos);
+	REQUIRE(assembly.find("addl $4, %esp") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_call_statement)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i64 { println(\"hello\"); return 0; }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("call println") != std::string::npos);
+	REQUIRE(assembly.find("popq %rdi") != std::string::npos);
+}

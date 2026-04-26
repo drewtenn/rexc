@@ -100,3 +100,11 @@ TEST_CASE(codegen_arm64_macos_emits_pointer_load_store)
 	REQUIRE(assembly.find("str x1, [x0]") != std::string::npos);
 	REQUIRE(assembly.find("ldr x0, [x0]") != std::string::npos);
 }
+
+TEST_CASE(codegen_arm64_macos_emits_call_statement)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn main() -> i32 { println(\"hello\"); return 0; }\n");
+
+	REQUIRE(assembly.find("bl _println") != std::string::npos);
+}

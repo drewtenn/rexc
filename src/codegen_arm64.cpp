@@ -245,6 +245,12 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Expr) {
+			const auto &expr = static_cast<const ir::ExprStatement &>(statement);
+			emit_value(*expr.value, frame, slots);
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::If) {
 			emit_if_statement(static_cast<const ir::IfStatement &>(statement), frame,
 			                  done_label, slots);
@@ -556,6 +562,9 @@ private:
 			const auto &assign = static_cast<const ir::IndirectAssignStatement &>(statement);
 			collect_string_labels(*assign.target);
 			collect_string_labels(*assign.value);
+		} else if (statement.kind == ir::Statement::Kind::Expr) {
+			const auto &expr = static_cast<const ir::ExprStatement &>(statement);
+			collect_string_labels(*expr.value);
 		} else if (statement.kind == ir::Statement::Kind::If) {
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			collect_string_labels(*if_statement.condition);
@@ -629,6 +638,9 @@ private:
 			const auto &assign = static_cast<const ir::IndirectAssignStatement &>(statement);
 			emit_string_literals(*assign.target);
 			emit_string_literals(*assign.value);
+		} else if (statement.kind == ir::Statement::Kind::Expr) {
+			const auto &expr = static_cast<const ir::ExprStatement &>(statement);
+			emit_string_literals(*expr.value);
 		} else if (statement.kind == ir::Statement::Kind::If) {
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			emit_string_literals(*if_statement.condition);
