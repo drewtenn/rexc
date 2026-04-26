@@ -50,7 +50,7 @@ fn str_ends_with(value: str, suffix: str) -> bool {
 	return true;
 }
 
-fn str_contains_at(value: str, needle: str, start: i32) -> bool {
+fn _str_contains_at(value: str, needle: str, start: i32) -> bool {
 	let mut index: i32 = 0;
 	while needle[index] != 0 {
 		if value[start + index] != needle[index] {
@@ -68,7 +68,7 @@ fn str_find(value: str, needle: str) -> i32 {
 
 	let mut start: i32 = 0;
 	while value[start] != 0 {
-		if str_contains_at(value, needle, start) {
+		if _str_contains_at(value, needle, start) {
 			return start;
 		}
 		start = start + 1;

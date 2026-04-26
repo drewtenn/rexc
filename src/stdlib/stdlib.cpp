@@ -7,22 +7,62 @@
 #include "rexc/parse.hpp"
 #include "rexc/sema.hpp"
 #include "rexc/source.hpp"
+#include "rexc/types.hpp"
 
-#include "alloc/library.hpp"
-#include "core/library.hpp"
 #include "source.hpp"
-#include "std/library.hpp"
 #include "sys/runtime.hpp"
 
+#include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace rexc::stdlib {
 namespace {
 
-void append_functions(std::vector<FunctionDecl> &target,
-                      const std::vector<FunctionDecl> &source)
+std::optional<PrimitiveType> resolve_source_type(const ast::TypeName &type)
 {
-	target.insert(target.end(), source.begin(), source.end());
+	return parse_primitive_type(type.name);
+}
+
+bool is_public_stdlib_function(const ast::Function &function)
+{
+	return !function.is_extern && !function.name.empty() && function.name.front() != '_';
+}
+
+void append_source_unit_declarations(std::vector<FunctionDecl> &target,
+                                     const SourceUnit &unit)
+{
+	Diagnostics diagnostics;
+	SourceFile source(unit.path, unit.source);
+	auto parsed = parse_source(source, diagnostics);
+	if (!parsed.ok())
+		return;
+
+	for (const auto &function : parsed.module().functions) {
+		if (!is_public_stdlib_function(function))
+			continue;
+
+		auto return_type = resolve_source_type(function.return_type);
+		if (!return_type)
+			continue;
+
+		std::vector<PrimitiveType> parameters;
+		bool ok = true;
+		for (const auto &parameter : function.parameters) {
+			auto parameter_type = resolve_source_type(parameter.type);
+			if (!parameter_type) {
+				ok = false;
+				break;
+			}
+			parameters.push_back(*parameter_type);
+		}
+		if (!ok)
+			continue;
+
+		target.push_back(FunctionDecl{unit.layer, function.name, std::move(parameters),
+		                              *return_type});
+	}
 }
 
 std::string portable_stdlib_assembly(CodegenTarget target)
@@ -71,9 +111,8 @@ const std::vector<FunctionDecl> &prelude_functions()
 {
 	static const std::vector<FunctionDecl> functions = [] {
 		std::vector<FunctionDecl> result;
-		append_functions(result, core::prelude_functions());
-		append_functions(result, alloc::prelude_functions());
-		append_functions(result, std_layer::prelude_functions());
+		for (const auto &unit : portable_stdlib_source_units())
+			append_source_unit_declarations(result, unit);
 		return result;
 	}();
 	return functions;

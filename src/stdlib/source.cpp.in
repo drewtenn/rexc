@@ -1,12 +1,29 @@
 #include "stdlib/source.hpp"
 
 #include <string>
+#include <vector>
 
 namespace rexc::stdlib {
 
+const std::vector<SourceUnit> &portable_stdlib_source_units()
+{
+	static const std::vector<SourceUnit> units{
+@REXC_STDLIB_UNITS@
+	};
+	return units;
+}
+
 std::string portable_stdlib_source()
 {
-	return R"REXC_STDLIB(@REXC_STDLIB_SOURCE@)REXC_STDLIB";
+	std::string source;
+	for (const auto &unit : portable_stdlib_source_units()) {
+		source += "// ";
+		source += unit.path;
+		source += "\n";
+		source += unit.source;
+		source += "\n";
+	}
+	return source;
 }
 
 } // namespace rexc::stdlib
