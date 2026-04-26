@@ -54,7 +54,8 @@ types, pointers, string literals, locals, mutable locals, assignments, indirect
 pointer stores, calls as expressions and statements, `return`, `if/else`,
 `while`, `break`, `continue`, arithmetic, comparisons, boolean operators,
 explicit casts, pointer arithmetic, indexing, static buffers and scalars,
-inline modules, `use` imports, and qualified calls.
+inline modules, file-backed modules, package search paths, `use` imports, and
+qualified calls.
 
 The currently implemented output target families are:
 
@@ -236,18 +237,15 @@ Known limits:
   system;
 - `std_*` symbol names are compiler bridges, not a stable ABI.
 
-## Active Phase
-
 ### Phase 7: Real Module Loading
 
-Status: in progress.
+Status: completed for user modules.
 
-The next compiler step is to move from inline modules and compiler-embedded
-stdlib units toward file-backed modules. Parser-facing support is underway for
-`pub` visibility, `mod name;` declarations, parse options, package search
-paths, and a `parse_file_tree` entry point.
+Rexc has moved beyond inline-only modules. The parser and CLI can load
+file-backed modules from an entry file directory and from `--package-path`
+roots, then merge those parsed modules into one checked program.
 
-Target shape:
+Delivered:
 
 - `mod name { ... }` continues to support inline modules;
 - `mod name;` loads a sibling module file or directory module;
@@ -255,21 +253,19 @@ Target shape:
 - `use path::to::item;` resolves through loaded module trees;
 - the CLI can parse a package or source tree from an entry file;
 - semantic analysis reports unresolved, private, duplicate, and ambiguous
-  imports with useful source locations;
-- stdlib `.rx` files can eventually be loaded as real modules instead of only
-  embedded by CMake.
+  imports with useful source locations.
 
-Exit criteria:
+Known limits:
 
-- parser, frontend, sema, IR, codegen, stdlib, and CLI tests all pass with
-  file-backed modules enabled;
-- examples can use module files outside one monolithic source file;
-- the stdlib can be addressed through stable module paths without injecting
-  every public helper into the prelude.
+- stdlib `.rx` files are still embedded by CMake rather than loaded through
+  ordinary module search;
+- dependency-cycle diagnostics and package policy still need more polish.
 
-## Future Phases
+## Active Phase
 
 ### Phase 8: Module Policy, Packages, And Public API Shape
+
+Status: in progress.
 
 Goal: make Rexc programs scale beyond single files.
 
@@ -278,9 +274,9 @@ Planned work:
 - finalize public/private item rules;
 - decide the default prelude policy and which names remain always available;
 - add clearer namespace rules for stdlib paths and user modules;
-- define package search roots and command-line flags;
+- refine package search roots and command-line behavior;
 - add diagnostics for dependency cycles and conflicting exports;
-- document the module model in the README and book.
+- keep the README and book aligned with the module model.
 
 Exit criteria:
 
@@ -288,6 +284,8 @@ Exit criteria:
 - stdlib imports look like ordinary Rexc imports;
 - private items stay private across module boundaries;
 - package/module failures produce actionable diagnostics.
+
+## Future Phases
 
 ### Phase 9: Rich Data Representation
 

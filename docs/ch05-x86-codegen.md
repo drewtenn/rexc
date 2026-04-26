@@ -36,7 +36,7 @@ calling convention's stack expectations. Parameters follow the target ABI. An
 arguments go, which registers matter, how the stack is aligned, and how a
 function returns.
 
-The two current targets differ most visibly at function calls:
+The two x86 targets differ most visibly at function calls:
 
 | Target | First argument path | Extra argument path |
 | --- | --- | --- |
@@ -189,3 +189,7 @@ The command-line driver can stop at assembly with `-S`, assemble an object with
 `-c`, or ask the host toolchain to produce an executable. For Drunix, the final
 link still needs the Drunix startup object, runtime archive, and linker script,
 which is the handoff Chapter 6 follows.
+
+Rexc also has a Darwin ARM64 backend. It consumes the same typed IR, but emits
+Apple ARM64 assembly, Darwin-style symbol names, and the ARM64 calling
+convention instead of the x86 instruction forms described in this chapter.
