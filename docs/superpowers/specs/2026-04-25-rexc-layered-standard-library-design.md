@@ -270,6 +270,15 @@ An embedded C++ string such as `portable_stdlib_source()` is a temporary
 bootstrap bridge only; the roadmap is to move that text into real
 `src/stdlib/core/*.rx` and `src/stdlib/std/*.rx` files.
 
+The compiler-facing catalog should become source-derived as well. Ordinary
+stdlib function signatures should not need a parallel C++ declaration table
+once Rexc can parse the relevant library modules before user code. The
+compiler should load the stdlib `.rx` modules, extract their public function
+signatures, and make those declarations available to user modules through the
+prelude/import mechanism used by semantic analysis and IR lowering. C++ catalog
+files such as `library.cpp` should shrink toward module loading, primitive
+runtime hooks, and genuinely compiler-magical items only.
+
 Rexc should grow the standard library in layers rather than by adding every new
 function to every architecture-specific assembly file.
 
@@ -281,6 +290,12 @@ Rexc working command-line programs while the language is still missing modules,
 imports, ownership, heap allocation, traits, slices, and result types. The
 constraint is strict: new assembly is acceptable only for the lowest
 target-specific primitive hooks.
+
+The bootstrap may keep hand-written C++ prelude signature tables while the
+stdlib loader is immature, but that is a temporary compatibility mechanism.
+The end state for ordinary `core`, `alloc`, and `std` functions is: parse the
+stdlib source, derive signatures from the Rexc AST, then inject/import those
+signatures into user compilation.
 
 ### Stage 2: Target Triple Runtime Adapters
 

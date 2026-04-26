@@ -494,11 +494,21 @@ Canonical stdlib implementation files should be `.rx` files. C++ in
 primitive `sys` adapters. Embedded C++ source strings are temporary bootstrap
 bridges, not the desired home for portable stdlib code.
 
+The prelude catalog should also become Rexc-source driven. Instead of keeping
+parallel C++ signature lists for ordinary stdlib functions, the compiler should
+parse the stdlib `.rx` modules first, extract their public function signatures,
+and inject or import those declarations into user programs during semantic
+analysis and IR lowering. C++ `library.cpp` files should shrink toward loading
+stdlib modules, exposing truly compiler-known hooks, and describing primitive
+runtime boundaries only.
+
 Near-term stdlib work should continue moving portable implementations out of
-target adapters. String length, comparison, emptiness, prefix/suffix/search
-helpers, integer formatting, parsing, line reading, and later collection logic
-should be implemented once in Rexc library source, with only `read`, `write`,
-`exit`, allocation, and similar host hooks supplied per target.
+target adapters and removing duplicated metadata. String length, comparison,
+emptiness, prefix/suffix/search helpers, integer formatting, parsing, line
+reading, allocation helpers, and later collection logic should be implemented
+once in Rexc library source, with signatures discovered from that source and
+only `read`, `write`, `exit`, allocation, and similar host hooks supplied per
+target.
 
 ## Operators And Control Flow
 
