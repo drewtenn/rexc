@@ -11,6 +11,7 @@
 #include "rexc/parse.hpp"
 #include "rexc/sema.hpp"
 #include "rexc/source.hpp"
+#include "rexc/stdlib.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -200,6 +201,27 @@ void assemble_object(const std::string &assembly_path, const std::string &object
 	run_tool(command, "assembler failed");
 }
 
+std::string write_and_assemble_hosted_runtime(const std::string &output_path,
+                                              rexc::CodegenTarget target)
+{
+	std::string runtime_assembly = rexc::stdlib::hosted_runtime_assembly(target);
+	if (runtime_assembly.empty())
+		return "";
+
+	std::string runtime_assembly_path = output_path + ".stdlib.s.tmp";
+	std::string runtime_object_path = output_path + ".stdlib.o.tmp";
+	write_file(runtime_assembly_path, runtime_assembly);
+	try {
+		assemble_object(runtime_assembly_path, runtime_object_path, target);
+	} catch (...) {
+		std::remove(runtime_assembly_path.c_str());
+		std::remove(runtime_object_path.c_str());
+		throw;
+	}
+	std::remove(runtime_assembly_path.c_str());
+	return runtime_object_path;
+}
+
 void link_drunix_object(const std::string &object_path, const std::string &output_path,
                         const std::string &drunix_root, rexc::CodegenTarget target)
 {
@@ -224,6 +246,7 @@ void link_drunix_object(const std::string &object_path, const std::string &outpu
 }
 
 void link_darwin_arm64_object(const std::string &object_path,
+                              const std::string &runtime_object_path,
                               const std::string &output_path,
                               rexc::CodegenTarget target)
 {
@@ -232,8 +255,10 @@ void link_darwin_arm64_object(const std::string &object_path,
 	if (!command_exists("clang"))
 		throw std::runtime_error("no clang linker driver found");
 
-	std::string command = "clang -arch arm64 " + shell_quote(object_path) +
-	                      " -o " + shell_quote(output_path);
+	std::string command = "clang -arch arm64 " + shell_quote(object_path);
+	if (!runtime_object_path.empty())
+		command += " " + shell_quote(runtime_object_path);
+	command += " -o " + shell_quote(output_path);
 	run_tool(command, "Darwin link failed");
 }
 
@@ -259,7 +284,9 @@ void write_cross_elf_startup(const std::string &assembly_path, rexc::CodegenTarg
 	           "\tsyscall\n");
 }
 
-void link_cross_elf_object(const std::string &object_path, const std::string &output_path,
+void link_cross_elf_object(const std::string &object_path,
+                           const std::string &runtime_object_path,
+                           const std::string &output_path,
                            rexc::CodegenTarget target)
 {
 	if (target == rexc::CodegenTarget::ARM64_MACOS)
@@ -276,6 +303,8 @@ void link_cross_elf_object(const std::string &object_path, const std::string &ou
 		std::string command = "x86_64-elf-ld -m " + linker_mode + " -o " +
 		                      shell_quote(output_path) + " " + shell_quote(startup_object) +
 		                      " " + shell_quote(object_path);
+		if (!runtime_object_path.empty())
+			command += " " + shell_quote(runtime_object_path);
 		run_tool(command, "cross ELF link failed");
 	} catch (...) {
 		std::remove(startup_assembly.c_str());
@@ -287,31 +316,38 @@ void link_cross_elf_object(const std::string &object_path, const std::string &ou
 	std::remove(startup_object.c_str());
 }
 
-void link_host_x86_object(const std::string &object_path, const std::string &output_path,
+void link_host_x86_object(const std::string &object_path,
+                          const std::string &runtime_object_path,
+                          const std::string &output_path,
                           rexc::CodegenTarget target)
 {
 	if (target == rexc::CodegenTarget::ARM64_MACOS)
 		throw std::runtime_error("internal error: ARM64 object reached x86 linker");
 	if (command_succeeds("uname -s | grep -q Darwin")) {
-		link_cross_elf_object(object_path, output_path, target);
+		link_cross_elf_object(object_path, runtime_object_path, output_path, target);
 		return;
 	}
 
 	std::string linker = find_tool("clang", "cc", "C linker driver");
 	std::string mode = target == rexc::CodegenTarget::I386 ? "-m32" : "-m64";
-	std::string command = linker + " " + mode + " " + shell_quote(object_path) +
-	                      " -o " + shell_quote(output_path);
+	std::string command = linker + " " + mode + " " + shell_quote(object_path);
+	if (!runtime_object_path.empty())
+		command += " " + shell_quote(runtime_object_path);
+	command += " -o " + shell_quote(output_path);
 	run_tool(command, "host executable link failed");
 }
 
-void link_executable_object(const std::string &object_path, const std::string &output_path,
+void link_executable_object(const std::string &object_path,
+                            const std::string &runtime_object_path,
+                            const std::string &output_path,
                             rexc::CodegenTarget target)
 {
 	if (target == rexc::CodegenTarget::ARM64_MACOS) {
-		link_darwin_arm64_object(object_path, output_path, target);
+		link_darwin_arm64_object(object_path, runtime_object_path, output_path,
+		                         target);
 		return;
 	}
-	link_host_x86_object(object_path, output_path, target);
+	link_host_x86_object(object_path, runtime_object_path, output_path, target);
 }
 
 void remove_if_present(const std::string &path)
@@ -372,19 +408,26 @@ int main(int argc, char **argv)
 		if (options.output_mode == OutputMode::Executable) {
 			std::string assembly_path = options.output_path + ".s.tmp";
 			std::string object_path = options.output_path + ".o.tmp";
+			std::string runtime_object_path;
 			write_file(assembly_path, codegen.assembly());
 			try {
 				assemble_object(assembly_path, object_path, options.target);
-				link_executable_object(object_path, options.output_path,
-				                       options.target);
+				runtime_object_path = write_and_assemble_hosted_runtime(options.output_path,
+				                                                        options.target);
+				link_executable_object(object_path, runtime_object_path,
+				                       options.output_path, options.target);
 			} catch (...) {
 				remove_if_present(assembly_path);
 				remove_if_present(object_path);
+				if (!runtime_object_path.empty())
+					remove_if_present(runtime_object_path);
 				remove_if_present(options.output_path);
 				throw;
 			}
 			remove_if_present(assembly_path);
 			remove_if_present(object_path);
+			if (!runtime_object_path.empty())
+				remove_if_present(runtime_object_path);
 			return 0;
 		}
 

@@ -50,6 +50,10 @@ if [ -n "$gnu_as" ]; then
 			"${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target x86_64 -o "${tmp_dir}/add-x86_64.elf"
 			file "${tmp_dir}/add-i386.elf" | grep -F -q 'ELF 32-bit'
 			file "${tmp_dir}/add-x86_64.elf" | grep -F -q 'ELF 64-bit'
+			"${build_dir}/rexc" "${repo_dir}/examples/std_io.rx" --target i386 -o "${tmp_dir}/std-io-i386.elf"
+			"${build_dir}/rexc" "${repo_dir}/examples/std_io.rx" --target x86_64 -o "${tmp_dir}/std-io-x86_64.elf"
+			file "${tmp_dir}/std-io-i386.elf" | grep -F -q 'ELF 32-bit'
+			file "${tmp_dir}/std-io-x86_64.elf" | grep -F -q 'ELF 64-bit'
 		else
 			echo "SKIP: no x86_64-elf-ld found for Darwin x86 ELF executable smoke"
 		fi
@@ -75,6 +79,11 @@ if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	set -e
 	test "$default_exit_code" -eq 42
 	test "$exit_code" -eq 42
+	"${build_dir}/rexc" "${repo_dir}/examples/std_io.rx" -o "${tmp_dir}/std-io-arm64"
+	test -x "${tmp_dir}/std-io-arm64"
+	printf 'friend\n' | "${tmp_dir}/std-io-arm64" > "${tmp_dir}/std-io-arm64.out"
+	grep -F -q 'hello from rexc' "${tmp_dir}/std-io-arm64.out"
+	grep -F -q 'echo: friend' "${tmp_dir}/std-io-arm64.out"
 else
 	echo "SKIP: arm64-macos object smoke requires Apple Silicon macOS"
 fi
