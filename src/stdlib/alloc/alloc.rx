@@ -89,3 +89,10 @@ fn alloc_i32_to_str(value: i32) -> str {
 	*(dest + count) = 0 as u8;
 	return dest as str;
 }
+
+fn alloc_bool_to_str(value: bool) -> str {
+	if value {
+		return alloc_str_copy("true");
+	}
+	return alloc_str_copy("false");
+}

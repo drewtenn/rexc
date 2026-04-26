@@ -519,10 +519,12 @@ TEST_CASE(codegen_x86_64_emits_std_string_helper_calls)
 TEST_CASE(codegen_i386_emits_std_numeric_helper_calls)
 {
 	auto assembly = compile_to_assembly(
-		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); return read_i32(); }\n");
+		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); print_bool(true); println_bool(false); return read_i32(); }\n");
 
 	REQUIRE(assembly.find("call print_i32") != std::string::npos);
 	REQUIRE(assembly.find("call println_i32") != std::string::npos);
+	REQUIRE(assembly.find("call print_bool") != std::string::npos);
+	REQUIRE(assembly.find("call println_bool") != std::string::npos);
 	REQUIRE(assembly.find("call parse_i32") != std::string::npos);
 	REQUIRE(assembly.find("call read_i32") != std::string::npos);
 }
@@ -530,11 +532,13 @@ TEST_CASE(codegen_i386_emits_std_numeric_helper_calls)
 TEST_CASE(codegen_x86_64_emits_std_numeric_helper_calls)
 {
 	auto assembly = compile_to_assembly(
-		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); return read_i32(); }\n",
+		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); print_bool(true); println_bool(false); return read_i32(); }\n",
 		rexc::CodegenTarget::X86_64);
 
 	REQUIRE(assembly.find("call print_i32") != std::string::npos);
 	REQUIRE(assembly.find("call println_i32") != std::string::npos);
+	REQUIRE(assembly.find("call print_bool") != std::string::npos);
+	REQUIRE(assembly.find("call println_bool") != std::string::npos);
 	REQUIRE(assembly.find("call parse_i32") != std::string::npos);
 	REQUIRE(assembly.find("call read_i32") != std::string::npos);
 }
@@ -582,12 +586,13 @@ TEST_CASE(codegen_i386_emits_u8_pointer_to_str_cast_as_noop)
 TEST_CASE(codegen_i386_emits_alloc_helper_calls)
 {
 	auto assembly = compile_to_assembly(
-		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); let number: str = alloc_i32_to_str(-42); if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") { return alloc_remaining(); } return 0; }\n");
+		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); let number: str = alloc_i32_to_str(-42); let truth: str = alloc_bool_to_str(true); if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") { return alloc_remaining(); } return 0; }\n");
 
 	REQUIRE(assembly.find("call alloc_reset") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_bytes") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_str_copy") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_str_concat") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_i32_to_str") != std::string::npos);
+	REQUIRE(assembly.find("call alloc_bool_to_str") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_remaining") != std::string::npos);
 }

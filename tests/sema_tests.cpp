@@ -374,6 +374,8 @@ TEST_CASE(sema_accepts_std_prelude_numeric_helpers)
 		"fn main() -> i32 {\n"
 		"  print_i32(42);\n"
 		"  println_i32(parse_i32(\"-7\"));\n"
+		"  print_bool(true);\n"
+		"  println_bool(false);\n"
 		"  return read_i32();\n"
 		"}\n",
 		diagnostics);
@@ -420,7 +422,8 @@ TEST_CASE(sema_accepts_alloc_helpers)
 		"  let copied: str = alloc_str_copy(\"hello\");\n"
 		"  let joined: str = alloc_str_concat(copied, \"!\");\n"
 		"  let number: str = alloc_i32_to_str(-42);\n"
-		"  if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") { return alloc_remaining(); }\n"
+		"  let truth: str = alloc_bool_to_str(true);\n"
+		"  if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") { return alloc_remaining(); }\n"
 		"  return 0;\n"
 		"}\n",
 		diagnostics);
