@@ -18,7 +18,6 @@ class SourceFile {
 public:
 	SourceFile(std::string path, std::string text);
 
-	const std::string &path() const;
 	const std::string &text() const;
 	SourceLocation location_at(std::size_t offset) const;
 

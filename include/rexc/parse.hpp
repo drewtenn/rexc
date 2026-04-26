@@ -13,7 +13,6 @@ public:
 
 	bool ok() const;
 	const ast::Module &module() const;
-	ast::Module take_module();
 
 private:
 	bool ok_;

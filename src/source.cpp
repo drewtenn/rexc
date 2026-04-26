@@ -21,11 +21,6 @@ SourceFile::SourceFile(std::string path, std::string text)
 	}
 }
 
-const std::string &SourceFile::path() const
-{
-	return path_;
-}
-
 const std::string &SourceFile::text() const
 {
 	return text_;

@@ -512,11 +512,6 @@ const ast::Module &ParseResult::module() const
 	return module_;
 }
 
-ast::Module ParseResult::take_module()
-{
-	return std::move(module_);
-}
-
 ParseResult parse_source(const SourceFile &source, Diagnostics &diagnostics)
 {
 	antlr4::ANTLRInputStream input(source.text());
