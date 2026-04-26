@@ -73,6 +73,16 @@ TEST_CASE(codegen_emits_call_and_caller_stack_cleanup)
 	REQUIRE(assembly.find("-4(%ebp)") != std::string::npos);
 }
 
+TEST_CASE(codegen_emits_user_module_function_symbols)
+{
+	auto assembly = compile_to_assembly(
+		"mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+		"fn main() -> i32 { return math::add(1, 2); }\n");
+
+	REQUIRE(assembly.find(".globl math_add") != std::string::npos);
+	REQUIRE(assembly.find("call math_add") != std::string::npos);
+}
+
 TEST_CASE(codegen_emits_decimal_integer_immediates_without_octal_spelling)
 {
 	auto assembly = compile_to_assembly("fn main() -> i32 { return 010; }\n");

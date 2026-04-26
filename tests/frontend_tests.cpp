@@ -23,6 +23,49 @@ TEST_CASE(parser_accepts_minimal_function)
 	REQUIRE_EQ(result.module().functions[0].name, std::string("main"));
 }
 
+TEST_CASE(parser_builds_module_paths_and_qualified_calls)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+	    "fn main() -> i32 { return math::add(1, 2); }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.functions.size(), std::size_t(2));
+	REQUIRE_EQ(module.functions[0].module_path.size(), std::size_t(1));
+	REQUIRE_EQ(module.functions[0].module_path[0], std::string("math"));
+	REQUIRE_EQ(module.functions[0].name, std::string("add"));
+
+	const auto &ret = static_cast<const rexc::ast::ReturnStmt &>(*module.functions[1].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Call);
+	const auto &call = static_cast<const rexc::ast::CallExpr &>(*ret.value);
+	REQUIRE_EQ(call.callee_path.size(), std::size_t(2));
+	REQUIRE_EQ(call.callee_path[0], std::string("math"));
+	REQUIRE_EQ(call.callee_path[1], std::string("add"));
+}
+
+TEST_CASE(parser_builds_use_imports)
+{
+	rexc::SourceFile source("test.rx",
+		"use math::add;\n"
+		"mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+		"fn main() -> i32 { return add(1, 2); }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE_EQ(result.module().uses.size(), std::size_t(1));
+	REQUIRE_EQ(result.module().uses[0].module_path.size(), std::size_t(0));
+	REQUIRE_EQ(result.module().uses[0].import_path.size(), std::size_t(2));
+	REQUIRE_EQ(result.module().uses[0].import_path[0], std::string("math"));
+	REQUIRE_EQ(result.module().uses[0].import_path[1], std::string("add"));
+}
+
 TEST_CASE(parser_builds_ast_for_add_function)
 {
 	rexc::SourceFile source("test.rx",

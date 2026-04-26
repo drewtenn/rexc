@@ -7,9 +7,24 @@
 // fields declared in include/rexc/ast.hpp.
 #include "rexc/ast.hpp"
 
+#include <sstream>
 #include <utility>
 
 namespace rexc::ast {
+namespace {
+
+std::string join_path(const std::vector<std::string> &segments)
+{
+	std::ostringstream joined;
+	for (std::size_t i = 0; i < segments.size(); ++i) {
+		if (i > 0)
+			joined << "::";
+		joined << segments[i];
+	}
+	return joined.str();
+}
+
+} // namespace
 
 Expr::Expr(Kind kind, SourceLocation location)
 	: kind(kind), location(std::move(location))
@@ -62,7 +77,14 @@ UnaryExpr::UnaryExpr(SourceLocation location, std::string op, std::unique_ptr<Ex
 }
 
 CallExpr::CallExpr(SourceLocation location, std::string callee)
-	: Expr(Kind::Call, std::move(location)), callee(std::move(callee))
+	: Expr(Kind::Call, std::move(location)), callee(std::move(callee)),
+	  callee_path{this->callee}
+{
+}
+
+CallExpr::CallExpr(SourceLocation location, std::vector<std::string> callee_path)
+	: Expr(Kind::Call, std::move(location)), callee(join_path(callee_path)),
+	  callee_path(std::move(callee_path))
 {
 }
 

@@ -32,6 +32,30 @@ TEST_CASE(lowering_preserves_function_signature)
 	REQUIRE_EQ(module.functions[0].body.size(), 1u);
 }
 
+TEST_CASE(lowering_mangles_user_module_function_symbols)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+	    "fn main() -> i32 { return math::add(1, 2); }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	REQUIRE_EQ(module.functions.size(), 2u);
+	REQUIRE_EQ(module.functions[0].name, std::string("math_add"));
+	REQUIRE_EQ(module.functions[1].name, std::string("main"));
+
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[1].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Call);
+	const auto &call = static_cast<const rexc::ir::CallValue &>(*ret.value);
+	REQUIRE_EQ(call.callee, std::string("math_add"));
+}
+
 TEST_CASE(lowering_preserves_static_byte_buffers)
 {
 	rexc::SourceFile source(

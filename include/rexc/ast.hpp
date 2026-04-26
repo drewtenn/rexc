@@ -87,8 +87,10 @@ struct UnaryExpr final : Expr {
 
 struct CallExpr final : Expr {
 	CallExpr(SourceLocation location, std::string callee);
+	CallExpr(SourceLocation location, std::vector<std::string> callee_path);
 
 	std::string callee;
+	std::vector<std::string> callee_path;
 	std::vector<std::unique_ptr<Expr>> arguments;
 };
 
@@ -172,6 +174,7 @@ struct Function {
 	TypeName return_type;
 	std::vector<std::unique_ptr<Stmt>> body;
 	SourceLocation location;
+	std::vector<std::string> module_path;
 };
 
 struct StaticBuffer {
@@ -180,6 +183,7 @@ struct StaticBuffer {
 	TypeName element_type;
 	std::string length_literal;
 	SourceLocation location;
+	std::vector<std::string> module_path;
 };
 
 struct StaticScalar {
@@ -188,9 +192,17 @@ struct StaticScalar {
 	TypeName type;
 	std::string initializer_literal;
 	SourceLocation location;
+	std::vector<std::string> module_path;
+};
+
+struct UseDecl {
+	std::vector<std::string> module_path;
+	std::vector<std::string> import_path;
+	SourceLocation location;
 };
 
 struct Module {
+	std::vector<UseDecl> uses;
 	std::vector<StaticBuffer> static_buffers;
 	std::vector<StaticScalar> static_scalars;
 	std::vector<Function> functions;

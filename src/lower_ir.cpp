@@ -9,12 +9,15 @@
 #include "rexc/stdlib.hpp"
 #include "rexc/types.hpp"
 
+#include "names.hpp"
+
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace rexc {
@@ -57,10 +60,20 @@ ir::Type lower_type(const ast::TypeName &type)
 struct FunctionInfo {
 	ir::Type return_type = i32_type();
 	std::vector<ir::Type> parameter_types;
+	std::string symbol_name;
 };
 
 struct GlobalInfo {
 	ir::Type type = PrimitiveType{PrimitiveKind::Str};
+	std::string symbol_name;
+};
+
+enum class ImportKind { Function, Global, Module };
+
+struct ImportInfo {
+	ImportKind kind;
+	std::string target_key;
+	std::vector<std::string> target_path;
 };
 
 class Lowerer {
@@ -74,6 +87,7 @@ public:
 	{
 		build_static_table();
 		build_function_table();
+		build_import_table();
 
 		ir::Module lowered;
 		for (const auto &buffer : module_.static_buffers)
@@ -87,13 +101,39 @@ public:
 
 private:
 	using Locals = std::unordered_map<std::string, ir::Type>;
+	using ImportScope = std::unordered_map<std::string, ImportInfo>;
+
+	void note_module_path(const std::vector<std::string> &module_path)
+	{
+		for (std::size_t size = 1; size <= module_path.size(); ++size) {
+			std::vector<std::string> prefix(module_path.begin(),
+			                                module_path.begin() + size);
+			modules_.insert(canonical_path(prefix));
+		}
+	}
+
+	void note_item_path(const std::vector<std::string> &path)
+	{
+		if (path.empty())
+			return;
+		std::vector<std::string> module_path(path.begin(), path.end() - 1);
+		note_module_path(module_path);
+	}
 
 	void build_static_table()
 	{
 		for (const auto &buffer : module_.static_buffers)
-			globals_[buffer.name] = GlobalInfo{PrimitiveType{PrimitiveKind::Str}};
+			globals_[canonical_item_path(buffer.module_path, buffer.name)] =
+				GlobalInfo{PrimitiveType{PrimitiveKind::Str},
+				           symbol_item_path(buffer.module_path, buffer.name)};
 		for (const auto &scalar : module_.static_scalars)
-			globals_[scalar.name] = GlobalInfo{lower_type(scalar.type)};
+			globals_[canonical_item_path(scalar.module_path, scalar.name)] =
+				GlobalInfo{lower_type(scalar.type),
+				           symbol_item_path(scalar.module_path, scalar.name)};
+		for (const auto &buffer : module_.static_buffers)
+			note_module_path(buffer.module_path);
+		for (const auto &scalar : module_.static_scalars)
+			note_module_path(scalar.module_path);
 	}
 
 	void build_function_table()
@@ -103,7 +143,16 @@ private:
 				FunctionInfo info;
 				info.return_type = function.return_type;
 				info.parameter_types = function.parameters;
+				info.symbol_name = function.name;
 				functions_[function.name] = std::move(info);
+				if (auto path = stdlib_path_for_symbol(function.name)) {
+					note_item_path(*path);
+					FunctionInfo path_info;
+					path_info.return_type = function.return_type;
+					path_info.parameter_types = function.parameters;
+					path_info.symbol_name = function.name;
+					functions_[canonical_path(*path)] = std::move(path_info);
+				}
 			}
 		}
 
@@ -112,8 +161,106 @@ private:
 			info.return_type = lower_type(function.return_type);
 			for (const auto &parameter : function.parameters)
 				info.parameter_types.push_back(lower_type(parameter.type));
-			functions_[function.name] = std::move(info);
+			info.symbol_name = symbol_item_path(function.module_path, function.name);
+			functions_[canonical_item_path(function.module_path, function.name)] =
+				std::move(info);
+			note_module_path(function.module_path);
 		}
+	}
+
+	void build_import_table()
+	{
+		for (const auto &use : module_.uses) {
+			if (use.import_path.empty())
+				continue;
+
+			std::string target_key = canonical_path(use.import_path);
+			ImportKind kind;
+			if (functions_.find(target_key) != functions_.end()) {
+				kind = ImportKind::Function;
+			} else if (globals_.find(target_key) != globals_.end()) {
+				kind = ImportKind::Global;
+			} else if (modules_.find(target_key) != modules_.end()) {
+				kind = ImportKind::Module;
+			} else {
+				continue;
+			}
+
+			imports_[canonical_path(use.module_path)][use.import_path.back()] =
+				ImportInfo{kind, target_key, use.import_path};
+		}
+	}
+
+	const std::vector<std::string> &current_module_path() const
+	{
+		static const std::vector<std::string> empty;
+		return current_module_path_ != nullptr ? *current_module_path_ : empty;
+	}
+
+	const ImportInfo *find_import(const std::string &alias) const
+	{
+		auto scope = imports_.find(canonical_path(current_module_path()));
+		if (scope == imports_.end())
+			return nullptr;
+		auto import = scope->second.find(alias);
+		return import != scope->second.end() ? &import->second : nullptr;
+	}
+
+	const FunctionInfo *find_function(const std::vector<std::string> &path) const
+	{
+		auto it = functions_.find(canonical_path(path));
+		return it != functions_.end() ? &it->second : nullptr;
+	}
+
+	const FunctionInfo *resolve_function(const std::vector<std::string> &path) const
+	{
+		if (path.empty())
+			return nullptr;
+
+		if (path.size() == 1) {
+			if (auto import = find_import(path[0]);
+			    import != nullptr && import->kind == ImportKind::Function) {
+				auto it = functions_.find(import->target_key);
+				return it != functions_.end() ? &it->second : nullptr;
+			}
+
+			if (auto function = find_function(item_path(current_module_path(), path[0])))
+				return function;
+			return find_function(path);
+		}
+
+		if (auto import = find_import(path[0]);
+		    import != nullptr && import->kind == ImportKind::Module) {
+			auto expanded = import->target_path;
+			expanded.insert(expanded.end(), path.begin() + 1, path.end());
+			if (auto function = find_function(expanded))
+				return function;
+		}
+
+		auto relative = current_module_path();
+		relative.insert(relative.end(), path.begin(), path.end());
+		if (auto function = find_function(relative))
+			return function;
+		return find_function(path);
+	}
+
+	const GlobalInfo *find_global(const std::vector<std::string> &path) const
+	{
+		auto it = globals_.find(canonical_path(path));
+		return it != globals_.end() ? &it->second : nullptr;
+	}
+
+	const GlobalInfo *resolve_global(const std::string &name) const
+	{
+		if (auto import = find_import(name);
+		    import != nullptr && import->kind == ImportKind::Global) {
+			auto it = globals_.find(import->target_key);
+			return it != globals_.end() ? &it->second : nullptr;
+		}
+
+		if (auto global = find_global(item_path(current_module_path(), name)))
+			return global;
+		return find_global({name});
 	}
 
 	std::unique_ptr<ir::Value> lower_expr(
@@ -145,9 +292,9 @@ private:
 			auto it = locals.find(name.name);
 			if (it != locals.end())
 				return std::make_unique<ir::LocalValue>(name.name, it->second);
-			auto global = globals_.find(name.name);
-			if (global != globals_.end())
-				return std::make_unique<ir::GlobalValue>(name.name, global->second.type);
+			auto global = resolve_global(name.name);
+			if (global != nullptr)
+				return std::make_unique<ir::GlobalValue>(global->symbol_name, global->type);
 			throw std::runtime_error("unknown name in IR lowering: " + name.name);
 		}
 		case ast::Expr::Kind::Binary: {
@@ -176,16 +323,17 @@ private:
 			return lower_unary(static_cast<const ast::UnaryExpr &>(expr), locals, expected);
 		case ast::Expr::Kind::Call: {
 			const auto &call_expr = static_cast<const ast::CallExpr &>(expr);
-			auto it = functions_.find(call_expr.callee);
-			if (it == functions_.end())
+			auto function = resolve_function(call_expr.callee_path);
+			if (function == nullptr)
 				throw std::runtime_error("unknown function in IR lowering: " +
 				                         call_expr.callee);
 
-			auto call = std::make_unique<ir::CallValue>(call_expr.callee, it->second.return_type);
+			auto call = std::make_unique<ir::CallValue>(function->symbol_name,
+			                                            function->return_type);
 			for (std::size_t i = 0; i < call_expr.arguments.size(); ++i) {
 				std::optional<ir::Type> parameter_type;
-				if (i < it->second.parameter_types.size())
-					parameter_type = it->second.parameter_types[i];
+				if (i < function->parameter_types.size())
+					parameter_type = function->parameter_types[i];
 				call->arguments.push_back(
 					lower_expr(*call_expr.arguments[i], locals, parameter_type));
 			}
@@ -247,11 +395,11 @@ private:
 			const auto &assign = static_cast<const ast::AssignStmt &>(statement);
 			auto it = locals.find(assign.name);
 			if (it == locals.end()) {
-				auto global = globals_.find(assign.name);
-				if (global == globals_.end())
+				auto global = resolve_global(assign.name);
+				if (global == nullptr)
 					throw std::runtime_error("unknown name in IR lowering: " + assign.name);
 				return std::make_unique<ir::AssignStatement>(
-					assign.name, lower_expr(*assign.value, locals, global->second.type));
+					global->symbol_name, lower_expr(*assign.value, locals, global->type));
 			}
 			return std::make_unique<ir::AssignStatement>(
 				assign.name, lower_expr(*assign.value, locals, it->second));
@@ -303,9 +451,10 @@ private:
 
 	ir::Function lower_function(const ast::Function &function)
 	{
+		current_module_path_ = &function.module_path;
 		ir::Function lowered;
 		lowered.is_extern = function.is_extern;
-		lowered.name = function.name;
+		lowered.name = symbol_item_path(function.module_path, function.name);
 		lowered.return_type = lower_type(function.return_type);
 
 		Locals locals;
@@ -320,13 +469,14 @@ private:
 				lower_statement(*statement, lowered.return_type, locals));
 		}
 
+		current_module_path_ = nullptr;
 		return lowered;
 	}
 
 	ir::StaticBuffer lower_static_buffer(const ast::StaticBuffer &buffer)
 	{
 		ir::StaticBuffer lowered;
-		lowered.name = buffer.name;
+		lowered.name = symbol_item_path(buffer.module_path, buffer.name);
 		lowered.element_type = lower_type(buffer.element_type);
 		lowered.length = static_cast<std::size_t>(std::stoull(buffer.length_literal));
 		return lowered;
@@ -335,7 +485,7 @@ private:
 	ir::StaticScalar lower_static_scalar(const ast::StaticScalar &scalar)
 	{
 		ir::StaticScalar lowered;
-		lowered.name = scalar.name;
+		lowered.name = symbol_item_path(scalar.module_path, scalar.name);
 		lowered.type = lower_type(scalar.type);
 		lowered.initializer_literal = scalar.initializer_literal;
 		return lowered;
@@ -345,6 +495,9 @@ private:
 	LowerOptions options_;
 	std::unordered_map<std::string, GlobalInfo> globals_;
 	std::unordered_map<std::string, FunctionInfo> functions_;
+	std::unordered_map<std::string, ImportScope> imports_;
+	std::unordered_set<std::string> modules_;
+	const std::vector<std::string> *current_module_path_ = nullptr;
 };
 
 } // namespace

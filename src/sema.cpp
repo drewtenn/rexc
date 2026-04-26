@@ -9,10 +9,13 @@
 #include "rexc/stdlib.hpp"
 #include "rexc/types.hpp"
 
+#include "names.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -82,6 +85,14 @@ struct GlobalInfo {
 	bool is_mutable = false;
 };
 
+enum class ImportKind { Function, Global, Module };
+
+struct ImportInfo {
+	ImportKind kind;
+	std::string target_key;
+	std::vector<std::string> target_path;
+};
+
 class Analyzer {
 public:
 	Analyzer(const ast::Module &module, Diagnostics &diagnostics, SemanticOptions options)
@@ -93,6 +104,7 @@ public:
 	{
 		build_static_table();
 		build_function_table();
+		build_import_table();
 
 		for (const auto &function : module_.functions) {
 			if (!function.is_extern)
@@ -103,13 +115,34 @@ public:
 	}
 
 private:
+	using ImportScope = std::unordered_map<std::string, ImportInfo>;
+
+	void note_module_path(const std::vector<std::string> &module_path)
+	{
+		for (std::size_t size = 1; size <= module_path.size(); ++size) {
+			std::vector<std::string> prefix(module_path.begin(),
+			                                module_path.begin() + size);
+			modules_.insert(canonical_path(prefix));
+		}
+	}
+
+	void note_item_path(const std::vector<std::string> &path)
+	{
+		if (path.empty())
+			return;
+		std::vector<std::string> module_path(path.begin(), path.end() - 1);
+		note_module_path(module_path);
+	}
+
 	void build_static_table()
 	{
 		for (const auto &buffer : module_.static_buffers) {
-			if (globals_.find(buffer.name) != globals_.end()) {
-				diagnostics_.error(buffer.location, "duplicate static '" + buffer.name + "'");
+			std::string key = canonical_item_path(buffer.module_path, buffer.name);
+			if (globals_.find(key) != globals_.end()) {
+				diagnostics_.error(buffer.location, "duplicate static '" + key + "'");
 				continue;
 			}
+			note_module_path(buffer.module_path);
 
 			PrimitiveType element_type = check_type(buffer.element_type);
 			if (element_type != u8_type()) {
@@ -123,15 +156,17 @@ private:
 			if (!length || *length == 0)
 				diagnostics_.error(buffer.location, "static buffer length must be greater than zero");
 
-			globals_[buffer.name] = GlobalInfo{PrimitiveType{PrimitiveKind::Str},
-			                                   buffer.is_mutable};
+			globals_[key] = GlobalInfo{PrimitiveType{PrimitiveKind::Str},
+			                           buffer.is_mutable};
 		}
 
 		for (const auto &scalar : module_.static_scalars) {
-			if (globals_.find(scalar.name) != globals_.end()) {
-				diagnostics_.error(scalar.location, "duplicate static '" + scalar.name + "'");
+			std::string key = canonical_item_path(scalar.module_path, scalar.name);
+			if (globals_.find(key) != globals_.end()) {
+				diagnostics_.error(scalar.location, "duplicate static '" + key + "'");
 				continue;
 			}
+			note_module_path(scalar.module_path);
 
 			PrimitiveType type = check_type(scalar.type);
 			if (type != i32_type()) {
@@ -147,35 +182,144 @@ private:
 				                   "static scalar initializer does not fit in i32");
 			}
 
-			globals_[scalar.name] = GlobalInfo{type, scalar.is_mutable};
+			globals_[key] = GlobalInfo{type, scalar.is_mutable};
 		}
 	}
 
 	void build_function_table()
 	{
 		if (options_.include_stdlib_prelude) {
-			for (const auto &function : stdlib::prelude_functions())
-				functions_[function.name] =
-					FunctionInfo{SourceLocation{}, function.return_type, function.parameters};
+			for (const auto &function : stdlib::prelude_functions()) {
+				FunctionInfo info{SourceLocation{}, function.return_type, function.parameters};
+				functions_[function.name] = info;
+				if (auto path = stdlib_path_for_symbol(function.name)) {
+					note_item_path(*path);
+					functions_[canonical_path(*path)] = std::move(info);
+				}
+			}
 		}
 
 		for (const auto &function : module_.functions) {
-			if (functions_.find(function.name) != functions_.end() ||
-			    globals_.find(function.name) != globals_.end()) {
-				diagnostics_.error(function.location, "duplicate function '" + function.name + "'");
+			std::string key = canonical_item_path(function.module_path, function.name);
+			if (functions_.find(key) != functions_.end() ||
+			    globals_.find(key) != globals_.end()) {
+				diagnostics_.error(function.location, "duplicate function '" + key + "'");
 				continue;
 			}
+			note_module_path(function.module_path);
 			FunctionInfo info;
 			info.location = function.location;
 			info.return_type = check_type(function.return_type);
 			for (const auto &parameter : function.parameters)
 				info.parameter_types.push_back(check_type(parameter.type));
-			functions_[function.name] = std::move(info);
+			functions_[key] = std::move(info);
 		}
+	}
+
+	void build_import_table()
+	{
+		for (const auto &use : module_.uses) {
+			if (use.import_path.empty())
+				continue;
+
+			std::string target_key = canonical_path(use.import_path);
+			ImportKind kind;
+			if (functions_.find(target_key) != functions_.end()) {
+				kind = ImportKind::Function;
+			} else if (globals_.find(target_key) != globals_.end()) {
+				kind = ImportKind::Global;
+			} else if (modules_.find(target_key) != modules_.end()) {
+				kind = ImportKind::Module;
+			} else {
+				diagnostics_.error(use.location, "unknown import '" + target_key + "'");
+				continue;
+			}
+
+			std::string alias = use.import_path.back();
+			auto &scope = imports_[canonical_path(use.module_path)];
+			if (scope.find(alias) != scope.end()) {
+				diagnostics_.error(use.location, "duplicate import '" + alias + "'");
+				continue;
+			}
+			scope[alias] = ImportInfo{kind, target_key, use.import_path};
+		}
+	}
+
+	const std::vector<std::string> &current_module_path() const
+	{
+		static const std::vector<std::string> empty;
+		return current_module_path_ != nullptr ? *current_module_path_ : empty;
+	}
+
+	const ImportInfo *find_import(const std::string &alias) const
+	{
+		auto scope = imports_.find(canonical_path(current_module_path()));
+		if (scope == imports_.end())
+			return nullptr;
+		auto import = scope->second.find(alias);
+		return import != scope->second.end() ? &import->second : nullptr;
+	}
+
+	const FunctionInfo *find_function(const std::vector<std::string> &path) const
+	{
+		auto it = functions_.find(canonical_path(path));
+		return it != functions_.end() ? &it->second : nullptr;
+	}
+
+	const FunctionInfo *resolve_function(const std::vector<std::string> &path) const
+	{
+		if (path.empty())
+			return nullptr;
+
+		if (path.size() == 1) {
+			if (auto import = find_import(path[0]);
+			    import != nullptr && import->kind == ImportKind::Function) {
+				auto it = functions_.find(import->target_key);
+				return it != functions_.end() ? &it->second : nullptr;
+			}
+
+			if (auto function = find_function(item_path(current_module_path(), path[0])))
+				return function;
+			return find_function(path);
+		}
+
+		if (auto import = find_import(path[0]);
+		    import != nullptr && import->kind == ImportKind::Module) {
+			auto expanded = import->target_path;
+			expanded.insert(expanded.end(), path.begin() + 1, path.end());
+			if (auto function = find_function(expanded))
+				return function;
+		}
+
+		auto relative = current_module_path();
+		relative.insert(relative.end(), path.begin(), path.end());
+		if (auto function = find_function(relative))
+			return function;
+		return find_function(path);
+	}
+
+	const GlobalInfo *find_global(const std::vector<std::string> &path) const
+	{
+		auto it = globals_.find(canonical_path(path));
+		return it != globals_.end() ? &it->second : nullptr;
+	}
+
+	const GlobalInfo *resolve_global(const std::string &name) const
+	{
+		if (auto import = find_import(name);
+		    import != nullptr && import->kind == ImportKind::Global) {
+			auto it = globals_.find(import->target_key);
+			return it != globals_.end() ? &it->second : nullptr;
+		}
+
+		if (auto global = find_global(item_path(current_module_path(), name)))
+			return global;
+		return find_global({name});
 	}
 
 	void analyze_function(const ast::Function &function)
 	{
+		current_module_path_ = &function.module_path;
 		std::unordered_map<std::string, LocalInfo> locals;
 
 		for (const auto &parameter : function.parameters) {
@@ -188,6 +332,7 @@ private:
 
 		for (const auto &statement : function.body)
 			analyze_statement(return_type, locals, *statement, 0);
+		current_module_path_ = nullptr;
 	}
 
 	void analyze_statement(PrimitiveType function_return_type,
@@ -217,19 +362,19 @@ private:
 			const auto &assign = static_cast<const ast::AssignStmt &>(statement);
 			auto it = locals.find(assign.name);
 			if (it == locals.end()) {
-				auto global = globals_.find(assign.name);
-				if (global == globals_.end()) {
+				auto global = resolve_global(assign.name);
+				if (global == nullptr) {
 					diagnostics_.error(assign.location, "unknown name '" + assign.name + "'");
 					check_expr(locals, *assign.value);
 					return;
 				}
-				if (!global->second.is_mutable)
+				if (!global->is_mutable)
 					diagnostics_.error(assign.location,
 					                   "cannot assign to immutable static '" + assign.name + "'");
-				auto value_type = check_expr(locals, *assign.value, global->second.type);
-				if (value_type && *value_type != global->second.type) {
+				auto value_type = check_expr(locals, *assign.value, global->type);
+				if (value_type && *value_type != global->type) {
 					diagnostics_.error(assign.location, "assignment type mismatch: expected '" +
-					                   format_type(global->second.type) + "' but got '" +
+					                   format_type(global->type) + "' but got '" +
 					                   format_type(*value_type) + "'");
 				}
 				return;
@@ -356,9 +501,9 @@ private:
 			auto it = locals.find(name.name);
 			if (it != locals.end())
 				return it->second.type;
-			auto global = globals_.find(name.name);
-			if (global != globals_.end())
-				return global->second.type;
+			auto global = resolve_global(name.name);
+			if (global != nullptr)
+				return global->type;
 			diagnostics_.error(name.location, "unknown name '" + name.name + "'");
 			return std::nullopt;
 		}
@@ -408,11 +553,11 @@ private:
 		}
 		case ast::Expr::Kind::Call: {
 			const auto &call = static_cast<const ast::CallExpr &>(expr);
-			auto it = functions_.find(call.callee);
-			if (it == functions_.end()) {
+			auto function = resolve_function(call.callee_path);
+			if (function == nullptr) {
 				diagnostics_.error(call.location, "unknown function '" + call.callee + "'");
 			} else {
-				std::size_t expected_count = it->second.parameter_types.size();
+				std::size_t expected_count = function->parameter_types.size();
 				if (expected_count != call.arguments.size()) {
 					diagnostics_.error(call.location, "function '" + call.callee + "' expected " +
 					                   std::to_string(expected_count) + " arguments but got " +
@@ -421,7 +566,7 @@ private:
 				for (std::size_t i = 0; i < call.arguments.size(); ++i) {
 					std::optional<PrimitiveType> parameter_type;
 					if (i < expected_count)
-						parameter_type = it->second.parameter_types[i];
+						parameter_type = function->parameter_types[i];
 					auto argument_type = check_expr(locals, *call.arguments[i], parameter_type);
 					if (parameter_type && argument_type && *argument_type != *parameter_type) {
 						diagnostics_.error(call.arguments[i]->location,
@@ -430,7 +575,7 @@ private:
 						                   format_type(*argument_type) + "'");
 					}
 				}
-				return it->second.return_type;
+				return function->return_type;
 			}
 			for (const auto &argument : call.arguments)
 				check_expr(locals, *argument);
@@ -620,6 +765,9 @@ private:
 	SemanticOptions options_;
 	std::unordered_map<std::string, GlobalInfo> globals_;
 	std::unordered_map<std::string, FunctionInfo> functions_;
+	std::unordered_map<std::string, ImportScope> imports_;
+	std::unordered_set<std::string> modules_;
+	const std::vector<std::string> *current_module_path_ = nullptr;
 };
 
 } // namespace

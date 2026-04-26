@@ -217,7 +217,6 @@ The README should gain a `Standard Library` section that documents:
 
 ## Non-Goals
 
-- Module path syntax such as `std::io::println`.
 - Imports or package management.
 - Heap allocation, owned strings, slices, vectors, or formatting macros.
 - Generic traits such as Rust `Display` or C++ stream overloads.

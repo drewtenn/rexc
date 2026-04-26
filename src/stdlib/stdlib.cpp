@@ -11,6 +11,7 @@
 
 #include "source.hpp"
 #include "sys/runtime.hpp"
+#include "names.hpp"
 
 #include <optional>
 #include <string>
@@ -126,6 +127,9 @@ const FunctionDecl *find_prelude_function(const std::string &name)
 {
 	for (const auto &function : prelude_functions()) {
 		if (function.name == name)
+			return &function;
+		if (auto path = stdlib_path_for_symbol(function.name);
+		    path && canonical_path(*path) == name)
 			return &function;
 	}
 	return nullptr;

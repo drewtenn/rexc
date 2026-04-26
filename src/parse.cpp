@@ -77,7 +77,7 @@ public:
 	{
 		ast::Module module;
 		for (auto *item : context->item())
-			build_item(module, item);
+			build_item(module, item, {});
 		return module;
 	}
 
@@ -103,24 +103,42 @@ private:
 		return location(node != nullptr ? node->getSymbol() : nullptr);
 	}
 
-	void build_item(ast::Module &module, RexcParser::ItemContext *context)
+	void build_item(ast::Module &module, RexcParser::ItemContext *context,
+	                const std::vector<std::string> &module_path)
 	{
 		if (auto *static_buffer = context->staticBuffer()) {
-			module.static_buffers.push_back(build_static_buffer(static_buffer));
+			module.static_buffers.push_back(build_static_buffer(static_buffer, module_path));
 			return;
 		}
 		if (auto *static_scalar = context->staticScalar()) {
-			module.static_scalars.push_back(build_static_scalar(static_scalar));
+			module.static_scalars.push_back(build_static_scalar(static_scalar, module_path));
 			return;
 		}
 		if (auto *extern_function = context->externFunction()) {
-			module.functions.push_back(build_extern_function(extern_function));
+			module.functions.push_back(build_extern_function(extern_function, module_path));
 			return;
 		}
-		module.functions.push_back(build_function_definition(context->functionDefinition()));
+		if (auto *function_definition = context->functionDefinition()) {
+			module.functions.push_back(build_function_definition(function_definition, module_path));
+			return;
+		}
+		if (auto *module_declaration = context->moduleDeclaration()) {
+			auto nested_path = module_path;
+			nested_path.push_back(module_declaration->IDENT()->getText());
+			for (auto *nested_item : module_declaration->item())
+				build_item(module, nested_item, nested_path);
+			return;
+		}
+		if (auto *use_declaration = context->useDeclaration()) {
+			module.uses.push_back(ast::UseDecl{
+			    module_path, build_qualified_name(use_declaration->qualifiedName()),
+			    location(use_declaration)});
+			return;
+		}
 	}
 
-	ast::StaticBuffer build_static_buffer(RexcParser::StaticBufferContext *context)
+	ast::StaticBuffer build_static_buffer(RexcParser::StaticBufferContext *context,
+	                                      const std::vector<std::string> &module_path)
 	{
 		bool is_mutable = false;
 		for (auto *child : context->children) {
@@ -130,13 +148,16 @@ private:
 			}
 		}
 
-		return ast::StaticBuffer{is_mutable, context->IDENT()->getText(),
+		ast::StaticBuffer buffer{is_mutable, context->IDENT()->getText(),
 		                         ast::TypeName{context->primitiveType()->getText(),
 		                                       location(context->primitiveType())},
 		                         context->INTEGER()->getText(), location(context)};
+		buffer.module_path = module_path;
+		return buffer;
 	}
 
-	ast::StaticScalar build_static_scalar(RexcParser::StaticScalarContext *context)
+	ast::StaticScalar build_static_scalar(RexcParser::StaticScalarContext *context,
+	                                      const std::vector<std::string> &module_path)
 	{
 		bool is_mutable = false;
 		for (auto *child : context->children) {
@@ -146,24 +167,30 @@ private:
 			}
 		}
 
-		return ast::StaticScalar{is_mutable, context->IDENT()->getText(),
+		ast::StaticScalar scalar{is_mutable, context->IDENT()->getText(),
 		                         ast::TypeName{context->primitiveType()->getText(),
 		                                       location(context->primitiveType())},
 		                         context->INTEGER()->getText(), location(context)};
+		scalar.module_path = module_path;
+		return scalar;
 	}
 
-	ast::Function build_extern_function(RexcParser::ExternFunctionContext *context)
+	ast::Function build_extern_function(RexcParser::ExternFunctionContext *context,
+	                                    const std::vector<std::string> &module_path)
 	{
 		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
 		                                         context->type(), location(context));
 		function.is_extern = true;
+		function.module_path = module_path;
 		return function;
 	}
 
-	ast::Function build_function_definition(RexcParser::FunctionDefinitionContext *context)
+	ast::Function build_function_definition(RexcParser::FunctionDefinitionContext *context,
+	                                        const std::vector<std::string> &module_path)
 	{
 		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
 		                                         context->type(), location(context));
+		function.module_path = module_path;
 		function.body = build_block(context->block());
 		return function;
 	}
@@ -440,13 +467,22 @@ private:
 	std::unique_ptr<ast::Expr> build_call_expression(
 	    RexcParser::CallExpressionContext *context)
 	{
-		auto *name = context->IDENT();
-		auto call = std::make_unique<ast::CallExpr>(location(name), name->getText());
+		auto *name = context->qualifiedName()->IDENT().front();
+		auto call = std::make_unique<ast::CallExpr>(
+		    location(name), build_qualified_name(context->qualifiedName()));
 		if (auto *arguments = context->argumentList()) {
 			for (auto *argument : arguments->expression())
 				call->arguments.push_back(build_expression(argument));
 		}
 		return call;
+	}
+
+	std::vector<std::string> build_qualified_name(RexcParser::QualifiedNameContext *context)
+	{
+		std::vector<std::string> path;
+		for (auto *identifier : context->IDENT())
+			path.push_back(identifier->getText());
+		return path;
 	}
 
 	std::string decode_quoted_literal(const std::string &literal) const

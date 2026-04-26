@@ -10,6 +10,16 @@ item
 	| staticBuffer
 	| staticScalar
 	| functionDefinition
+	| moduleDeclaration
+	| useDeclaration
+	;
+
+moduleDeclaration
+	: 'mod' IDENT '{' item* '}'
+	;
+
+useDeclaration
+	: 'use' qualifiedName ';'
 	;
 
 staticBuffer
@@ -158,7 +168,11 @@ primary
 	;
 
 callExpression
-	: IDENT '(' argumentList? ')'
+	: qualifiedName '(' argumentList? ')'
+	;
+
+qualifiedName
+	: IDENT ('::' IDENT)*
 	;
 
 argumentList

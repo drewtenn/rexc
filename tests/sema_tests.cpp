@@ -29,6 +29,56 @@ TEST_CASE(sema_accepts_valid_add_program)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_user_module_qualified_call)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+	    "fn main() -> i32 { return math::add(1, 2); }\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_user_module_use_alias)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+	    "use math::add;\n"
+	    "fn main() -> i32 { return add(1, 2); }\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_std_module_path_call)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("fn main() -> i32 { std::io::println(\"hi\"); return 0; }\n",
+	                      diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_unknown_import)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze("use math::missing;\nfn main() -> i32 { return 0; }\n",
+	                      diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown import 'math::missing'") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_rejects_duplicate_functions)
 {
 	rexc::Diagnostics diagnostics;
