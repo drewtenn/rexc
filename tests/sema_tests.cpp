@@ -376,6 +376,8 @@ TEST_CASE(sema_accepts_std_prelude_numeric_helpers)
 		"  println_i32(parse_i32(\"-7\"));\n"
 		"  print_bool(true);\n"
 		"  println_bool(false);\n"
+		"  print_char('x');\n"
+		"  println_char('y');\n"
 		"  if parse_bool(\"true\") && !read_bool() { return 0; }\n"
 		"  return read_i32();\n"
 		"}\n",
@@ -424,7 +426,8 @@ TEST_CASE(sema_accepts_alloc_helpers)
 		"  let joined: str = alloc_str_concat(copied, \"!\");\n"
 		"  let number: str = alloc_i32_to_str(-42);\n"
 		"  let truth: str = alloc_bool_to_str(true);\n"
-		"  if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") { return alloc_remaining(); }\n"
+		"  let letter: str = alloc_char_to_str('z');\n"
+		"  if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") && str_eq(letter, \"z\") { return alloc_remaining(); }\n"
 		"  return 0;\n"
 		"}\n",
 		diagnostics);

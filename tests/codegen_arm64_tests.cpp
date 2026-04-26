@@ -148,12 +148,14 @@ TEST_CASE(codegen_arm64_macos_emits_std_string_helper_calls)
 TEST_CASE(codegen_arm64_macos_emits_std_numeric_helper_calls)
 {
 	auto assembly = compile_to_arm64_assembly(
-		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); print_bool(true); println_bool(false); if parse_bool(\"true\") && !read_bool() { return 0; } return read_i32(); }\n");
+		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); print_bool(true); println_bool(false); print_char('x'); println_char('y'); if parse_bool(\"true\") && !read_bool() { return 0; } return read_i32(); }\n");
 
 	REQUIRE(assembly.find("bl _print_i32") != std::string::npos);
 	REQUIRE(assembly.find("bl _println_i32") != std::string::npos);
 	REQUIRE(assembly.find("bl _print_bool") != std::string::npos);
 	REQUIRE(assembly.find("bl _println_bool") != std::string::npos);
+	REQUIRE(assembly.find("bl _print_char") != std::string::npos);
+	REQUIRE(assembly.find("bl _println_char") != std::string::npos);
 	REQUIRE(assembly.find("bl _parse_i32") != std::string::npos);
 	REQUIRE(assembly.find("bl _read_i32") != std::string::npos);
 	REQUIRE(assembly.find("bl _parse_bool") != std::string::npos);
@@ -204,7 +206,7 @@ TEST_CASE(codegen_arm64_macos_emits_u8_pointer_to_str_cast_as_noop)
 TEST_CASE(codegen_arm64_macos_emits_alloc_helper_calls)
 {
 	auto assembly = compile_to_arm64_assembly(
-		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); let number: str = alloc_i32_to_str(-42); let truth: str = alloc_bool_to_str(true); if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") { return alloc_remaining(); } return 0; }\n");
+		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); let number: str = alloc_i32_to_str(-42); let truth: str = alloc_bool_to_str(true); let letter: str = alloc_char_to_str('z'); if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") && str_eq(letter, \"z\") { return alloc_remaining(); } return 0; }\n");
 
 	REQUIRE(assembly.find("bl _alloc_reset") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_bytes") != std::string::npos);
@@ -212,5 +214,6 @@ TEST_CASE(codegen_arm64_macos_emits_alloc_helper_calls)
 	REQUIRE(assembly.find("bl _alloc_str_concat") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_i32_to_str") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_bool_to_str") != std::string::npos);
+	REQUIRE(assembly.find("bl _alloc_char_to_str") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_remaining") != std::string::npos);
 }

@@ -408,12 +408,15 @@ standard functions without module syntax:
 | `alloc_str_concat` | `fn(str, str) -> str` | Concatenates two strings into the bootstrap bump arena and returns the allocated string view. |
 | `alloc_i32_to_str` | `fn(i32) -> str` | Formats an `i32` into the bootstrap bump arena and returns the allocated string view. |
 | `alloc_bool_to_str` | `fn(bool) -> str` | Formats a bool into the bootstrap bump arena as `true` or `false`. |
+| `alloc_char_to_str` | `fn(char) -> str` | Formats one byte-sized character into the bootstrap bump arena. |
 | `alloc_remaining` | `fn() -> i32` | Returns remaining bytes in the bootstrap bump arena. |
 | `alloc_reset` | `fn() -> i32` | Resets the bootstrap bump arena offset to zero. |
 | `print_i32` | `fn(i32) -> i32` | Writes a signed decimal integer without adding a newline. |
 | `println_i32` | `fn(i32) -> i32` | Writes a signed decimal integer followed by `\n`. |
 | `print_bool` | `fn(bool) -> i32` | Writes `true` or `false` without adding a newline. |
 | `println_bool` | `fn(bool) -> i32` | Writes `true` or `false` followed by `\n`. |
+| `print_char` | `fn(char) -> i32` | Writes one character without adding a newline. |
+| `println_char` | `fn(char) -> i32` | Writes one character followed by `\n`. |
 | `parse_i32` | `fn(str) -> i32` | Parses a signed decimal integer, returning `0` for invalid or overflow input. |
 | `read_i32` | `fn() -> i32` | Reads one input line and parses it as `i32`. |
 | `parse_bool` | `fn(str) -> bool` | Parses `true`, returning `false` for any other value until result types exist. |
@@ -430,9 +433,9 @@ target-independent contracts implemented in Rexc source. `memset_u8`,
 `memcpy_u8`, and `str_copy_to` provide raw byte-buffer building blocks for
 future `alloc` work while Rexc is still growing ownership and heap types.
 `alloc_bytes`, `alloc_str_copy`, `alloc_str_concat`, `alloc_i32_to_str`,
-`alloc_bool_to_str`, `alloc_remaining`, and `alloc_reset` are the first
-bootstrap `alloc` surface: a portable bump arena implemented in Rexc with a
-static byte buffer and mutable scalar offset.
+`alloc_bool_to_str`, `alloc_char_to_str`, `alloc_remaining`, and `alloc_reset`
+are the first bootstrap `alloc` surface: a portable bump arena implemented in
+Rexc with a static byte buffer and mutable scalar offset.
 `parse_i32` accepts
 an optional leading `-` followed by decimal digits; empty strings, invalid
 characters, and overflow return `0` until Rexc has richer result types.

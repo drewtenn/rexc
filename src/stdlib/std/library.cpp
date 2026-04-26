@@ -18,6 +18,11 @@ PrimitiveType bool_type()
 	return PrimitiveType{PrimitiveKind::Bool};
 }
 
+PrimitiveType char_type()
+{
+	return PrimitiveType{PrimitiveKind::Char};
+}
+
 } // namespace
 
 const std::vector<FunctionDecl> &prelude_functions()
@@ -30,6 +35,8 @@ const std::vector<FunctionDecl> &prelude_functions()
 		FunctionDecl{Layer::Std, "println_i32", {i32_type()}, i32_type()},
 		FunctionDecl{Layer::Std, "print_bool", {bool_type()}, i32_type()},
 		FunctionDecl{Layer::Std, "println_bool", {bool_type()}, i32_type()},
+		FunctionDecl{Layer::Std, "print_char", {char_type()}, i32_type()},
+		FunctionDecl{Layer::Std, "println_char", {char_type()}, i32_type()},
 		FunctionDecl{Layer::Std, "read_i32", {}, i32_type()},
 		FunctionDecl{Layer::Std, "read_bool", {}, bool_type()},
 		FunctionDecl{Layer::Std, "exit", {i32_type()}, i32_type()},

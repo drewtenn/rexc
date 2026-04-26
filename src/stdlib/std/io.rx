@@ -47,6 +47,14 @@ fn println_bool(value: bool) -> i32 {
 	return println(alloc_bool_to_str(value));
 }
 
+fn print_char(value: char) -> i32 {
+	return print(alloc_char_to_str(value));
+}
+
+fn println_char(value: char) -> i32 {
+	return println(alloc_char_to_str(value));
+}
+
 fn read_i32() -> i32 {
 	return parse_i32(read_line());
 }
