@@ -26,8 +26,13 @@ static CodegenAttempt compile_to_codegen_result(
 	rexc::Diagnostics diagnostics;
 	auto parsed = rexc::parse_source(source, diagnostics);
 	REQUIRE(parsed.ok());
-	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
-	auto result = rexc::emit_x86_assembly(rexc::lower_to_ir(parsed.module()), diagnostics, target);
+	rexc::SemanticOptions semantic_options;
+	semantic_options.stdlib_symbols = rexc::StdlibSymbolPolicy::DefaultPrelude;
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics, semantic_options).ok());
+	rexc::LowerOptions lower_options;
+	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::DefaultPrelude;
+	auto result =
+		rexc::emit_x86_assembly(rexc::lower_to_ir(parsed.module(), lower_options), diagnostics, target);
 	return {std::move(result), std::move(diagnostics)};
 }
 
@@ -38,6 +43,28 @@ static std::string compile_to_assembly(
 	REQUIRE(attempt.result.ok());
 	REQUIRE(!attempt.diagnostics.has_errors());
 	return attempt.result.assembly();
+}
+
+static std::string compile_to_assembly_with_all_stdlib_symbols(
+	const std::string &text, rexc::CodegenTarget target = rexc::CodegenTarget::I386)
+{
+	rexc::SourceFile source("test.rx", text);
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+
+	rexc::SemanticOptions semantic_options;
+	semantic_options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
+	auto sema = rexc::analyze_module(parsed.module(), diagnostics, semantic_options);
+	REQUIRE(sema.ok());
+
+	rexc::LowerOptions lower_options;
+	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::All;
+	auto ir = rexc::lower_to_ir(parsed.module(), lower_options);
+	auto emitted = rexc::emit_x86_assembly(ir, diagnostics, target);
+	REQUIRE(emitted.ok());
+	REQUIRE(!diagnostics.has_errors());
+	return emitted.assembly();
 }
 
 static int count_occurrences(const std::string &text, const std::string &needle)
@@ -570,7 +597,7 @@ TEST_CASE(codegen_x86_emits_std_panic_call)
 
 TEST_CASE(codegen_i386_emits_core_memory_helper_calls)
 {
-	auto assembly = compile_to_assembly(
+	auto assembly = compile_to_assembly_with_all_stdlib_symbols(
 		"static mut A: [u8; 16];\n"
 		"static mut B: [u8; 16];\n"
 		"fn main() -> i32 { return memset_u8(A + 0, 120 as u8, 4) + memcpy_u8(B + 0, A + 0, 4) + str_copy_to(B + 0, \"hello\", 16); }\n");
@@ -612,7 +639,7 @@ TEST_CASE(codegen_i386_emits_pointer_to_pointer_cast_as_noop)
 
 TEST_CASE(codegen_i386_emits_alloc_helper_calls)
 {
-	auto assembly = compile_to_assembly(
+	auto assembly = compile_to_assembly_with_all_stdlib_symbols(
 		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); let number: str = alloc_i32_to_str(-42); let truth: str = alloc_bool_to_str(true); let letter: str = alloc_char_to_str('z'); if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") && str_eq(letter, \"z\") { return alloc_remaining(); } return 0; }\n");
 
 	REQUIRE(assembly.find("call alloc_reset") != std::string::npos);
