@@ -10,17 +10,19 @@
 #include "rexc/lower_ir.hpp"
 #include "rexc/parse.hpp"
 #include "rexc/sema.hpp"
-#include "rexc/source.hpp"
 #include "rexc/stdlib.hpp"
 #include "rexc/target.hpp"
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -35,6 +37,7 @@ struct Options {
 	std::string input_path;
 	std::string output_path;
 	std::string drunix_root;
+	std::vector<std::string> package_paths;
 	rexc::TargetTriple target =
 #if defined(__APPLE__)
 		rexc::TargetTriple::ARM64Macos;
@@ -51,6 +54,18 @@ void select_output_mode(Options &options, OutputMode mode)
 		throw std::runtime_error("usage");
 	options.output_mode = mode;
 	options.output_mode_selected = true;
+}
+
+void require_directory(const std::string &path, const std::string &description)
+{
+	std::error_code error;
+	if (std::filesystem::is_directory(path, error))
+		return;
+
+	std::string message = description + " is not a directory: " + path;
+	if (error)
+		message += " (" + error.message() + ")";
+	throw std::runtime_error(message);
 }
 
 Options parse_options(int argc, char **argv)
@@ -72,6 +87,12 @@ Options parse_options(int argc, char **argv)
 		}
 		if (arg == "-o" && i + 1 < argc) {
 			options.output_path = argv[++i];
+			continue;
+		}
+		if (arg == "--package-path" && i + 1 < argc) {
+			std::string package_path = argv[++i];
+			require_directory(package_path, "package path");
+			options.package_paths.push_back(std::move(package_path));
 			continue;
 		}
 		if (arg == "--target" && i + 1 < argc) {
@@ -103,17 +124,6 @@ Options parse_options(int argc, char **argv)
 		options.target = rexc::TargetTriple::I386Drunix;
 
 	return options;
-}
-
-std::string read_file(const std::string &path)
-{
-	std::ifstream input(path);
-	if (!input)
-		throw std::runtime_error("failed to open input file: " + path);
-
-	std::ostringstream buffer;
-	buffer << input.rdbuf();
-	return buffer.str();
 }
 
 void write_file(const std::string &path, const std::string &text)
@@ -384,10 +394,12 @@ int main(int argc, char **argv)
 {
 	try {
 		Options options = parse_options(argc, argv);
-		rexc::SourceFile source(options.input_path, read_file(options.input_path));
 		rexc::Diagnostics diagnostics;
+		rexc::ModuleLoadOptions load_options;
+		load_options.package_paths = options.package_paths;
 
-		auto parsed = rexc::parse_source(source, diagnostics);
+		auto parsed = rexc::parse_file_tree(options.input_path, diagnostics,
+		                                    std::move(load_options));
 		if (!parsed.ok()) {
 			std::cerr << diagnostics.format();
 			return 1;
@@ -481,6 +493,7 @@ int main(int argc, char **argv)
 	} catch (const std::exception &err) {
 		if (std::string(err.what()) == "usage") {
 			std::cerr << "usage: rexc input.rx "
+			             "[--package-path path] "
 			             "[--target i386|i386-linux|i386-drunix|x86_64|x86_64-linux|arm64-macos] "
 			             "[-S|-c|--drunix-root path] -o output\n";
 			return 2;

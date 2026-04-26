@@ -36,7 +36,7 @@ TEST_CASE(lowering_mangles_user_module_function_symbols)
 {
 	rexc::SourceFile source(
 	    "test.rx",
-	    "mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+	    "mod math { pub fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
 	    "fn main() -> i32 { return math::add(1, 2); }\n");
 	rexc::Diagnostics diagnostics;
 	auto parsed = rexc::parse_source(source, diagnostics);

@@ -13,8 +13,14 @@
 #include <antlr4-runtime.h>
 
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -68,8 +74,8 @@ private:
 
 class AstBuilder {
 public:
-	AstBuilder(const SourceFile &source, Diagnostics &diagnostics)
-		: source_(source), diagnostics_(diagnostics)
+	AstBuilder(const SourceFile &source, Diagnostics &diagnostics, ParseOptions options)
+		: source_(source), diagnostics_(diagnostics), options_(std::move(options))
 	{
 	}
 
@@ -77,7 +83,7 @@ public:
 	{
 		ast::Module module;
 		for (auto *item : context->item())
-			build_item(module, item, {});
+			build_item(module, item, options_.module_path);
 		return module;
 	}
 
@@ -103,6 +109,25 @@ private:
 		return location(node != nullptr ? node->getSymbol() : nullptr);
 	}
 
+	ast::Visibility visibility(const antlr4::ParserRuleContext *context) const
+	{
+		for (auto *child : context->children) {
+			if (child->getText() == "pub")
+				return ast::Visibility::Public;
+		}
+		return ast::Visibility::Private;
+	}
+
+	bool has_child_text(const antlr4::ParserRuleContext *context,
+	                    const std::string &text) const
+	{
+		for (auto *child : context->children) {
+			if (child->getText() == text)
+				return true;
+		}
+		return false;
+	}
+
 	void build_item(ast::Module &module, RexcParser::ItemContext *context,
 	                const std::vector<std::string> &module_path)
 	{
@@ -125,8 +150,14 @@ private:
 		if (auto *module_declaration = context->moduleDeclaration()) {
 			auto nested_path = module_path;
 			nested_path.push_back(module_declaration->IDENT()->getText());
-			for (auto *nested_item : module_declaration->item())
-				build_item(module, nested_item, nested_path);
+			bool is_file_backed = has_child_text(module_declaration, ";");
+			module.modules.push_back(ast::ModuleDecl{
+			    visibility(module_declaration), nested_path, is_file_backed,
+			    location(module_declaration)});
+			if (!is_file_backed) {
+				for (auto *nested_item : module_declaration->item())
+					build_item(module, nested_item, nested_path);
+			}
 			return;
 		}
 		if (auto *use_declaration = context->useDeclaration()) {
@@ -148,10 +179,14 @@ private:
 			}
 		}
 
-		ast::StaticBuffer buffer{is_mutable, context->IDENT()->getText(),
-		                         ast::TypeName{context->primitiveType()->getText(),
-		                                       location(context->primitiveType())},
-		                         context->INTEGER()->getText(), location(context)};
+		ast::StaticBuffer buffer;
+		buffer.is_mutable = is_mutable;
+		buffer.visibility = visibility(context);
+		buffer.name = context->IDENT()->getText();
+		buffer.element_type = ast::TypeName{context->primitiveType()->getText(),
+		                                    location(context->primitiveType())};
+		buffer.length_literal = context->INTEGER()->getText();
+		buffer.location = location(context);
 		buffer.module_path = module_path;
 		return buffer;
 	}
@@ -167,10 +202,14 @@ private:
 			}
 		}
 
-		ast::StaticScalar scalar{is_mutable, context->IDENT()->getText(),
-		                         ast::TypeName{context->primitiveType()->getText(),
-		                                       location(context->primitiveType())},
-		                         context->INTEGER()->getText(), location(context)};
+		ast::StaticScalar scalar;
+		scalar.is_mutable = is_mutable;
+		scalar.visibility = visibility(context);
+		scalar.name = context->IDENT()->getText();
+		scalar.type = ast::TypeName{context->primitiveType()->getText(),
+		                            location(context->primitiveType())};
+		scalar.initializer_literal = context->INTEGER()->getText();
+		scalar.location = location(context);
 		scalar.module_path = module_path;
 		return scalar;
 	}
@@ -181,6 +220,7 @@ private:
 		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
 		                                         context->type(), location(context));
 		function.is_extern = true;
+		function.visibility = visibility(context);
 		function.module_path = module_path;
 		return function;
 	}
@@ -190,6 +230,7 @@ private:
 	{
 		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
 		                                         context->type(), location(context));
+		function.visibility = visibility(context);
 		function.module_path = module_path;
 		function.body = build_block(context->block());
 		return function;
@@ -529,6 +570,173 @@ private:
 
 	const SourceFile &source_;
 	Diagnostics &diagnostics_;
+	ParseOptions options_;
+};
+
+void merge_module(ast::Module &target, ast::Module source)
+{
+	target.modules.insert(target.modules.end(),
+	                      std::make_move_iterator(source.modules.begin()),
+	                      std::make_move_iterator(source.modules.end()));
+	target.uses.insert(target.uses.end(), std::make_move_iterator(source.uses.begin()),
+	                   std::make_move_iterator(source.uses.end()));
+	target.static_buffers.insert(target.static_buffers.end(),
+	                             std::make_move_iterator(source.static_buffers.begin()),
+	                             std::make_move_iterator(source.static_buffers.end()));
+	target.static_scalars.insert(target.static_scalars.end(),
+	                             std::make_move_iterator(source.static_scalars.begin()),
+	                             std::make_move_iterator(source.static_scalars.end()));
+	target.functions.insert(target.functions.end(),
+	                        std::make_move_iterator(source.functions.begin()),
+	                        std::make_move_iterator(source.functions.end()));
+}
+
+std::string display_path(const std::vector<std::string> &module_path)
+{
+	std::ostringstream out;
+	for (std::size_t i = 0; i < module_path.size(); ++i) {
+		if (i > 0)
+			out << "::";
+		out << module_path[i];
+	}
+	return out.str();
+}
+
+std::string read_text_file(const std::filesystem::path &path)
+{
+	std::ifstream input(path);
+	if (!input)
+		return "";
+	std::ostringstream buffer;
+	buffer << input.rdbuf();
+	return buffer.str();
+}
+
+class ModuleLoader {
+public:
+	ModuleLoader(std::filesystem::path entry_path, Diagnostics &diagnostics,
+	             ModuleLoadOptions options)
+		: entry_path_(std::move(entry_path)), diagnostics_(diagnostics),
+		  options_(std::move(options))
+	{
+		roots_.push_back(std::filesystem::absolute(entry_path_).parent_path());
+		for (const auto &package_path : options_.package_paths)
+			roots_.push_back(std::filesystem::absolute(package_path).lexically_normal());
+	}
+
+	ParseResult run()
+	{
+		ast::Module module;
+		load_file(entry_path_, {}, module);
+		return ParseResult(!diagnostics_.has_errors(), std::move(module));
+	}
+
+private:
+	struct ResolvedModule {
+		std::filesystem::path path;
+		std::vector<std::filesystem::path> searched;
+		bool ambiguous = false;
+	};
+
+	void load_file(const std::filesystem::path &path,
+	               const std::vector<std::string> &module_path,
+	               ast::Module &aggregate)
+	{
+		auto absolute_path = std::filesystem::absolute(path).lexically_normal();
+		if (!parsed_files_.insert(absolute_path.string()).second)
+			return;
+
+		auto text = read_text_file(absolute_path);
+		if (text.empty() && !std::filesystem::exists(absolute_path)) {
+			diagnostics_.error({}, "failed to open input file: " + absolute_path.string());
+			return;
+		}
+
+		SourceFile source(absolute_path.string(), text);
+		auto parsed = parse_source(source, diagnostics_, ParseOptions{module_path});
+		if (!parsed.ok())
+			return;
+
+		auto parsed_module = parsed.take_module();
+		std::vector<ast::ModuleDecl> declarations = parsed_module.modules;
+		merge_module(aggregate, std::move(parsed_module));
+
+		for (const auto &declaration : declarations) {
+			if (!declaration.is_file_backed)
+				continue;
+			auto key = display_path(declaration.module_path);
+			if (!loaded_modules_.insert(key).second)
+				continue;
+
+			auto resolved = resolve_module_file(declaration.module_path);
+			if (resolved.ambiguous) {
+				diagnostics_.error(declaration.location,
+				                   "ambiguous module file '" + key + "'");
+				continue;
+			}
+			if (resolved.path.empty()) {
+				diagnostics_.error(declaration.location,
+				                   "module file not found '" + key +
+				                       "' (searched " + format_searched(resolved.searched) + ")");
+				continue;
+			}
+			load_file(resolved.path, declaration.module_path, aggregate);
+		}
+	}
+
+	ResolvedModule resolve_module_file(const std::vector<std::string> &module_path) const
+	{
+		ResolvedModule result;
+		for (const auto &root : roots_) {
+			auto candidates = candidate_paths(root, module_path);
+			result.searched.insert(result.searched.end(), candidates.begin(),
+			                       candidates.end());
+
+			std::vector<std::filesystem::path> existing;
+			for (const auto &candidate : candidates) {
+				if (std::filesystem::exists(candidate))
+					existing.push_back(candidate);
+			}
+			if (existing.size() > 1) {
+				result.ambiguous = true;
+				return result;
+			}
+			if (existing.size() == 1) {
+				result.path = existing[0];
+				return result;
+			}
+		}
+		return result;
+	}
+
+	std::vector<std::filesystem::path> candidate_paths(
+	    const std::filesystem::path &root,
+	    const std::vector<std::string> &module_path) const
+	{
+		std::filesystem::path base = root;
+		for (std::size_t i = 0; i + 1 < module_path.size(); ++i)
+			base /= module_path[i];
+		std::string leaf = module_path.empty() ? "" : module_path.back();
+		return {base / (leaf + ".rx"), base / leaf / "mod.rx"};
+	}
+
+	std::string format_searched(const std::vector<std::filesystem::path> &paths) const
+	{
+		std::ostringstream out;
+		for (std::size_t i = 0; i < paths.size(); ++i) {
+			if (i > 0)
+				out << ", ";
+			out << paths[i].string();
+		}
+		return out.str();
+	}
+
+	std::filesystem::path entry_path_;
+	Diagnostics &diagnostics_;
+	ModuleLoadOptions options_;
+	std::vector<std::filesystem::path> roots_;
+	std::unordered_set<std::string> parsed_files_;
+	std::unordered_set<std::string> loaded_modules_;
 };
 
 } // namespace
@@ -548,7 +756,13 @@ const ast::Module &ParseResult::module() const
 	return module_;
 }
 
-ParseResult parse_source(const SourceFile &source, Diagnostics &diagnostics)
+ast::Module ParseResult::take_module()
+{
+	return std::move(module_);
+}
+
+ParseResult parse_source(const SourceFile &source, Diagnostics &diagnostics,
+                         ParseOptions options)
 {
 	antlr4::ANTLRInputStream input(source.text());
 	RexcLexer lexer(&input);
@@ -565,9 +779,15 @@ ParseResult parse_source(const SourceFile &source, Diagnostics &diagnostics)
 	if (diagnostics.has_errors())
 		return ParseResult(false, {});
 
-	AstBuilder builder(source, diagnostics);
+	AstBuilder builder(source, diagnostics, std::move(options));
 	auto module = builder.build(tree);
 	return ParseResult(!diagnostics.has_errors(), std::move(module));
+}
+
+ParseResult parse_file_tree(const std::string &entry_path, Diagnostics &diagnostics,
+                            ModuleLoadOptions options)
+{
+	return ModuleLoader(entry_path, diagnostics, std::move(options)).run();
 }
 
 } // namespace rexc

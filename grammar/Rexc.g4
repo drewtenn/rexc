@@ -15,7 +15,7 @@ item
 	;
 
 moduleDeclaration
-	: 'mod' IDENT '{' item* '}'
+	: 'pub'? 'mod' IDENT (';' | '{' item* '}')
 	;
 
 useDeclaration
@@ -23,19 +23,19 @@ useDeclaration
 	;
 
 staticBuffer
-	: 'static' 'mut'? IDENT ':' '[' primitiveType ';' INTEGER ']' ';'
+	: 'pub'? 'static' 'mut'? IDENT ':' '[' primitiveType ';' INTEGER ']' ';'
 	;
 
 staticScalar
-	: 'static' 'mut'? IDENT ':' primitiveType '=' INTEGER ';'
+	: 'pub'? 'static' 'mut'? IDENT ':' primitiveType '=' INTEGER ';'
 	;
 
 externFunction
-	: 'extern' 'fn' IDENT '(' parameterList? ')' '->' type ';'
+	: 'pub'? 'extern' 'fn' IDENT '(' parameterList? ')' '->' type ';'
 	;
 
 functionDefinition
-	: 'fn' IDENT '(' parameterList? ')' '->' type block
+	: 'pub'? 'fn' IDENT '(' parameterList? ')' '->' type block
 	;
 
 parameterList

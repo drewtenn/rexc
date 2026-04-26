@@ -8,7 +8,31 @@
 #include "rexc/source.hpp"
 #include "test_support.hpp"
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <string>
+
+namespace {
+
+std::filesystem::path make_temp_dir(const std::string &name)
+{
+	auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+	auto path = std::filesystem::temp_directory_path() /
+	            ("rexc-" + name + "-" + std::to_string(stamp));
+	std::filesystem::create_directories(path);
+	return path;
+}
+
+void write_text(const std::filesystem::path &path, const std::string &text)
+{
+	std::filesystem::create_directories(path.parent_path());
+	std::ofstream output(path);
+	REQUIRE(output.is_open());
+	output << text;
+}
+
+} // namespace
 
 TEST_CASE(parser_accepts_minimal_function)
 {
@@ -64,6 +88,103 @@ TEST_CASE(parser_builds_use_imports)
 	REQUIRE_EQ(result.module().uses[0].import_path.size(), std::size_t(2));
 	REQUIRE_EQ(result.module().uses[0].import_path[0], std::string("math"));
 	REQUIRE_EQ(result.module().uses[0].import_path[1], std::string("add"));
+}
+
+TEST_CASE(parser_builds_visibility_and_file_module_declarations)
+{
+	rexc::SourceFile source("test.rx",
+		"pub mod math;\n"
+		"pub static mut VALUE: i32 = 1;\n"
+		"pub fn main() -> i32 { return VALUE; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE_EQ(result.module().modules.size(), std::size_t(1));
+	REQUIRE_EQ(result.module().modules[0].visibility, rexc::ast::Visibility::Public);
+	REQUIRE(result.module().modules[0].is_file_backed);
+	REQUIRE_EQ(result.module().modules[0].module_path.size(), std::size_t(1));
+	REQUIRE_EQ(result.module().modules[0].module_path[0], std::string("math"));
+	REQUIRE_EQ(result.module().static_scalars[0].visibility, rexc::ast::Visibility::Public);
+	REQUIRE_EQ(result.module().functions[0].visibility, rexc::ast::Visibility::Public);
+}
+
+TEST_CASE(parser_rebases_source_to_module_path)
+{
+	rexc::SourceFile source("math.rx",
+		"use inner::value;\n"
+		"pub fn add(a: i32, b: i32) -> i32 { return a + b; }\n");
+	rexc::Diagnostics diagnostics;
+	rexc::ParseOptions options;
+	options.module_path.push_back("math");
+
+	auto result = rexc::parse_source(source, diagnostics, options);
+
+	REQUIRE(result.ok());
+	REQUIRE_EQ(result.module().uses[0].module_path.size(), std::size_t(1));
+	REQUIRE_EQ(result.module().uses[0].module_path[0], std::string("math"));
+	REQUIRE_EQ(result.module().functions[0].module_path.size(), std::size_t(1));
+	REQUIRE_EQ(result.module().functions[0].module_path[0], std::string("math"));
+}
+
+TEST_CASE(parser_loads_file_backed_sibling_module)
+{
+	auto dir = make_temp_dir("sibling-module");
+	write_text(dir / "main.rx",
+	           "pub mod math;\n"
+	           "fn main() -> i32 { return math::add(1, 2); }\n");
+	write_text(dir / "math.rx",
+	           "pub fn add(a: i32, b: i32) -> i32 { return a + b; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_file_tree((dir / "main.rx").string(), diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	REQUIRE_EQ(result.module().functions.size(), std::size_t(2));
+	REQUIRE_EQ(result.module().functions[0].module_path.size(), std::size_t(0));
+	REQUIRE_EQ(result.module().functions[1].module_path.size(), std::size_t(1));
+	REQUIRE_EQ(result.module().functions[1].module_path[0], std::string("math"));
+	std::filesystem::remove_all(dir);
+}
+
+TEST_CASE(parser_loads_file_backed_module_from_package_path)
+{
+	auto dir = make_temp_dir("package-entry");
+	auto package = make_temp_dir("package-root");
+	write_text(dir / "main.rx",
+	           "pub mod math;\n"
+	           "fn main() -> i32 { return math::add(1, 2); }\n");
+	write_text(package / "math.rx",
+	           "pub fn add(a: i32, b: i32) -> i32 { return a + b; }\n");
+	rexc::Diagnostics diagnostics;
+	rexc::ModuleLoadOptions options;
+	options.package_paths.push_back(package.string());
+
+	auto result = rexc::parse_file_tree((dir / "main.rx").string(), diagnostics, options);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	REQUIRE_EQ(result.module().functions.size(), std::size_t(2));
+	REQUIRE_EQ(result.module().functions[1].module_path[0], std::string("math"));
+	std::filesystem::remove_all(dir);
+	std::filesystem::remove_all(package);
+}
+
+TEST_CASE(parser_reports_missing_file_backed_module)
+{
+	auto dir = make_temp_dir("missing-module");
+	write_text(dir / "main.rx", "mod missing;\nfn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_file_tree((dir / "main.rx").string(), diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("module file not found 'missing'") !=
+	        std::string::npos);
+	REQUIRE(diagnostics.format().find("missing.rx") != std::string::npos);
+	std::filesystem::remove_all(dir);
 }
 
 TEST_CASE(parser_builds_ast_for_add_function)

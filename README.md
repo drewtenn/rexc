@@ -1,6 +1,14 @@
 # Rexc
 
-Rexc is an experimental systems-language compiler for Drunix userland.
+Rexc is an experimental systems-language compiler intended to be a portable
+host tool on macOS, Linux, and Windows first. Drunix remains an important
+target and proving ground, but the compiler itself should build and run as a
+normal developer tool across all major operating systems.
+
+That means core compiler code should stay host-neutral. OS-specific behavior
+belongs behind small boundaries for filesystem access, process execution,
+toolchain discovery, assembler/linker invocation, runtime adapters, and target
+selection.
 
 ## Prerequisites
 
@@ -72,6 +80,13 @@ Fedora:
 ```sh
 sudo dnf install -y cmake ninja-build gcc-c++ java-21-openjdk pandoc typst perl zip unzip binutils file vim-common librsvg2-tools python3 python3-pip && python3 -m pip install --user Pillow cairosvg
 ```
+
+Windows:
+
+Windows is a first-class host portability goal for Rexc. The exact dependency
+recipe still needs to be documented as the compiler's host-toolchain boundary
+is cleaned up for MSVC, clang-cl, MinGW, PowerShell, and Windows path/process
+behavior.
 
 Notes:
 
@@ -254,9 +269,50 @@ For compatibility, `--drunix-root` also treats i386 aliases as the
 `i386-drunix` runtime target. Drunix executable links include Rexc's hosted
 standard-library runtime object before `user/lib/libc.a`.
 
+## Modules And Package Paths
+
+Use `mod foo;` to load a file-backed module named `foo`. Rexc looks for either
+`foo.rx` or `foo/mod.rx`, parses that file as module `foo`, and gives its
+items symbol names such as `foo_add`. Mark the module and any cross-module
+items `pub` when other modules need to reach them.
+
+```rust
+// main.rx
+pub mod math;
+use math::add;
+
+fn main() -> i32 {
+    return add(20, 22);
+}
+```
+
+```rust
+// math.rx
+pub fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+```
+
+`use path::to::item;` imports the final item name into the current module, so
+call sites can write `add(...)` instead of `math::add(...)`. Qualified calls
+such as `math::add(...)` remain available without a `use`.
+
+The entry file's directory is always searched first. Extra package roots are
+searched afterward, in the order they appear on the command line:
+
+```sh
+build/rexc app/main.rx --package-path vendor/core --package-path vendor/ui -S -o build/app.s
+```
+
+Each `--package-path` value must be an existing directory. If the same module
+exists in the entry directory and a package root, the entry-directory version
+wins; if it exists in multiple package roots, the first matching root wins.
+
 ## Targets
 
-Rexc currently supports Linux-compatible x86 targets and a Darwin ARM64 target:
+Rexc's host portability goal is macOS, Linux, and Windows. Separately, the
+currently implemented output targets are Linux-compatible x86 targets, a Drunix
+i386 target, and a Darwin ARM64 target:
 
 | Target | CLI option | Assembler mode | Object class | Notes |
 | --- | --- | --- | --- | --- |
@@ -286,9 +342,10 @@ source .rx
   -> Linux-compatible ELF link
 ```
 
-1. **CLI input**: `src/main.cpp` reads the input file, creates a `SourceFile`,
-   and owns the top-level flow. It prints diagnostics and exits non-zero if any
-   frontend or backend stage fails.
+1. **CLI input**: `src/main.cpp` parses the entry file tree, including
+   file-backed modules found beside the entry file or under `--package-path`
+   roots, and owns the top-level flow. It prints diagnostics and exits
+   non-zero if any frontend or backend stage fails.
 
 2. **Lexing and parsing**: ANTLR generates the lexer and parser from
    `grammar/Rexc.g4`. `src/parse.cpp` invokes those generated classes for

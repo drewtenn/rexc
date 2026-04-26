@@ -29,13 +29,57 @@ TEST_CASE(sema_accepts_valid_add_program)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_accepts_user_module_qualified_call)
+TEST_CASE(sema_accepts_public_user_module_qualified_call)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod math { pub fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+	    "fn main() -> i32 { return math::add(1, 2); }\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_private_child_function_call)
 {
 	rexc::Diagnostics diagnostics;
 
 	auto result = analyze(
 	    "mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
 	    "fn main() -> i32 { return math::add(1, 2); }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("private function 'math::add'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_accepts_private_call_within_same_module)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod math {\n"
+	    "  fn add(a: i32, b: i32) -> i32 { return a + b; }\n"
+	    "  fn run() -> i32 { return add(1, 2); }\n"
+	    "}\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_descendant_call_to_ancestor_private_function)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod outer {\n"
+	    "  fn base() -> i32 { return 7; }\n"
+	    "  mod inner { fn run() -> i32 { return outer::base(); } }\n"
+	    "}\n",
 	    diagnostics);
 
 	REQUIRE(result.ok());
@@ -47,9 +91,55 @@ TEST_CASE(sema_accepts_user_module_use_alias)
 	rexc::Diagnostics diagnostics;
 
 	auto result = analyze(
+	    "mod math { pub fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+	    "use math::add;\n"
+	    "fn main() -> i32 { return add(1, 2); }\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_use_of_private_function)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
 	    "mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
 	    "use math::add;\n"
 	    "fn main() -> i32 { return add(1, 2); }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("private function 'math::add'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_private_module_segment_from_sibling)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod outer {\n"
+	    "  mod inner { pub fn value() -> i32 { return 1; } }\n"
+	    "  mod sibling { fn run() -> i32 { return outer::inner::value(); } }\n"
+	    "}\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("private module 'outer::inner'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_accepts_pub_module_with_pub_function_from_sibling)
+{
+	rexc::Diagnostics diagnostics;
+
+	auto result = analyze(
+	    "mod outer {\n"
+	    "  pub mod inner { pub fn value() -> i32 { return 1; } }\n"
+	    "  mod sibling { fn run() -> i32 { return outer::inner::value(); } }\n"
+	    "}\n",
 	    diagnostics);
 
 	REQUIRE(result.ok());

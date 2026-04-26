@@ -10,6 +10,8 @@
 
 namespace rexc::ast {
 
+enum class Visibility { Private, Public };
+
 struct TypeName {
 	std::string name;
 	SourceLocation location;
@@ -169,6 +171,7 @@ struct ContinueStmt final : Stmt {
 
 struct Function {
 	bool is_extern = false;
+	Visibility visibility = Visibility::Private;
 	std::string name;
 	std::vector<Parameter> parameters;
 	TypeName return_type;
@@ -179,6 +182,7 @@ struct Function {
 
 struct StaticBuffer {
 	bool is_mutable = false;
+	Visibility visibility = Visibility::Private;
 	std::string name;
 	TypeName element_type;
 	std::string length_literal;
@@ -188,6 +192,7 @@ struct StaticBuffer {
 
 struct StaticScalar {
 	bool is_mutable = false;
+	Visibility visibility = Visibility::Private;
 	std::string name;
 	TypeName type;
 	std::string initializer_literal;
@@ -201,7 +206,15 @@ struct UseDecl {
 	SourceLocation location;
 };
 
+struct ModuleDecl {
+	Visibility visibility = Visibility::Private;
+	std::vector<std::string> module_path;
+	bool is_file_backed = false;
+	SourceLocation location;
+};
+
 struct Module {
+	std::vector<ModuleDecl> modules;
 	std::vector<UseDecl> uses;
 	std::vector<StaticBuffer> static_buffers;
 	std::vector<StaticScalar> static_scalars;

@@ -15,7 +15,6 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -73,6 +72,8 @@ struct FunctionInfo {
 	SourceLocation location;
 	PrimitiveType return_type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
 	std::vector<PrimitiveType> parameter_types;
+	std::vector<std::string> module_path;
+	ast::Visibility visibility = ast::Visibility::Private;
 };
 
 struct LocalInfo {
@@ -83,6 +84,14 @@ struct LocalInfo {
 struct GlobalInfo {
 	PrimitiveType type;
 	bool is_mutable = false;
+	std::vector<std::string> module_path;
+	ast::Visibility visibility = ast::Visibility::Private;
+};
+
+struct ModuleInfo {
+	SourceLocation location;
+	std::vector<std::string> module_path;
+	ast::Visibility visibility = ast::Visibility::Private;
 };
 
 enum class ImportKind { Function, Global, Module };
@@ -102,6 +111,7 @@ public:
 
 	bool run()
 	{
+		build_module_table();
 		build_static_table();
 		build_function_table();
 		build_import_table();
@@ -117,21 +127,58 @@ public:
 private:
 	using ImportScope = std::unordered_map<std::string, ImportInfo>;
 
-	void note_module_path(const std::vector<std::string> &module_path)
+	void note_module_path(const std::vector<std::string> &module_path,
+	                      ast::Visibility leaf_visibility = ast::Visibility::Private,
+	                      bool public_prefixes = false)
 	{
 		for (std::size_t size = 1; size <= module_path.size(); ++size) {
 			std::vector<std::string> prefix(module_path.begin(),
 			                                module_path.begin() + size);
-			modules_.insert(canonical_path(prefix));
+			ast::Visibility visibility =
+			    (public_prefixes || size == module_path.size())
+			        ? leaf_visibility
+			        : ast::Visibility::Private;
+			std::string key = canonical_path(prefix);
+			auto [it, inserted] = modules_.emplace(
+			    key, ModuleInfo{SourceLocation{}, prefix, visibility});
+			if (inserted)
+				continue;
+			if (visibility == ast::Visibility::Public)
+				it->second.visibility = ast::Visibility::Public;
 		}
 	}
 
-	void note_item_path(const std::vector<std::string> &path)
+	void note_item_path(const std::vector<std::string> &path, bool is_stdlib = false)
 	{
 		if (path.empty())
 			return;
 		std::vector<std::string> module_path(path.begin(), path.end() - 1);
-		note_module_path(module_path);
+		note_module_path(module_path,
+		                 is_stdlib ? ast::Visibility::Public
+		                           : ast::Visibility::Private,
+		                 is_stdlib);
+	}
+
+	void build_module_table()
+	{
+		if (options_.include_stdlib_prelude) {
+			for (const auto &function : stdlib::prelude_functions()) {
+				if (auto path = stdlib_path_for_symbol(function.name))
+					note_item_path(*path, true);
+			}
+		}
+
+		for (const auto &module : module_.modules) {
+			note_module_path(module.module_path);
+			std::string key = canonical_path(module.module_path);
+			if (modules_.find(key) != modules_.end() &&
+			    !modules_[key].location.file.empty()) {
+				diagnostics_.error(module.location, "duplicate module '" + key + "'");
+				continue;
+			}
+			modules_[key] = ModuleInfo{module.location, module.module_path,
+			                           module.visibility};
+		}
 	}
 
 	void build_static_table()
@@ -157,7 +204,8 @@ private:
 				diagnostics_.error(buffer.location, "static buffer length must be greater than zero");
 
 			globals_[key] = GlobalInfo{PrimitiveType{PrimitiveKind::Str},
-			                           buffer.is_mutable};
+			                           buffer.is_mutable, buffer.module_path,
+			                           buffer.visibility};
 		}
 
 		for (const auto &scalar : module_.static_scalars) {
@@ -182,7 +230,8 @@ private:
 				                   "static scalar initializer does not fit in i32");
 			}
 
-			globals_[key] = GlobalInfo{type, scalar.is_mutable};
+			globals_[key] = GlobalInfo{type, scalar.is_mutable, scalar.module_path,
+			                           scalar.visibility};
 		}
 	}
 
@@ -191,9 +240,10 @@ private:
 		if (options_.include_stdlib_prelude) {
 			for (const auto &function : stdlib::prelude_functions()) {
 				FunctionInfo info{SourceLocation{}, function.return_type, function.parameters};
+				info.visibility = ast::Visibility::Public;
 				functions_[function.name] = info;
 				if (auto path = stdlib_path_for_symbol(function.name)) {
-					note_item_path(*path);
+					info.module_path = std::vector<std::string>(path->begin(), path->end() - 1);
 					functions_[canonical_path(*path)] = std::move(info);
 				}
 			}
@@ -212,6 +262,8 @@ private:
 			info.return_type = check_type(function.return_type);
 			for (const auto &parameter : function.parameters)
 				info.parameter_types.push_back(check_type(parameter.type));
+			info.module_path = function.module_path;
+			info.visibility = function.visibility;
 			functions_[key] = std::move(info);
 		}
 	}
@@ -226,10 +278,19 @@ private:
 			ImportKind kind;
 			if (functions_.find(target_key) != functions_.end()) {
 				kind = ImportKind::Function;
+				if (!is_function_accessible(functions_.at(target_key), use.module_path,
+				                            use.location, target_key))
+					continue;
 			} else if (globals_.find(target_key) != globals_.end()) {
 				kind = ImportKind::Global;
+				if (!is_global_accessible(globals_.at(target_key), use.module_path,
+				                          use.location, target_key))
+					continue;
 			} else if (modules_.find(target_key) != modules_.end()) {
 				kind = ImportKind::Module;
+				if (!is_module_accessible(use.import_path, use.module_path,
+				                          use.location))
+					continue;
 			} else {
 				diagnostics_.error(use.location, "unknown import '" + target_key + "'");
 				continue;
@@ -251,6 +312,83 @@ private:
 		return current_module_path_ != nullptr ? *current_module_path_ : empty;
 	}
 
+	bool is_descendant_or_same(const std::vector<std::string> &candidate,
+	                           const std::vector<std::string> &ancestor) const
+	{
+		if (ancestor.size() > candidate.size())
+			return false;
+		for (std::size_t i = 0; i < ancestor.size(); ++i) {
+			if (candidate[i] != ancestor[i])
+				return false;
+		}
+		return true;
+	}
+
+	std::vector<std::string> parent_module_path(
+	    const std::vector<std::string> &module_path) const
+	{
+		if (module_path.empty())
+			return {};
+		return std::vector<std::string>(module_path.begin(), module_path.end() - 1);
+	}
+
+	bool is_module_accessible(const std::vector<std::string> &module_path,
+	                          const std::vector<std::string> &requester,
+	                          SourceLocation location)
+	{
+		for (std::size_t size = 1; size <= module_path.size(); ++size) {
+			std::vector<std::string> prefix(module_path.begin(),
+			                                module_path.begin() + size);
+			auto it = modules_.find(canonical_path(prefix));
+			if (it == modules_.end() ||
+			    it->second.visibility == ast::Visibility::Public)
+				continue;
+
+			auto parent = parent_module_path(prefix);
+			if (requester == parent || is_descendant_or_same(requester, prefix))
+				continue;
+
+			diagnostics_.error(location,
+			                   "private module '" + canonical_path(prefix) + "'");
+			return false;
+		}
+		return true;
+	}
+
+	bool is_item_visible(ast::Visibility visibility,
+	                     const std::vector<std::string> &owner,
+	                     const std::vector<std::string> &requester) const
+	{
+		return visibility == ast::Visibility::Public ||
+		       is_descendant_or_same(requester, owner);
+	}
+
+	bool is_function_accessible(const FunctionInfo &function,
+	                            const std::vector<std::string> &requester,
+	                            SourceLocation location,
+	                            const std::string &display_name)
+	{
+		if (!is_module_accessible(function.module_path, requester, location))
+			return false;
+		if (is_item_visible(function.visibility, function.module_path, requester))
+			return true;
+		diagnostics_.error(location, "private function '" + display_name + "'");
+		return false;
+	}
+
+	bool is_global_accessible(const GlobalInfo &global,
+	                          const std::vector<std::string> &requester,
+	                          SourceLocation location,
+	                          const std::string &display_name)
+	{
+		if (!is_module_accessible(global.module_path, requester, location))
+			return false;
+		if (is_item_visible(global.visibility, global.module_path, requester))
+			return true;
+		diagnostics_.error(location, "private static '" + display_name + "'");
+		return false;
+	}
+
 	const ImportInfo *find_import(const std::string &alias) const
 	{
 		auto scope = imports_.find(canonical_path(current_module_path()));
@@ -266,7 +404,19 @@ private:
 		return it != functions_.end() ? &it->second : nullptr;
 	}
 
-	const FunctionInfo *resolve_function(const std::vector<std::string> &path) const
+	const FunctionInfo *check_function_candidate(
+	    const std::vector<std::string> &display_path,
+	    const FunctionInfo *function, SourceLocation location)
+	{
+		if (function == nullptr)
+			return nullptr;
+		is_function_accessible(*function, current_module_path(), location,
+		                       canonical_path(display_path));
+		return function;
+	}
+
+	const FunctionInfo *resolve_function(const std::vector<std::string> &path,
+	                                     SourceLocation location)
 	{
 		if (path.empty())
 			return nullptr;
@@ -278,9 +428,10 @@ private:
 				return it != functions_.end() ? &it->second : nullptr;
 			}
 
-			if (auto function = find_function(item_path(current_module_path(), path[0])))
-				return function;
-			return find_function(path);
+			auto local_path = item_path(current_module_path(), path[0]);
+			if (auto function = find_function(local_path))
+				return check_function_candidate(local_path, function, location);
+			return check_function_candidate(path, find_function(path), location);
 		}
 
 		if (auto import = find_import(path[0]);
@@ -288,14 +439,14 @@ private:
 			auto expanded = import->target_path;
 			expanded.insert(expanded.end(), path.begin() + 1, path.end());
 			if (auto function = find_function(expanded))
-				return function;
+				return check_function_candidate(expanded, function, location);
 		}
 
 		auto relative = current_module_path();
 		relative.insert(relative.end(), path.begin(), path.end());
 		if (auto function = find_function(relative))
-			return function;
-		return find_function(path);
+			return check_function_candidate(relative, function, location);
+		return check_function_candidate(path, find_function(path), location);
 	}
 
 	const GlobalInfo *find_global(const std::vector<std::string> &path) const
@@ -304,7 +455,7 @@ private:
 		return it != globals_.end() ? &it->second : nullptr;
 	}
 
-	const GlobalInfo *resolve_global(const std::string &name) const
+	const GlobalInfo *resolve_global(const std::string &name, SourceLocation location)
 	{
 		if (auto import = find_import(name);
 		    import != nullptr && import->kind == ImportKind::Global) {
@@ -312,9 +463,17 @@ private:
 			return it != globals_.end() ? &it->second : nullptr;
 		}
 
-		if (auto global = find_global(item_path(current_module_path(), name)))
+		auto local_path = item_path(current_module_path(), name);
+		if (auto global = find_global(local_path)) {
+			is_global_accessible(*global, current_module_path(), location,
+			                     canonical_path(local_path));
 			return global;
-		return find_global({name});
+		}
+		if (auto global = find_global({name})) {
+			is_global_accessible(*global, current_module_path(), location, name);
+			return global;
+		}
+		return nullptr;
 	}
 
 	void analyze_function(const ast::Function &function)
@@ -362,7 +521,7 @@ private:
 			const auto &assign = static_cast<const ast::AssignStmt &>(statement);
 			auto it = locals.find(assign.name);
 			if (it == locals.end()) {
-				auto global = resolve_global(assign.name);
+				auto global = resolve_global(assign.name, assign.location);
 				if (global == nullptr) {
 					diagnostics_.error(assign.location, "unknown name '" + assign.name + "'");
 					check_expr(locals, *assign.value);
@@ -501,7 +660,7 @@ private:
 			auto it = locals.find(name.name);
 			if (it != locals.end())
 				return it->second.type;
-			auto global = resolve_global(name.name);
+			auto global = resolve_global(name.name, name.location);
 			if (global != nullptr)
 				return global->type;
 			diagnostics_.error(name.location, "unknown name '" + name.name + "'");
@@ -553,7 +712,7 @@ private:
 		}
 		case ast::Expr::Kind::Call: {
 			const auto &call = static_cast<const ast::CallExpr &>(expr);
-			auto function = resolve_function(call.callee_path);
+			auto function = resolve_function(call.callee_path, call.location);
 			if (function == nullptr) {
 				diagnostics_.error(call.location, "unknown function '" + call.callee + "'");
 			} else {
@@ -766,7 +925,7 @@ private:
 	std::unordered_map<std::string, GlobalInfo> globals_;
 	std::unordered_map<std::string, FunctionInfo> functions_;
 	std::unordered_map<std::string, ImportScope> imports_;
-	std::unordered_set<std::string> modules_;
+	std::unordered_map<std::string, ModuleInfo> modules_;
 	const std::vector<std::string> *current_module_path_ = nullptr;
 };
 

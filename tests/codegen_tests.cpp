@@ -76,7 +76,7 @@ TEST_CASE(codegen_emits_call_and_caller_stack_cleanup)
 TEST_CASE(codegen_emits_user_module_function_symbols)
 {
 	auto assembly = compile_to_assembly(
-		"mod math { fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
+		"mod math { pub fn add(a: i32, b: i32) -> i32 { return a + b; } }\n"
 		"fn main() -> i32 { return math::add(1, 2); }\n");
 
 	REQUIRE(assembly.find(".globl math_add") != std::string::npos);

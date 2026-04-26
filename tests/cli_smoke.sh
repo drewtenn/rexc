@@ -12,6 +12,36 @@ test -s "${tmp_dir}/add.s"
 grep -q ".globl main" "${tmp_dir}/add.s"
 grep -q "call add" "${tmp_dir}/add.s"
 
+mkdir -p "${tmp_dir}/package-entry" "${tmp_dir}/package-root-a" "${tmp_dir}/package-root-b"
+cat > "${tmp_dir}/package-entry/main.rx" <<'RX'
+pub mod math;
+pub mod util;
+
+fn main() -> i32 {
+    return math::add(util::one(), 41);
+}
+RX
+cat > "${tmp_dir}/package-root-a/math.rx" <<'RX'
+pub fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+RX
+cat > "${tmp_dir}/package-root-b/util.rx" <<'RX'
+pub fn one() -> i32 {
+    return 1;
+}
+RX
+"${build_dir}/rexc" "${tmp_dir}/package-entry/main.rx" --package-path "${tmp_dir}/package-root-a" --package-path "${tmp_dir}/package-root-b" --target i386 -S -o "${tmp_dir}/package-path.s"
+test -s "${tmp_dir}/package-path.s"
+grep -F -q "call math_add" "${tmp_dir}/package-path.s"
+grep -F -q "call util_one" "${tmp_dir}/package-path.s"
+
+if "${build_dir}/rexc" "${repo_dir}/examples/add.rx" --package-path "${tmp_dir}/missing-package-root" --target i386 -S -o "${tmp_dir}/bad-package-path.s" 2> "${tmp_dir}/bad-package-path.err"; then
+	echo "expected package path validation to fail" >&2
+	exit 1
+fi
+grep -F -q "package path is not a directory: ${tmp_dir}/missing-package-root" "${tmp_dir}/bad-package-path.err"
+
 "${build_dir}/rexc" "${repo_dir}/examples/types.rx" --target i386 -S -o "${tmp_dir}/types.s"
 test -s "${tmp_dir}/types.s"
 grep -F -q '.asciz "hello"' "${tmp_dir}/types.s"
