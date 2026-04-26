@@ -20,6 +20,7 @@ struct FunctionDecl {
 
 const std::vector<FunctionDecl> &stdlib_functions();
 const std::vector<FunctionDecl> &prelude_functions();
+const std::vector<std::string> &reserved_runtime_symbols();
 const FunctionDecl *find_stdlib_function(const std::string &name);
 const FunctionDecl *find_prelude_function(const std::string &name);
 std::string hosted_runtime_assembly(TargetTriple target);

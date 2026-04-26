@@ -67,6 +67,21 @@ void append_source_unit_declarations(std::vector<FunctionDecl> &target,
 	}
 }
 
+void append_source_unit_symbol_names(std::vector<std::string> &target,
+                                     const SourceUnit &unit)
+{
+	Diagnostics diagnostics;
+	SourceFile source(unit.path, unit.source);
+	auto parsed = parse_source(source, diagnostics);
+	if (!parsed.ok())
+		return;
+
+	for (const auto &function : parsed.module().functions) {
+		if (!function.name.empty())
+			target.push_back(function.name);
+	}
+}
+
 const std::unordered_set<std::string> &default_prelude_names()
 {
 	static const std::unordered_set<std::string> names{
@@ -166,6 +181,21 @@ const std::vector<FunctionDecl> &prelude_functions()
 		return result;
 	}();
 	return functions;
+}
+
+const std::vector<std::string> &reserved_runtime_symbols()
+{
+	static const std::vector<std::string> symbols = [] {
+		std::vector<std::string> result;
+		for (const auto &unit : portable_stdlib_source_units())
+			append_source_unit_symbol_names(result, unit);
+		result.push_back("__rexc_argc");
+		result.push_back("__rexc_argv");
+		result.push_back("__rexc_envp");
+		result.push_back("environ");
+		return result;
+	}();
+	return symbols;
 }
 
 const FunctionDecl *find_stdlib_function(const std::string &name)

@@ -270,8 +270,9 @@ private:
 	void build_function_table()
 	{
 		if (include_stdlib_symbols()) {
+			for (const auto &symbol : stdlib::reserved_runtime_symbols())
+				reserved_stdlib_function_symbols_.insert(symbol);
 			for (const auto &function : stdlib::stdlib_functions()) {
-				reserved_stdlib_function_symbols_.insert(function.name);
 				FunctionInfo info{SourceLocation{}, function.return_type, function.parameters};
 				info.visibility = ast::Visibility::Public;
 				if (auto path = stdlib_path_for_symbol(function.name)) {
@@ -291,7 +292,7 @@ private:
 		for (const auto &function : module_.functions) {
 			std::string key = canonical_item_path(function.module_path, function.name);
 			if (functions_.find(key) != functions_.end() ||
-			    (function.module_path.empty() &&
+			    (!function.is_extern && function.module_path.empty() &&
 			     reserved_stdlib_function_symbols_.find(function.name) !=
 			         reserved_stdlib_function_symbols_.end()) ||
 			    globals_.find(key) != globals_.end()) {
