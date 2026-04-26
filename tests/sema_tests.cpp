@@ -707,6 +707,35 @@ TEST_CASE(sema_rejects_std_bridge_symbol_as_bare_name)
 	        std::string::npos);
 }
 
+TEST_CASE(sema_rejects_user_function_that_collides_with_hidden_stdlib_symbol)
+{
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "fn std_io_println(value: str) -> i32 { return 0; }\n"
+		    "fn main() -> i32 { return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate function 'std_io_println'") !=
+		        std::string::npos);
+	}
+
+	{
+		rexc::Diagnostics diagnostics;
+
+		auto result = analyze(
+		    "fn alloc_reset() -> i32 { return 0; }\n"
+		    "fn main() -> i32 { return 0; }\n",
+		    diagnostics);
+
+		REQUIRE(!result.ok());
+		REQUIRE(diagnostics.format().find("duplicate function 'alloc_reset'") !=
+		        std::string::npos);
+	}
+}
+
 TEST_CASE(sema_accepts_core_memory_helpers)
 {
 	rexc::Diagnostics diagnostics;

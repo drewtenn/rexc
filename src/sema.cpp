@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -256,6 +257,7 @@ private:
 	{
 		if (include_stdlib_symbols()) {
 			for (const auto &function : stdlib::stdlib_functions()) {
+				reserved_stdlib_function_symbols_.insert(function.name);
 				FunctionInfo info{SourceLocation{}, function.return_type, function.parameters};
 				info.visibility = ast::Visibility::Public;
 				if (auto path = stdlib_path_for_symbol(function.name)) {
@@ -275,6 +277,9 @@ private:
 		for (const auto &function : module_.functions) {
 			std::string key = canonical_item_path(function.module_path, function.name);
 			if (functions_.find(key) != functions_.end() ||
+			    (function.module_path.empty() &&
+			     reserved_stdlib_function_symbols_.find(function.name) !=
+			         reserved_stdlib_function_symbols_.end()) ||
 			    globals_.find(key) != globals_.end()) {
 				diagnostics_.error(function.location, "duplicate function '" + key + "'");
 				continue;
@@ -992,6 +997,7 @@ private:
 	SemanticOptions options_;
 	std::unordered_map<std::string, GlobalInfo> globals_;
 	std::unordered_map<std::string, FunctionInfo> functions_;
+	std::unordered_set<std::string> reserved_stdlib_function_symbols_;
 	std::unordered_map<std::string, ImportScope> imports_;
 	std::unordered_map<std::string, ModuleInfo> modules_;
 	const std::vector<std::string> *current_module_path_ = nullptr;
