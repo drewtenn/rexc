@@ -13,7 +13,7 @@ namespace rexc::ir {
 using Type = PrimitiveType;
 
 struct Value {
-	enum class Kind { Integer, Bool, Char, String, Local, Unary, Binary, Cast, Call };
+	enum class Kind { Integer, Bool, Char, String, Local, Global, Unary, Binary, Cast, Call };
 
 	Value(Kind kind, Type type);
 	virtual ~Value() = default;
@@ -49,6 +49,12 @@ struct StringValue final : Value {
 
 struct LocalValue final : Value {
 	LocalValue(std::string name, Type type);
+
+	std::string name;
+};
+
+struct GlobalValue final : Value {
+	GlobalValue(std::string name, Type type);
 
 	std::string name;
 };
@@ -163,7 +169,14 @@ struct Function {
 	std::vector<std::unique_ptr<Statement>> body;
 };
 
+struct StaticBuffer {
+	std::string name;
+	Type element_type = PrimitiveType{PrimitiveKind::UnsignedInteger, 8};
+	std::size_t length = 0;
+};
+
 struct Module {
+	std::vector<StaticBuffer> static_buffers;
 	std::vector<Function> functions;
 };
 

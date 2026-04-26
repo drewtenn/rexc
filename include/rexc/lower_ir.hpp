@@ -6,6 +6,10 @@
 
 namespace rexc {
 
-ir::Module lower_to_ir(const ast::Module &module);
+struct LowerOptions {
+	bool include_stdlib_prelude = true;
+};
+
+ir::Module lower_to_ir(const ast::Module &module, LowerOptions options = {});
 
 } // namespace rexc

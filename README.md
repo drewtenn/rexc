@@ -359,20 +359,46 @@ Linux/System V x86_64 calling convention.
 
 ## Standard Library
 
-Rexc's standard library is layered. `core` is the always-available,
-target-independent contract layer. `std` is the hosted layer linked into normal
-command-line executables. The first `std` milestone exposes a small prelude, so
-programs can call standard functions without module syntax:
+Rexc's standard library is being shaped after Rust's layered model, scaled down
+to what Rexc can support today. `core` is the always-available,
+target-independent contract layer. A future `alloc` layer will own heap-backed
+types once Rexc has an allocator contract. `std` is the hosted layer linked
+into normal command-line executables.
+
+The current implementation is still a bootstrap stage: hosted `std` functions
+are declared by compiler metadata and implemented by small target runtime
+objects. That keeps executable I/O working while the language grows enough to
+move portable library behavior into Rexc source. Over time, target-specific
+assembly should shrink to ABI/syscall adapters, not contain the whole standard
+library.
+
+The source tree mirrors those layers: `src/stdlib/core/` contains
+target-independent catalog entries, `src/stdlib/std/` contains hosted prelude
+entries, and `src/stdlib/sys/` contains target runtime adapters.
+
+The first `std` milestone exposes a small prelude, so programs can call
+standard functions without module syntax:
 
 | Function | Type | Behavior |
 | --- | --- | --- |
 | `print` | `fn(str) -> i32` | Writes a string to stdout without adding a newline. |
 | `println` | `fn(str) -> i32` | Writes a string to stdout followed by `\n`. |
 | `read_line` | `fn() -> str` | Reads one stdin line into a runtime-owned 1024-byte buffer and returns it as `str`. |
+| `strlen` | `fn(str) -> i32` | Returns the byte length of a null-terminated string. |
+| `str_eq` | `fn(str, str) -> bool` | Compares two null-terminated byte strings for equality. |
+| `print_i32` | `fn(i32) -> i32` | Writes a signed decimal integer without adding a newline. |
+| `println_i32` | `fn(i32) -> i32` | Writes a signed decimal integer followed by `\n`. |
+| `parse_i32` | `fn(str) -> i32` | Parses a signed decimal integer, returning `0` for invalid or overflow input. |
+| `read_i32` | `fn() -> i32` | Reads one input line and parses it as `i32`. |
 | `exit` | `fn(i32) -> i32` | Terminates the process with the given status. |
 
 `read_line` strips one trailing newline when present, always null-terminates the
 buffer, and overwrites the same buffer on the next `read_line` call.
+`strlen`, `str_eq`, and `parse_i32` are modeled as early `core`-style
+target-independent contracts, even though the bootstrap implementation still
+emits them through target runtime objects. `parse_i32` accepts an optional
+leading `-` followed by decimal digits; empty strings, invalid characters, and
+overflow return `0` until Rexc has richer result types.
 
 Example:
 
@@ -395,11 +421,29 @@ printf 'friend\n' | build/std_io
 
 Assembly-only (`-S`) and object-only (`-c`) builds can reference standard
 library symbols, but they do not include the runtime object. Source-level
-prelude names are `print`, `println`, `read_line`, and `exit`. ELF assembly
+prelude names are `print`, `println`, `read_line`, `strlen`, `str_eq`,
+`print_i32`, `println_i32`, `parse_i32`, `read_i32`, and `exit`. ELF assembly
 references those names directly. `arm64-macos` assembly references Darwin
-symbols `_print`, `_println`, `_read_line`, and `_exit`; the hosted Darwin
-runtime provides `_print`, `_println`, and `_read_line`, while `_exit` is
-normally supplied by libc when linked with `clang`.
+symbols with leading underscores. The hosted Darwin runtime provides Rexc's
+stdlib symbols except `_exit`, which is normally supplied by libc when linked
+with `clang`.
+
+### Standard Library Roadmap
+
+Rexc's stdlib should move toward this Rust-like shape:
+
+| Layer | Role | Rexc direction |
+| --- | --- | --- |
+| `core` | Target-independent primitives and compiler-known contracts. No OS, process, file, terminal, or heap dependency. | Keep primitive operations, string/slice contracts, panic/abort hooks, and eventually traits here. |
+| `alloc` | Heap-backed library types that require an allocator but not an OS. | Add after Rexc has allocator hooks; this is where owned strings, vectors, and boxed values should live. |
+| `std` | Hosted OS integration layered on `core` and `alloc`. | Keep console I/O, process exit, files, environment, arguments, and platform services here. |
+| `sys`/runtime adapters | Narrow target- and OS-specific bridge code. | Split by target triple such as `i386-linux`, `x86_64-linux`, `arm64-macos`, and later Drunix; keep assembly here only when ABI or syscall details require it. |
+
+Near-term stdlib work should prefer portable implementations over duplicating
+logic in every architecture file. For example, string comparison, integer
+formatting, parsing, and later collection logic should eventually be implemented
+once in Rexc library source or portable runtime code, with only `read`, `write`,
+`exit`, allocation, and similar host hooks supplied per target.
 
 ## Operators And Control Flow
 

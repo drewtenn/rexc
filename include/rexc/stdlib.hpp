@@ -8,7 +8,10 @@
 
 namespace rexc::stdlib {
 
+enum class Layer { Core, Alloc, Std, Sys };
+
 struct FunctionDecl {
+	Layer layer;
 	std::string name;
 	std::vector<PrimitiveType> parameters;
 	PrimitiveType return_type;

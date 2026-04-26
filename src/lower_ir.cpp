@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -27,6 +28,11 @@ PrimitiveType i32_type()
 PrimitiveType bool_type()
 {
 	return PrimitiveType{PrimitiveKind::Bool};
+}
+
+PrimitiveType u8_type()
+{
+	return PrimitiveType{PrimitiveKind::UnsignedInteger, 8};
 }
 
 bool is_comparison_operator(const std::string &op)
@@ -53,15 +59,25 @@ struct FunctionInfo {
 	std::vector<ir::Type> parameter_types;
 };
 
+struct GlobalInfo {
+	ir::Type type = PrimitiveType{PrimitiveKind::Str};
+};
+
 class Lowerer {
 public:
-	explicit Lowerer(const ast::Module &module) : module_(module) {}
+	Lowerer(const ast::Module &module, LowerOptions options)
+		: module_(module), options_(options)
+	{
+	}
 
 	ir::Module run()
 	{
+		build_static_table();
 		build_function_table();
 
 		ir::Module lowered;
+		for (const auto &buffer : module_.static_buffers)
+			lowered.static_buffers.push_back(lower_static_buffer(buffer));
 		for (const auto &function : module_.functions)
 			lowered.functions.push_back(lower_function(function));
 		return lowered;
@@ -70,13 +86,21 @@ public:
 private:
 	using Locals = std::unordered_map<std::string, ir::Type>;
 
+	void build_static_table()
+	{
+		for (const auto &buffer : module_.static_buffers)
+			globals_[buffer.name] = GlobalInfo{PrimitiveType{PrimitiveKind::Str}};
+	}
+
 	void build_function_table()
 	{
-		for (const auto &function : stdlib::prelude_functions()) {
-			FunctionInfo info;
-			info.return_type = function.return_type;
-			info.parameter_types = function.parameters;
-			functions_[function.name] = std::move(info);
+		if (options_.include_stdlib_prelude) {
+			for (const auto &function : stdlib::prelude_functions()) {
+				FunctionInfo info;
+				info.return_type = function.return_type;
+				info.parameter_types = function.parameters;
+				functions_[function.name] = std::move(info);
+			}
 		}
 
 		for (const auto &function : module_.functions) {
@@ -115,9 +139,12 @@ private:
 		case ast::Expr::Kind::Name: {
 			const auto &name = static_cast<const ast::NameExpr &>(expr);
 			auto it = locals.find(name.name);
-			if (it == locals.end())
-				throw std::runtime_error("unknown local in IR lowering: " + name.name);
-			return std::make_unique<ir::LocalValue>(name.name, it->second);
+			if (it != locals.end())
+				return std::make_unique<ir::LocalValue>(name.name, it->second);
+			auto global = globals_.find(name.name);
+			if (global != globals_.end())
+				return std::make_unique<ir::GlobalValue>(name.name, global->second.type);
+			throw std::runtime_error("unknown name in IR lowering: " + name.name);
 		}
 		case ast::Expr::Kind::Binary: {
 			const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
@@ -130,7 +157,9 @@ private:
 			auto lhs = lower_expr(*binary.lhs, locals, expected);
 			ir::Type operand_type = lhs->type;
 			auto rhs = lower_expr(*binary.rhs, locals, operand_type);
-			ir::Type type = is_comparison_operator(binary.op) ? bool_type() : operand_type;
+			ir::Type type =
+				is_comparison_operator(binary.op) ? bool_type()
+				                                  : lower_binary_result_type(binary.op, operand_type);
 			return std::make_unique<ir::BinaryValue>(binary.op, std::move(lhs),
 			                                         std::move(rhs), type);
 		}
@@ -179,6 +208,13 @@ private:
 			type = *target_type;
 		}
 		return std::make_unique<ir::UnaryValue>(unary.op, std::move(operand), type);
+	}
+
+	ir::Type lower_binary_result_type(const std::string &op, ir::Type lhs_type) const
+	{
+		if (lhs_type.kind == PrimitiveKind::Str && (op == "+" || op == "-"))
+			return pointer_to(u8_type());
+		return lhs_type;
 	}
 
 	std::vector<std::unique_ptr<ir::Statement>> lower_statements(
@@ -278,15 +314,26 @@ private:
 		return lowered;
 	}
 
+	ir::StaticBuffer lower_static_buffer(const ast::StaticBuffer &buffer)
+	{
+		ir::StaticBuffer lowered;
+		lowered.name = buffer.name;
+		lowered.element_type = lower_type(buffer.element_type);
+		lowered.length = static_cast<std::size_t>(std::stoull(buffer.length_literal));
+		return lowered;
+	}
+
 	const ast::Module &module_;
+	LowerOptions options_;
+	std::unordered_map<std::string, GlobalInfo> globals_;
 	std::unordered_map<std::string, FunctionInfo> functions_;
 };
 
 } // namespace
 
-ir::Module lower_to_ir(const ast::Module &module)
+ir::Module lower_to_ir(const ast::Module &module, LowerOptions options)
 {
-	return Lowerer(module).run();
+	return Lowerer(module, options).run();
 }
 
 } // namespace rexc

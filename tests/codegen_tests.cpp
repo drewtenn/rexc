@@ -482,3 +482,49 @@ TEST_CASE(codegen_x86_64_emits_call_statement)
 	REQUIRE(assembly.find(".Lstr0:") != std::string::npos);
 	REQUIRE(assembly.find(".asciz \"hello\"") != std::string::npos);
 }
+
+TEST_CASE(codegen_i386_emits_std_string_helper_calls)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") { return strlen(\"hello\"); } return 0; }\n");
+
+	REQUIRE(assembly.find("call str_eq") != std::string::npos);
+	REQUIRE(assembly.find("call strlen") != std::string::npos);
+	REQUIRE(assembly.find("addl $8, %esp") != std::string::npos);
+	REQUIRE(assembly.find("addl $4, %esp") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_std_string_helper_calls)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") { return strlen(\"hello\"); } return 0; }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("call str_eq") != std::string::npos);
+	REQUIRE(assembly.find("call strlen") != std::string::npos);
+	REQUIRE(assembly.find("popq %rdi") != std::string::npos);
+	REQUIRE(assembly.find("popq %rsi") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_std_numeric_helper_calls)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); return read_i32(); }\n");
+
+	REQUIRE(assembly.find("call print_i32") != std::string::npos);
+	REQUIRE(assembly.find("call println_i32") != std::string::npos);
+	REQUIRE(assembly.find("call parse_i32") != std::string::npos);
+	REQUIRE(assembly.find("call read_i32") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_std_numeric_helper_calls)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); return read_i32(); }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("call print_i32") != std::string::npos);
+	REQUIRE(assembly.find("call println_i32") != std::string::npos);
+	REQUIRE(assembly.find("call parse_i32") != std::string::npos);
+	REQUIRE(assembly.find("call read_i32") != std::string::npos);
+}

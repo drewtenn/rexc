@@ -16,6 +16,11 @@ private:
 	bool ok_;
 };
 
-SemanticResult analyze_module(const ast::Module &module, Diagnostics &diagnostics);
+struct SemanticOptions {
+	bool include_stdlib_prelude = true;
+};
+
+SemanticResult analyze_module(const ast::Module &module, Diagnostics &diagnostics,
+                              SemanticOptions options = {});
 
 } // namespace rexc

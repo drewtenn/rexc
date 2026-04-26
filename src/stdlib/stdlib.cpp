@@ -1,262 +1,232 @@
 #include "rexc/stdlib.hpp"
 
+#include "rexc/codegen_arm64.hpp"
+#include "rexc/codegen_x86.hpp"
+#include "rexc/diagnostics.hpp"
+#include "rexc/lower_ir.hpp"
+#include "rexc/parse.hpp"
+#include "rexc/sema.hpp"
+#include "rexc/source.hpp"
+
+#include "core/library.hpp"
+#include "std/library.hpp"
+#include "sys/runtime.hpp"
+
 #include <string>
 
 namespace rexc::stdlib {
 namespace {
 
-PrimitiveType i32_type()
+void append_functions(std::vector<FunctionDecl> &target,
+                      const std::vector<FunctionDecl> &source)
 {
-	return PrimitiveType{PrimitiveKind::SignedInteger, 32};
+	target.insert(target.end(), source.begin(), source.end());
 }
 
-PrimitiveType str_type()
+const char *portable_stdlib_source()
 {
-	return PrimitiveType{PrimitiveKind::Str};
+	return R"(static mut READ_LINE_BUFFER: [u8; 1024];
+
+extern fn sys_write(fd: i32, buffer: str, len: i32) -> i32;
+extern fn sys_read(fd: i32, buffer: *u8, len: i32) -> i32;
+extern fn sys_exit(status: i32) -> i32;
+
+fn strlen(value: str) -> i32 {
+	let mut index: i32 = 0;
+	while value[index] != 0 {
+		index = index + 1;
+	}
+	return index;
 }
 
-std::string i386_hosted_runtime_assembly()
-{
-	return R"(.section .rodata
-.Lrexc_newline:
-	.byte 10
-.section .bss
-.Lrexc_read_line_buffer:
-	.zero 1024
-.text
-.globl print
-print:
-	pushl %ebp
-	movl %esp, %ebp
-	pushl %ebx
-	movl 8(%ebp), %ecx
-	xorl %edx, %edx
-.Lrexc_i386_print_len:
-	cmpb $0, (%ecx,%edx)
-	je .Lrexc_i386_print_write
-	incl %edx
-	jmp .Lrexc_i386_print_len
-.Lrexc_i386_print_write:
-	movl $4, %eax
-	movl $1, %ebx
-	int $0x80
-	popl %ebx
-	leave
-	ret
-.globl println
-println:
-	pushl %ebp
-	movl %esp, %ebp
-	pushl %ebx
-	subl $4, %esp
-	pushl 8(%ebp)
-	call print
-	addl $4, %esp
-	movl %eax, -8(%ebp)
-	movl $4, %eax
-	movl $1, %ebx
-	movl $.Lrexc_newline, %ecx
-	movl $1, %edx
-	int $0x80
-	addl -8(%ebp), %eax
-	addl $4, %esp
-	popl %ebx
-	leave
-	ret
-.globl read_line
-read_line:
-	pushl %ebp
-	movl %esp, %ebp
-	pushl %ebx
-	xorl %edx, %edx
-.Lrexc_i386_read_loop:
-	cmpl $1023, %edx
-	jae .Lrexc_i386_read_done
-	movl $3, %eax
-	movl $0, %ebx
-	movl $.Lrexc_read_line_buffer, %ecx
-	addl %edx, %ecx
-	pushl %edx
-	movl $1, %edx
-	int $0x80
-	popl %edx
-	cmpl $0, %eax
-	jle .Lrexc_i386_read_done
-	cmpb $10, .Lrexc_read_line_buffer(%edx)
-	je .Lrexc_i386_read_done
-	incl %edx
-	jmp .Lrexc_i386_read_loop
-.Lrexc_i386_read_done:
-	movb $0, .Lrexc_read_line_buffer(%edx)
-	movl $.Lrexc_read_line_buffer, %eax
-	popl %ebx
-	leave
-	ret
-.globl exit
-exit:
-	movl 4(%esp), %ebx
-	movl $1, %eax
-	int $0x80
+fn str_eq(lhs: str, rhs: str) -> bool {
+	let mut index: i32 = 0;
+	while lhs[index] == rhs[index] {
+		if lhs[index] == 0 {
+			return true;
+		}
+		index = index + 1;
+	}
+	return false;
+}
+
+fn parse_i32(value: str) -> i32 {
+	let mut index: i32 = 0;
+	let mut result: i32 = 0;
+	let mut negative: bool = false;
+	if value[0] == 45 {
+		negative = true;
+		index = 1;
+		if value[index] == 0 {
+			return 0;
+		}
+	}
+	while value[index] != 0 {
+		let byte: u8 = value[index];
+		if byte < 48 || byte > 57 {
+			return 0;
+		}
+		let digit: i32 = (byte as i32) - 48;
+		if negative {
+			if result < -214748364 {
+				return 0;
+			}
+			if result == -214748364 {
+				if digit > 8 {
+					return 0;
+				}
+			}
+			result = result * 10 - digit;
+		} else {
+			if result > 214748364 {
+				return 0;
+			}
+			if result == 214748364 {
+				if digit > 7 {
+					return 0;
+				}
+			}
+			result = result * 10 + digit;
+		}
+		index = index + 1;
+	}
+	return result;
+}
+
+fn print(value: str) -> i32 {
+	return sys_write(1, value, strlen(value));
+}
+
+fn println(value: str) -> i32 {
+	let count: i32 = print(value);
+	return count + sys_write(1, "\n", 1);
+}
+
+fn read_line() -> str {
+	let mut index: i32 = 0;
+	while index < 1023 {
+		let count: i32 = sys_read(0, READ_LINE_BUFFER + index, 1);
+		if count <= 0 {
+			*(READ_LINE_BUFFER + index) = 0;
+			return READ_LINE_BUFFER;
+		}
+		if READ_LINE_BUFFER[index] == 10 {
+			*(READ_LINE_BUFFER + index) = 0;
+			return READ_LINE_BUFFER;
+		}
+		index = index + 1;
+	}
+	*(READ_LINE_BUFFER + index) = 0;
+	return READ_LINE_BUFFER;
+}
+
+fn print_digit(value: i32) -> i32 {
+	if value == 0 { return sys_write(1, "0", 1); }
+	if value == 1 { return sys_write(1, "1", 1); }
+	if value == 2 { return sys_write(1, "2", 1); }
+	if value == 3 { return sys_write(1, "3", 1); }
+	if value == 4 { return sys_write(1, "4", 1); }
+	if value == 5 { return sys_write(1, "5", 1); }
+	if value == 6 { return sys_write(1, "6", 1); }
+	if value == 7 { return sys_write(1, "7", 1); }
+	if value == 8 { return sys_write(1, "8", 1); }
+	return sys_write(1, "9", 1);
+}
+
+fn print_i32_positive(value: i32) -> i32 {
+	if value >= 10 {
+		let quotient: i32 = value / 10;
+		let count: i32 = print_i32_positive(quotient);
+		return count + print_digit(value - quotient * 10);
+	}
+	return print_digit(value);
+}
+
+fn print_i32_negative_digits(value: i32) -> i32 {
+	if value <= -10 {
+		let quotient: i32 = value / 10;
+		let count: i32 = print_i32_negative_digits(quotient);
+		return count + print_digit(-(value - quotient * 10));
+	}
+	return print_digit(-value);
+}
+
+fn print_i32(value: i32) -> i32 {
+	if value == 0 {
+		return print_digit(0);
+	}
+	if value < 0 {
+		let count: i32 = sys_write(1, "-", 1);
+		return count + print_i32_negative_digits(value);
+	}
+	return print_i32_positive(value);
+}
+
+fn println_i32(value: i32) -> i32 {
+	let count: i32 = print_i32(value);
+	return count + sys_write(1, "\n", 1);
+}
+
+fn read_i32() -> i32 {
+	return parse_i32(read_line());
+}
+
+fn exit(status: i32) -> i32 {
+	return sys_exit(status);
+}
 )";
 }
 
-std::string x86_64_hosted_runtime_assembly()
+std::string portable_stdlib_assembly(CodegenTarget target)
 {
-	return R"(.section .rodata
-.Lrexc_newline:
-	.byte 10
-.section .bss
-.Lrexc_read_line_buffer:
-	.zero 1024
-.text
-.globl print
-print:
-	movq %rdi, %rsi
-	xorq %rdx, %rdx
-.Lrexc_x64_print_len:
-	cmpb $0, (%rsi,%rdx)
-	je .Lrexc_x64_print_write
-	incq %rdx
-	jmp .Lrexc_x64_print_len
-.Lrexc_x64_print_write:
-	movq $1, %rax
-	movq $1, %rdi
-	syscall
-	ret
-.globl println
-println:
-	pushq %rdi
-	call print
-	movq %rax, %r8
-	movq $1, %rax
-	movq $1, %rdi
-	leaq .Lrexc_newline(%rip), %rsi
-	movq $1, %rdx
-	syscall
-	addq %r8, %rax
-	popq %rdi
-	ret
-.globl read_line
-read_line:
-	xorq %r8, %r8
-.Lrexc_x64_read_loop:
-	cmpq $1023, %r8
-	jae .Lrexc_x64_read_done
-	movq $0, %rax
-	movq $0, %rdi
-	leaq .Lrexc_read_line_buffer(%rip), %rsi
-	addq %r8, %rsi
-	movq $1, %rdx
-	syscall
-	cmpq $0, %rax
-	jle .Lrexc_x64_read_done
-	leaq .Lrexc_read_line_buffer(%rip), %rsi
-	cmpb $10, (%rsi,%r8)
-	je .Lrexc_x64_read_done
-	incq %r8
-	jmp .Lrexc_x64_read_loop
-.Lrexc_x64_read_done:
-	leaq .Lrexc_read_line_buffer(%rip), %rsi
-	movb $0, (%rsi,%r8)
-	movq %rsi, %rax
-	ret
-.globl exit
-exit:
-	movq $60, %rax
-	syscall
-)";
+	Diagnostics diagnostics;
+	SourceFile source("stdlib.rx", portable_stdlib_source());
+	auto parsed = parse_source(source, diagnostics);
+	if (!parsed.ok())
+		return "# failed to parse stdlib.rx\n# " + diagnostics.format() + "\n";
+
+	SemanticOptions semantic_options;
+	semantic_options.include_stdlib_prelude = false;
+	auto sema = analyze_module(parsed.module(), diagnostics, semantic_options);
+	if (!sema.ok())
+		return "# failed to analyze stdlib.rx\n# " + diagnostics.format() + "\n";
+
+	LowerOptions lower_options;
+	lower_options.include_stdlib_prelude = false;
+	auto lowered = lower_to_ir(parsed.module(), lower_options);
+
+	CodegenResult emitted =
+		target == CodegenTarget::ARM64_MACOS
+			? emit_arm64_macos_assembly(lowered, diagnostics)
+			: emit_x86_assembly(lowered, diagnostics, target);
+	if (!emitted.ok())
+		return "# failed to emit stdlib.rx\n# " + diagnostics.format() + "\n";
+	return emitted.assembly();
 }
 
-std::string arm64_macos_hosted_runtime_assembly()
+std::string sys_runtime_assembly(CodegenTarget target)
 {
-	return R"(.cstring
-Lrexc_newline:
-	.byte 10
-.zerofill __DATA,__bss,Lrexc_read_line_buffer,1024,4
-.text
-.globl _print
-.p2align 2
-_print:
-	stp x29, x30, [sp, #-32]!
-	mov x29, sp
-	str x19, [sp, #16]
-	mov x19, x0
-	mov x1, x0
-	mov x2, #0
-Lrexc_arm64_print_len:
-	ldrb w3, [x1, x2]
-	cbz w3, Lrexc_arm64_print_write
-	add x2, x2, #1
-	b Lrexc_arm64_print_len
-Lrexc_arm64_print_write:
-	mov x0, #1
-	mov x1, x19
-	bl _write
-	ldr x19, [sp, #16]
-	ldp x29, x30, [sp], #32
-	ret
-.globl _println
-.p2align 2
-_println:
-	stp x29, x30, [sp, #-32]!
-	mov x29, sp
-	str x19, [sp, #16]
-	bl _print
-	mov x19, x0
-	mov x0, #1
-	adrp x1, Lrexc_newline@PAGE
-	add x1, x1, Lrexc_newline@PAGEOFF
-	mov x2, #1
-	bl _write
-	add x0, x19, x0
-	ldr x19, [sp, #16]
-	ldp x29, x30, [sp], #32
-	ret
-.globl _read_line
-.p2align 2
-_read_line:
-	stp x29, x30, [sp, #-48]!
-	mov x29, sp
-	str x19, [sp, #16]
-	str x20, [sp, #24]
-	adrp x1, Lrexc_read_line_buffer@PAGE
-	add x1, x1, Lrexc_read_line_buffer@PAGEOFF
-	mov x19, x1
-	mov x20, #0
-Lrexc_arm64_read_loop:
-	cmp x20, #1023
-	b.hs Lrexc_arm64_read_done
-	mov x0, #0
-	add x1, x19, x20
-	mov x2, #1
-	bl _read
-	cmp x0, #0
-	b.le Lrexc_arm64_read_done
-	ldrb w3, [x19, x20]
-	cmp w3, #10
-	b.eq Lrexc_arm64_read_done
-	add x20, x20, #1
-	b Lrexc_arm64_read_loop
-Lrexc_arm64_read_done:
-	strb wzr, [x19, x20]
-	mov x0, x19
-	ldr x20, [sp, #24]
-	ldr x19, [sp, #16]
-	ldp x29, x30, [sp], #48
-	ret
-)";
+	switch (target) {
+	case CodegenTarget::I386:
+		return i386_hosted_runtime_assembly();
+	case CodegenTarget::X86_64:
+		return x86_64_hosted_runtime_assembly();
+	case CodegenTarget::ARM64_MACOS:
+		return arm64_macos_hosted_runtime_assembly();
+	}
+	return "";
 }
 
 } // namespace
 
 const std::vector<FunctionDecl> &prelude_functions()
 {
-	static const std::vector<FunctionDecl> functions{
-		FunctionDecl{"print", {str_type()}, i32_type()},
-		FunctionDecl{"println", {str_type()}, i32_type()},
-		FunctionDecl{"read_line", {}, str_type()},
-		FunctionDecl{"exit", {i32_type()}, i32_type()},
-	};
+	static const std::vector<FunctionDecl> functions = [] {
+		std::vector<FunctionDecl> result;
+		append_functions(result, core::prelude_functions());
+		append_functions(result, std_layer::prelude_functions());
+		return result;
+	}();
 	return functions;
 }
 
@@ -271,15 +241,7 @@ const FunctionDecl *find_prelude_function(const std::string &name)
 
 std::string hosted_runtime_assembly(CodegenTarget target)
 {
-	switch (target) {
-	case CodegenTarget::I386:
-		return i386_hosted_runtime_assembly();
-	case CodegenTarget::X86_64:
-		return x86_64_hosted_runtime_assembly();
-	case CodegenTarget::ARM64_MACOS:
-		return arm64_macos_hosted_runtime_assembly();
-	}
-	return "";
+	return sys_runtime_assembly(target) + "\n" + portable_stdlib_assembly(target);
 }
 
 } // namespace rexc::stdlib

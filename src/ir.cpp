@@ -37,6 +37,11 @@ LocalValue::LocalValue(std::string name, Type type)
 {
 }
 
+GlobalValue::GlobalValue(std::string name, Type type)
+	: Value(Kind::Global, type), name(std::move(name))
+{
+}
+
 UnaryValue::UnaryValue(std::string op, std::unique_ptr<Value> operand, Type type)
 	: Value(Kind::Unary, type), op(std::move(op)), operand(std::move(operand))
 {

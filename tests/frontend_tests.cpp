@@ -39,6 +39,24 @@ TEST_CASE(parser_builds_ast_for_add_function)
 	REQUIRE_EQ(module.functions[0].return_type.name, std::string("i32"));
 }
 
+TEST_CASE(parser_accepts_static_mut_byte_buffer)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "static mut READ_LINE_BUFFER: [u8; 1024];\nfn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE_EQ(result.module().static_buffers.size(), std::size_t(1));
+	const auto &buffer = result.module().static_buffers[0];
+	REQUIRE(buffer.is_mutable);
+	REQUIRE_EQ(buffer.name, std::string("READ_LINE_BUFFER"));
+	REQUIRE_EQ(buffer.element_type.name, std::string("u8"));
+	REQUIRE_EQ(buffer.length_literal, std::string("1024"));
+}
+
 TEST_CASE(parser_rejects_malformed_function)
 {
 	rexc::SourceFile source("test.rx", "fn main( -> i32 { return 0; }\n");
@@ -182,7 +200,7 @@ TEST_CASE(parser_accepts_indirect_assignment)
 {
 	rexc::SourceFile source(
 	    "test.rx",
-	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; *p = 9; return x; }\n");
+	    "fn main() -> i32 { let mut x: i32 = 7; let p: *i32 = &x; *(p + 1) = 9; return x; }\n");
 	rexc::Diagnostics diagnostics;
 
 	auto result = rexc::parse_source(source, diagnostics);
@@ -192,7 +210,7 @@ TEST_CASE(parser_accepts_indirect_assignment)
 	REQUIRE_EQ(body.size(), std::size_t(4));
 	REQUIRE_EQ(body[2]->kind, rexc::ast::Stmt::Kind::IndirectAssign);
 	const auto &assign = static_cast<const rexc::ast::IndirectAssignStmt &>(*body[2]);
-	REQUIRE_EQ(assign.target->kind, rexc::ast::Expr::Kind::Name);
+	REQUIRE_EQ(assign.target->kind, rexc::ast::Expr::Kind::Binary);
 	REQUIRE_EQ(assign.value->kind, rexc::ast::Expr::Kind::Integer);
 }
 

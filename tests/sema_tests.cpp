@@ -129,6 +129,41 @@ TEST_CASE(sema_accepts_core_primitive_literals)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_string_byte_indexing)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { let value: str = \"ok\"; let byte: u8 = value[1]; return byte as i32; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_static_mut_byte_buffer_as_str_storage)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"static mut READ_LINE_BUFFER: [u8; 1024];\n"
+		"extern fn sys_read(fd: i32, buffer: *u8, len: i32) -> i32;\n"
+		"fn use_buffer() -> str { let mut index: i32 = 0; let count: i32 = sys_read(0, READ_LINE_BUFFER + index, 1); *(READ_LINE_BUFFER + index) = 0; return READ_LINE_BUFFER; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_non_integer_string_index)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { let value: str = \"ok\"; return value[\"bad\"] as i32; }\n",
+		diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("pointer arithmetic requires integer offset") != std::string::npos);
+}
+
 TEST_CASE(sema_rejects_initializer_type_mismatch)
 {
 	rexc::Diagnostics diagnostics;
@@ -279,10 +314,75 @@ TEST_CASE(sema_accepts_std_prelude_read_line)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_std_prelude_string_helpers)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 {\n"
+		"  let n: i32 = strlen(\"hello\");\n"
+		"  if str_eq(\"a\", \"a\") { return n; } else { return 0; }\n"
+		"}\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_rejects_std_prelude_wrong_argument_type)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze("fn main() -> i32 { println(1); return 0; }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'str' but got 'i32'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_std_prelude_strlen_wrong_argument_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { return strlen(7); }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'str' but got 'i32'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_std_prelude_str_eq_wrong_argument_count)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { if str_eq(\"a\") { return 1; } return 0; }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("function 'str_eq' expected 2 arguments but got 1") != std::string::npos);
+}
+
+TEST_CASE(sema_accepts_std_prelude_numeric_helpers)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 {\n"
+		"  print_i32(42);\n"
+		"  println_i32(parse_i32(\"-7\"));\n"
+		"  return read_i32();\n"
+		"}\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_std_prelude_print_i32_wrong_argument_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { print_i32(\"7\"); return 0; }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'i32' but got 'str'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_std_prelude_parse_i32_wrong_argument_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { return parse_i32(7); }\n", diagnostics);
 
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("argument type mismatch: expected 'str' but got 'i32'") != std::string::npos);

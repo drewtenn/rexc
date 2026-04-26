@@ -72,6 +72,57 @@ grep -F -q 'imull $4, %ecx' "${tmp_dir}/pointer-index32.s"
 grep -F -q 'addl %ecx, %eax' "${tmp_dir}/pointer-index32.s"
 grep -F -q 'movl (%eax), %eax' "${tmp_dir}/pointer-index32.s"
 
+"${build_dir}/rexc" "${repo_dir}/examples/std_strings.rx" --target i386 -S -o "${tmp_dir}/std-strings32.s"
+grep -F -q 'call str_eq' "${tmp_dir}/std-strings32.s"
+grep -F -q 'call strlen' "${tmp_dir}/std-strings32.s"
+
+"${build_dir}/rexc" "${repo_dir}/examples/std_strings.rx" --target x86_64 -S -o "${tmp_dir}/std-strings64.s"
+grep -F -q 'call str_eq' "${tmp_dir}/std-strings64.s"
+grep -F -q 'call strlen' "${tmp_dir}/std-strings64.s"
+
+"${build_dir}/rexc" "${repo_dir}/examples/std_strings.rx" --target arm64-macos -S -o "${tmp_dir}/std-strings-arm64.s"
+grep -F -q 'bl _str_eq' "${tmp_dir}/std-strings-arm64.s"
+grep -F -q 'bl _strlen' "${tmp_dir}/std-strings-arm64.s"
+
+"${build_dir}/rexc" "${repo_dir}/examples/std_numbers.rx" --target i386 -S -o "${tmp_dir}/std-numbers32.s"
+grep -F -q 'call read_i32' "${tmp_dir}/std-numbers32.s"
+grep -F -q 'call println_i32' "${tmp_dir}/std-numbers32.s"
+grep -F -q 'call parse_i32' "${tmp_dir}/std-numbers32.s"
+
+"${build_dir}/rexc" "${repo_dir}/examples/std_numbers.rx" --target x86_64 -S -o "${tmp_dir}/std-numbers64.s"
+grep -F -q 'call read_i32' "${tmp_dir}/std-numbers64.s"
+grep -F -q 'call println_i32' "${tmp_dir}/std-numbers64.s"
+grep -F -q 'call parse_i32' "${tmp_dir}/std-numbers64.s"
+
+"${build_dir}/rexc" "${repo_dir}/examples/std_numbers.rx" --target arm64-macos -S -o "${tmp_dir}/std-numbers-arm64.s"
+grep -F -q 'bl _read_i32' "${tmp_dir}/std-numbers-arm64.s"
+grep -F -q 'bl _println_i32' "${tmp_dir}/std-numbers-arm64.s"
+grep -F -q 'bl _parse_i32' "${tmp_dir}/std-numbers-arm64.s"
+
+if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+cat > "${tmp_dir}/std-i32-edges.rx" <<'RX'
+fn main() -> i32 {
+    println_i32(0);
+    println_i32(42);
+    println_i32(-7);
+    println_i32(parse_i32("2147483647"));
+    println_i32(parse_i32("2147483648"));
+    println_i32(parse_i32("-2147483648"));
+    println_i32(parse_i32("-2147483649"));
+    println_i32(parse_i32("12x"));
+    return 0;
+}
+RX
+	"${build_dir}/rexc" "${tmp_dir}/std-i32-edges.rx" --target arm64-macos -o "${tmp_dir}/std-i32-edges-arm64"
+	"${tmp_dir}/std-i32-edges-arm64" > "${tmp_dir}/std-i32-edges-arm64.out"
+	grep -F -q '0' "${tmp_dir}/std-i32-edges-arm64.out"
+	grep -F -q '42' "${tmp_dir}/std-i32-edges-arm64.out"
+	grep -F -q -- '-7' "${tmp_dir}/std-i32-edges-arm64.out"
+	grep -F -q '2147483647' "${tmp_dir}/std-i32-edges-arm64.out"
+	grep -F -q -- '-2147483648' "${tmp_dir}/std-i32-edges-arm64.out"
+	test "$(grep -F -x -c '0' "${tmp_dir}/std-i32-edges-arm64.out")" -eq 4
+fi
+
 "${build_dir}/rexc" "${repo_dir}/examples/add.rx" --target arm64-macos -S -o "${tmp_dir}/add-arm64.s"
 test -s "${tmp_dir}/add-arm64.s"
 grep -F -q '.globl _main' "${tmp_dir}/add-arm64.s"

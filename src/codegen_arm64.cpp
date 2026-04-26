@@ -121,6 +121,7 @@ public:
 
 		collect_string_labels(module);
 		emit_string_section(module);
+		emit_static_buffer_section(module);
 
 		out_ << ".text\n";
 		for (const auto &function : module.functions) {
@@ -134,6 +135,8 @@ public:
 private:
 	void validate_module(const ir::Module &module)
 	{
+		for (const auto &buffer : module.static_buffers)
+			validate_type(buffer.element_type);
 		for (const auto &function : module.functions) {
 			validate_type(function.return_type);
 			for (const auto &parameter : function.parameters)
@@ -342,6 +345,12 @@ private:
 			out_ << "\tadd x0, x0, " << string_labels_.at(&string) << "@PAGEOFF\n";
 			return;
 		}
+		case ir::Value::Kind::Global: {
+			const auto &global = static_cast<const ir::GlobalValue &>(value);
+			out_ << "\tadrp x0, " << static_buffer_label(global.name) << "@PAGE\n";
+			out_ << "\tadd x0, x0, " << static_buffer_label(global.name) << "@PAGEOFF\n";
+			return;
+		}
 		case ir::Value::Kind::Local: {
 			const auto &local = static_cast<const ir::LocalValue &>(value);
 			out_ << "\tldr x0, [x29, #" << slots.at(local.name) << "]\n";
@@ -427,7 +436,7 @@ private:
 			out_ << "\tcmp w0, #0\n";
 			out_ << "\tcset w0, eq\n";
 		} else if (unary.op == "*") {
-			out_ << "\tldr x0, [x0]\n";
+			emit_indirect_load(unary.type);
 		}
 	}
 
@@ -448,7 +457,37 @@ private:
 		emit_push_accumulator();
 		emit_value(*assign.target, frame, slots);
 		emit_pop_to("x1");
-		out_ << "\tstr x1, [x0]\n";
+		emit_indirect_store(assign.value->type);
+	}
+
+	void emit_indirect_load(ir::Type type)
+	{
+		int bits = memory_bits(type);
+		if (bits == 8) {
+			out_ << "\t" << (is_signed_integer(type) ? "ldrsb x0" : "ldrb w0")
+			     << ", [x0]\n";
+		} else if (bits == 16) {
+			out_ << "\t" << (is_signed_integer(type) ? "ldrsh x0" : "ldrh w0")
+			     << ", [x0]\n";
+		} else if (bits == 32) {
+			out_ << "\t" << (is_signed_integer(type) ? "ldrsw x0" : "ldr w0")
+			     << ", [x0]\n";
+		} else {
+			out_ << "\tldr x0, [x0]\n";
+		}
+	}
+
+	void emit_indirect_store(ir::Type type)
+	{
+		int bits = memory_bits(type);
+		if (bits == 8)
+			out_ << "\tstrb w1, [x0]\n";
+		else if (bits == 16)
+			out_ << "\tstrh w1, [x0]\n";
+		else if (bits == 32)
+			out_ << "\tstr w1, [x0]\n";
+		else
+			out_ << "\tstr x1, [x0]\n";
 	}
 
 	void emit_binary(const ir::BinaryValue &binary, const Frame &frame, const SlotMap &slots)
@@ -613,6 +652,7 @@ private:
 		case ir::Value::Kind::Bool:
 		case ir::Value::Kind::Char:
 		case ir::Value::Kind::Local:
+		case ir::Value::Kind::Global:
 			return;
 		}
 	}
@@ -626,6 +666,19 @@ private:
 			for (const auto &statement : function.body)
 				emit_string_literals(*statement);
 		}
+	}
+
+	void emit_static_buffer_section(const ir::Module &module)
+	{
+		for (const auto &buffer : module.static_buffers) {
+			out_ << ".zerofill __DATA,__bss," << static_buffer_label(buffer.name) << ","
+			     << buffer.length << ",4\n";
+		}
+	}
+
+	std::string static_buffer_label(const std::string &name) const
+	{
+		return "Lstatic_" + name;
 	}
 
 	void emit_string_literals(const ir::Statement &statement)
@@ -689,6 +742,7 @@ private:
 		case ir::Value::Kind::Bool:
 		case ir::Value::Kind::Char:
 		case ir::Value::Kind::Local:
+		case ir::Value::Kind::Global:
 			return;
 		}
 	}

@@ -174,7 +174,16 @@ struct Function {
 	SourceLocation location;
 };
 
+struct StaticBuffer {
+	bool is_mutable = false;
+	std::string name;
+	TypeName element_type;
+	std::string length_literal;
+	SourceLocation location;
+};
+
 struct Module {
+	std::vector<StaticBuffer> static_buffers;
 	std::vector<Function> functions;
 };
 

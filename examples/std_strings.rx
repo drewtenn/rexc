@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    if str_eq("rexc", "rexc") {
+        return strlen("hello");
+    }
+    return 0;
+}

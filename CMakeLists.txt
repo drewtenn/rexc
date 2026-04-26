@@ -76,13 +76,18 @@ add_library(rexc_core
 	src/codegen_x86.cpp
 	src/codegen_arm64.cpp
 	src/types.cpp
-	src/stdlib.cpp
+	src/stdlib/stdlib.cpp
+	src/stdlib/core/library.cpp
+	src/stdlib/std/library.cpp
+	src/stdlib/sys/runtime_i386.cpp
+	src/stdlib/sys/runtime_x86_64.cpp
+	src/stdlib/sys/runtime_arm64_macos.cpp
 	${REXC_ANTLR_GENERATED_SOURCES}
 )
 
 target_include_directories(rexc_core
 	PUBLIC include
-	PRIVATE "${REXC_ANTLR_GENERATED_DIR}"
+	PRIVATE src "${REXC_ANTLR_GENERATED_DIR}"
 )
 target_link_libraries(rexc_core PRIVATE antlr4_static)
 

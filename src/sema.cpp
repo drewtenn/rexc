@@ -29,6 +29,11 @@ PrimitiveType bool_type()
 	return PrimitiveType{PrimitiveKind::Bool};
 }
 
+PrimitiveType u8_type()
+{
+	return PrimitiveType{PrimitiveKind::UnsignedInteger, 8};
+}
+
 bool is_comparison_operator(const std::string &op)
 {
 	return op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" ||
@@ -72,15 +77,21 @@ struct LocalInfo {
 	bool is_mutable = false;
 };
 
+struct GlobalInfo {
+	PrimitiveType type;
+	bool is_mutable = false;
+};
+
 class Analyzer {
 public:
-	Analyzer(const ast::Module &module, Diagnostics &diagnostics)
-		: module_(module), diagnostics_(diagnostics)
+	Analyzer(const ast::Module &module, Diagnostics &diagnostics, SemanticOptions options)
+		: module_(module), diagnostics_(diagnostics), options_(options)
 	{
 	}
 
 	bool run()
 	{
+		build_static_table();
 		build_function_table();
 
 		for (const auto &function : module_.functions) {
@@ -92,14 +103,42 @@ public:
 	}
 
 private:
+	void build_static_table()
+	{
+		for (const auto &buffer : module_.static_buffers) {
+			if (globals_.find(buffer.name) != globals_.end()) {
+				diagnostics_.error(buffer.location, "duplicate static '" + buffer.name + "'");
+				continue;
+			}
+
+			PrimitiveType element_type = check_type(buffer.element_type);
+			if (element_type != u8_type()) {
+				diagnostics_.error(buffer.element_type.location,
+				                   "static buffers currently require u8 elements");
+			}
+			if (!buffer.is_mutable)
+				diagnostics_.error(buffer.location, "static buffer must be mutable");
+
+			auto length = parse_decimal_magnitude(buffer.length_literal);
+			if (!length || *length == 0)
+				diagnostics_.error(buffer.location, "static buffer length must be greater than zero");
+
+			globals_[buffer.name] = GlobalInfo{PrimitiveType{PrimitiveKind::Str},
+			                                   buffer.is_mutable};
+		}
+	}
+
 	void build_function_table()
 	{
-		for (const auto &function : stdlib::prelude_functions())
-			functions_[function.name] =
-				FunctionInfo{SourceLocation{}, function.return_type, function.parameters};
+		if (options_.include_stdlib_prelude) {
+			for (const auto &function : stdlib::prelude_functions())
+				functions_[function.name] =
+					FunctionInfo{SourceLocation{}, function.return_type, function.parameters};
+		}
 
 		for (const auto &function : module_.functions) {
-			if (functions_.find(function.name) != functions_.end()) {
+			if (functions_.find(function.name) != functions_.end() ||
+			    globals_.find(function.name) != globals_.end()) {
 				diagnostics_.error(function.location, "duplicate function '" + function.name + "'");
 				continue;
 			}
@@ -279,11 +318,13 @@ private:
 		case ast::Expr::Kind::Name: {
 			const auto &name = static_cast<const ast::NameExpr &>(expr);
 			auto it = locals.find(name.name);
-			if (it == locals.end()) {
-				diagnostics_.error(name.location, "unknown name '" + name.name + "'");
-				return std::nullopt;
-			}
-			return it->second.type;
+			if (it != locals.end())
+				return it->second.type;
+			auto global = globals_.find(name.name);
+			if (global != globals_.end())
+				return global->second.type;
+			diagnostics_.error(name.location, "unknown name '" + name.name + "'");
+			return std::nullopt;
 		}
 		case ast::Expr::Kind::Binary: {
 			const auto &binary = static_cast<const ast::BinaryExpr &>(expr);
@@ -309,7 +350,7 @@ private:
 					diagnostics_.error(binary.location,
 					                   "pointer arithmetic requires integer offset");
 				}
-				return lhs_type;
+				return pointer_arithmetic_type(*lhs_type);
 			}
 			if (!is_integer(*lhs_type) || !is_integer(*rhs_type)) {
 				diagnostics_.error(binary.location, "arithmetic requires integer operands");
@@ -418,7 +459,15 @@ private:
 
 	bool is_pointer_arithmetic(const std::string &op, PrimitiveType lhs_type) const
 	{
-		return is_pointer(lhs_type) && (op == "+" || op == "-");
+		return (is_pointer(lhs_type) || lhs_type.kind == PrimitiveKind::Str) &&
+		       (op == "+" || op == "-");
+	}
+
+	PrimitiveType pointer_arithmetic_type(PrimitiveType lhs_type) const
+	{
+		if (lhs_type.kind == PrimitiveKind::Str)
+			return pointer_to(u8_type());
+		return lhs_type;
 	}
 
 	std::optional<PrimitiveType> check_address_of_expr(
@@ -528,6 +577,8 @@ private:
 
 	const ast::Module &module_;
 	Diagnostics &diagnostics_;
+	SemanticOptions options_;
+	std::unordered_map<std::string, GlobalInfo> globals_;
 	std::unordered_map<std::string, FunctionInfo> functions_;
 };
 
@@ -540,9 +591,10 @@ bool SemanticResult::ok() const
 	return ok_;
 }
 
-SemanticResult analyze_module(const ast::Module &module, Diagnostics &diagnostics)
+SemanticResult analyze_module(const ast::Module &module, Diagnostics &diagnostics,
+                              SemanticOptions options)
 {
-	Analyzer analyzer(module, diagnostics);
+	Analyzer analyzer(module, diagnostics, options);
 	return SemanticResult(analyzer.run());
 }
 

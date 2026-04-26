@@ -8,14 +8,23 @@ heap allocation all at once. The first milestone should make normal command-line
 programs useful: write text, read one line of input, and link those facilities
 automatically when Rexc builds an executable.
 
-The standard library will be layered:
+The standard library will be layered after Rust's `core` / `alloc` / `std`
+architecture, adapted to Rexc's current bootstrap state:
 
 - `core`: target-independent declarations and compiler-known contracts that do
   not assume an operating system.
-- `std`: hosted facilities built on top of `core`, available for normal
-  command-line executable builds.
-- target runtime adapters: small per-target implementations that bridge `std`
-  calls to Darwin or Linux-compatible ELF system interfaces.
+- `alloc`: a future allocator-backed layer for owned strings, vectors, boxes,
+  and other heap types once Rexc has an allocator contract.
+- `std`: hosted facilities built on top of `core` and, later, `alloc`,
+  available for normal command-line executable builds.
+- `sys`/target runtime adapters: small target- and OS-specific implementations
+  that bridge `std` calls to Darwin, Linux-compatible ELF, Drunix, or other
+  platform interfaces.
+
+The current target assembly strings are a bootstrap mechanism, not the desired
+long-term stdlib shape. They should provide narrow ABI/syscall hooks while
+portable library behavior moves into Rexc library source or another shared
+runtime form.
 
 ## First Milestone
 
@@ -70,7 +79,8 @@ diagnostic shape as user-defined functions.
 ## Compiler Architecture
 
 Add a small standard-library description module in the compiler, separate from
-parsing, semantic analysis, and target code generation. It should provide:
+parsing, semantic analysis, and target code generation. In the first milestone
+it should provide:
 
 - names and signatures for prelude functions;
 - runtime symbol names for each prelude function;
@@ -86,6 +96,28 @@ on ELF (`println`, `print`, `read_line`, `exit`) and use the existing Darwin
 symbol prefixing path for Mach-O (`_println`, `_print`, `_read_line`, `_exit`).
 If user-defined names later need separate namespaces, the runtime symbol table
 can move to reserved names such as `__rexc_std_print`.
+
+After this bootstrap milestone, the compiler metadata should become a catalog
+of library items rather than the implementation home for the library. Portable
+functions such as byte-string comparisons, integer formatting, parsing, and
+eventually collection helpers should be implemented once above the target
+runtime adapters. Target-specific files should be reserved for calling
+conventions, symbol naming, syscalls, libc shims, allocator hooks, and process
+startup/termination details.
+
+The current compiler should reflect that direction in its source layout:
+
+- `include/rexc/stdlib.hpp`: public compiler-facing catalog API;
+- `src/stdlib/core/`: target-independent catalog entries;
+- `src/stdlib/std/`: hosted prelude catalog entries;
+- `src/stdlib/stdlib.cpp`: aggregate catalog facade used by the compiler;
+- `src/stdlib/sys/`: target runtime adapters and bootstrap assembly hooks.
+
+Early catalog entries should record whether an item belongs conceptually to
+`core`, future `alloc`, hosted `std`, or target `sys`. During bootstrap, some
+`core`-style functions may still be emitted through target runtime objects, but
+that should be treated as an implementation limitation rather than the desired
+library boundary.
 
 ## Runtime And Linking
 
@@ -188,10 +220,59 @@ The README should gain a `Standard Library` section that documents:
 - Drunix `std` adapter support.
 - A stable ABI promise for the prelude function names.
 
-## Future Direction
+## Rust-Like Roadmap
 
-After this milestone, Rexc can add module paths and move the prelude functions
-to names such as `std::io::println`, with a small prelude import preserving the
-short names. Later `core` can grow memory and string primitives, while hosted
-`std` can grow process arguments, environment variables, files, formatting, and
-eventually heap-backed string types.
+Rexc should grow the standard library in layers rather than by adding every new
+function to every architecture-specific assembly file.
+
+### Stage 1: Bootstrap Hosted Runtime
+
+Keep the current prelude and generated runtime object model for now. This gives
+Rexc working command-line programs while the language is still missing modules,
+imports, ownership, heap allocation, traits, slices, and result types. The
+important constraint is that new assembly routines should be treated as
+temporary bootstrap hooks unless they are genuinely target-specific.
+
+### Stage 2: Target Triple Runtime Adapters
+
+Split runtime support by target triple instead of only CPU family:
+
+- `i386-linux` or `i386-elf` for Linux-compatible `int $0x80` paths;
+- `x86_64-linux` for Linux `syscall` paths;
+- `arm64-macos` for Darwin symbol names and libc calls;
+- `i386-drunix` for Drunix userland once that adapter is ready.
+
+These adapters should expose a small internal ABI: read bytes, write bytes,
+exit, and later allocate/deallocate. Their job is to isolate platform details,
+not to duplicate portable stdlib algorithms.
+
+### Stage 3: Portable `core`
+
+Move target-independent contracts into a real `core` library surface. Early
+`core` candidates include primitive type operations, byte-string/slice
+contracts, null/length conventions, memory intrinsics, and abort/panic hooks.
+This layer must not assume an OS or heap.
+
+### Stage 4: Portable Library Implementations
+
+Implement reusable library logic once above the runtime adapters. String
+length/equality, integer formatting, integer parsing, and later formatting
+building blocks should live here instead of being rewritten for i386, x86_64,
+and ARM64. The implementation language can start as compiler-emitted IR or
+portable runtime source, then move into Rexc source as the language becomes
+self-hosting enough.
+
+### Stage 5: Add `alloc`
+
+Once Rexc has allocator hooks and ownership rules, introduce an `alloc` layer
+for heap-backed types such as owned strings, vectors, and boxed values. This
+layer should depend on `core` plus an allocator interface, but not on files,
+terminals, environment variables, or process services.
+
+### Stage 6: Grow Hosted `std`
+
+Move hosted functionality into `std`: console I/O, process arguments,
+environment variables, files, paths, exit status, and eventually richer
+formatting. When module syntax exists, migrate the user-facing API toward paths
+such as `std::io::println`, with a small prelude preserving convenient short
+names where appropriate.

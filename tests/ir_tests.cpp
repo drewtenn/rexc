@@ -32,6 +32,28 @@ TEST_CASE(lowering_preserves_function_signature)
 	REQUIRE_EQ(module.functions[0].body.size(), 1u);
 }
 
+TEST_CASE(lowering_preserves_static_byte_buffers)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "static mut READ_LINE_BUFFER: [u8; 1024];\nfn main() -> str { return READ_LINE_BUFFER; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	REQUIRE_EQ(module.static_buffers.size(), std::size_t(1));
+	REQUIRE_EQ(module.static_buffers[0].name, std::string("READ_LINE_BUFFER"));
+	REQUIRE_EQ(rexc::format_type(module.static_buffers[0].element_type), std::string("u8"));
+	REQUIRE_EQ(module.static_buffers[0].length, std::size_t(1024));
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Global);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("str"));
+}
+
 TEST_CASE(lowering_lowers_unary_minus_as_typed_unary_value)
 {
 	rexc::SourceFile source("test.rx", "fn main() -> i32 { return -1; }\n");
@@ -313,6 +335,31 @@ TEST_CASE(lowering_lowers_index_expression_as_deref_pointer_add)
 	REQUIRE_EQ(add.op, std::string("+"));
 	REQUIRE_EQ(rexc::format_type(add.type), std::string("*i32"));
 	REQUIRE_EQ(rexc::format_type(add.lhs->type), std::string("*i32"));
+	REQUIRE_EQ(rexc::format_type(add.rhs->type), std::string("i32"));
+}
+
+TEST_CASE(lowering_lowers_string_index_expression_as_byte_load)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let value: str = \"ok\"; let byte: u8 = value[1]; return byte as i32; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const auto &let = static_cast<const rexc::ir::LetStatement &>(*module.functions[0].body[1]);
+	REQUIRE_EQ(let.value->kind, rexc::ir::Value::Kind::Unary);
+	REQUIRE_EQ(rexc::format_type(let.value->type), std::string("u8"));
+	const auto &deref = static_cast<const rexc::ir::UnaryValue &>(*let.value);
+	REQUIRE_EQ(deref.op, std::string("*"));
+	REQUIRE_EQ(deref.operand->kind, rexc::ir::Value::Kind::Binary);
+	const auto &add = static_cast<const rexc::ir::BinaryValue &>(*deref.operand);
+	REQUIRE_EQ(add.op, std::string("+"));
+	REQUIRE_EQ(rexc::format_type(add.type), std::string("*u8"));
+	REQUIRE_EQ(rexc::format_type(add.lhs->type), std::string("str"));
 	REQUIRE_EQ(rexc::format_type(add.rhs->type), std::string("i32"));
 }
 

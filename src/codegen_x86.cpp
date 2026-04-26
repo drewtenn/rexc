@@ -134,6 +134,7 @@ public:
 
 		collect_string_labels(module);
 		emit_string_section(module);
+		emit_static_buffer_section(module);
 
 		out_ << ".text\n";
 		for (const auto &function : module.functions) {
@@ -265,6 +266,8 @@ private:
 	bool validate_module(const ir::Module &module)
 	{
 		bool ok = true;
+		for (const auto &buffer : module.static_buffers)
+			ok = validate_type(buffer.element_type) && ok;
 		for (const auto &function : module.functions)
 			ok = validate_function(function) && ok;
 		return ok;
@@ -342,6 +345,7 @@ private:
 		case ir::Value::Kind::Char:
 		case ir::Value::Kind::String:
 		case ir::Value::Kind::Local:
+		case ir::Value::Kind::Global:
 			return ok;
 		case ir::Value::Kind::Unary: {
 			const auto &unary = static_cast<const ir::UnaryValue &>(value);
@@ -517,6 +521,16 @@ private:
 				out_ << "\tleaq " << string_labels_.at(&string) << "(%rip), %rax\n";
 			} else {
 				out_ << "\t" << move_instruction() << " $" << string_labels_.at(&string)
+				     << ", " << accumulator_register() << "\n";
+			}
+			return;
+		}
+		case ir::Value::Kind::Global: {
+			const auto &global = static_cast<const ir::GlobalValue &>(value);
+			if (target_ == CodegenTarget::X86_64) {
+				out_ << "\tleaq " << static_buffer_label(global.name) << "(%rip), %rax\n";
+			} else {
+				out_ << "\t" << move_instruction() << " $" << static_buffer_label(global.name)
 				     << ", " << accumulator_register() << "\n";
 			}
 			return;
@@ -850,6 +864,7 @@ private:
 		case ir::Value::Kind::Bool:
 		case ir::Value::Kind::Char:
 		case ir::Value::Kind::Local:
+		case ir::Value::Kind::Global:
 			return;
 		case ir::Value::Kind::String: {
 			const auto &string = static_cast<const ir::StringValue &>(value);
@@ -891,6 +906,22 @@ private:
 			for (const auto &statement : function.body)
 				emit_string_literals(*statement);
 		}
+	}
+
+	void emit_static_buffer_section(const ir::Module &module)
+	{
+		if (module.static_buffers.empty())
+			return;
+		out_ << ".section .bss\n";
+		for (const auto &buffer : module.static_buffers) {
+			out_ << static_buffer_label(buffer.name) << ":\n";
+			out_ << "\t.zero " << buffer.length << "\n";
+		}
+	}
+
+	std::string static_buffer_label(const std::string &name) const
+	{
+		return ".Lstatic_" + name;
 	}
 
 	void emit_string_literals(const ir::Statement &statement)
@@ -953,6 +984,7 @@ private:
 		case ir::Value::Kind::Bool:
 		case ir::Value::Kind::Char:
 		case ir::Value::Kind::Local:
+		case ir::Value::Kind::Global:
 			return;
 		case ir::Value::Kind::String: {
 			const auto &string = static_cast<const ir::StringValue &>(value);

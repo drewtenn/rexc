@@ -7,7 +7,12 @@ compilationUnit
 
 item
 	: externFunction
+	| staticBuffer
 	| functionDefinition
+	;
+
+staticBuffer
+	: 'static' 'mut'? IDENT ':' '[' primitiveType ';' INTEGER ']' ';'
 	;
 
 externFunction
@@ -70,7 +75,7 @@ assignStatement
 	;
 
 indirectAssignStatement
-	: '*' unary '=' expression ';'
+	: '*' expression '=' expression ';'
 	;
 
 callStatement

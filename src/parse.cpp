@@ -77,7 +77,7 @@ public:
 	{
 		ast::Module module;
 		for (auto *item : context->item())
-			module.functions.push_back(build_item(item));
+			build_item(module, item);
 		return module;
 	}
 
@@ -103,11 +103,33 @@ private:
 		return location(node != nullptr ? node->getSymbol() : nullptr);
 	}
 
-	ast::Function build_item(RexcParser::ItemContext *context)
+	void build_item(ast::Module &module, RexcParser::ItemContext *context)
 	{
-		if (auto *extern_function = context->externFunction())
-			return build_extern_function(extern_function);
-		return build_function_definition(context->functionDefinition());
+		if (auto *static_buffer = context->staticBuffer()) {
+			module.static_buffers.push_back(build_static_buffer(static_buffer));
+			return;
+		}
+		if (auto *extern_function = context->externFunction()) {
+			module.functions.push_back(build_extern_function(extern_function));
+			return;
+		}
+		module.functions.push_back(build_function_definition(context->functionDefinition()));
+	}
+
+	ast::StaticBuffer build_static_buffer(RexcParser::StaticBufferContext *context)
+	{
+		bool is_mutable = false;
+		for (auto *child : context->children) {
+			if (child->getText() == "mut") {
+				is_mutable = true;
+				break;
+			}
+		}
+
+		return ast::StaticBuffer{is_mutable, context->IDENT()->getText(),
+		                         ast::TypeName{context->primitiveType()->getText(),
+		                                       location(context->primitiveType())},
+		                         context->INTEGER()->getText(), location(context)};
 	}
 
 	ast::Function build_extern_function(RexcParser::ExternFunctionContext *context)
@@ -222,8 +244,8 @@ private:
 	    RexcParser::IndirectAssignStatementContext *context)
 	{
 		return std::make_unique<ast::IndirectAssignStmt>(
-		    location(context), build_unary(context->unary()),
-		    build_expression(context->expression()));
+		    location(context), build_expression(context->expression(0)),
+		    build_expression(context->expression(1)));
 	}
 
 	std::unique_ptr<ast::Stmt> build_call_statement(RexcParser::CallStatementContext *context)

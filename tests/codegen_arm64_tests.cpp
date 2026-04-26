@@ -97,8 +97,26 @@ TEST_CASE(codegen_arm64_macos_emits_pointer_load_store)
 		"fn main() -> i32 { let mut x: i32 = 1; let p: *i32 = &x; *p = 2; return *p; }\n");
 
 	REQUIRE(assembly.find("sub x0, x29, #") != std::string::npos);
-	REQUIRE(assembly.find("str x1, [x0]") != std::string::npos);
-	REQUIRE(assembly.find("ldr x0, [x0]") != std::string::npos);
+	REQUIRE(assembly.find("str w1, [x0]") != std::string::npos);
+	REQUIRE(assembly.find("ldrsw x0, [x0]") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_string_index_byte_load)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn main() -> i32 { let value: str = \"ok\"; let byte: u8 = value[1]; return byte as i32; }\n");
+
+	REQUIRE(assembly.find("ldrb w0, [x0]") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_static_byte_buffer)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"static mut READ_LINE_BUFFER: [u8; 1024];\nfn main() -> str { return READ_LINE_BUFFER; }\n");
+
+	REQUIRE(assembly.find(".zerofill __DATA,__bss,Lstatic_READ_LINE_BUFFER,1024,4") != std::string::npos);
+	REQUIRE(assembly.find("adrp x0, Lstatic_READ_LINE_BUFFER@PAGE") != std::string::npos);
+	REQUIRE(assembly.find("add x0, x0, Lstatic_READ_LINE_BUFFER@PAGEOFF") != std::string::npos);
 }
 
 TEST_CASE(codegen_arm64_macos_emits_call_statement)
@@ -111,4 +129,24 @@ TEST_CASE(codegen_arm64_macos_emits_call_statement)
 	REQUIRE(assembly.find("Lstr0:") != std::string::npos);
 	REQUIRE(assembly.find(".asciz \"hello\"") != std::string::npos);
 	REQUIRE(assembly.find("adrp x0, Lstr0@PAGE") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_std_string_helper_calls)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn main() -> i32 { if str_eq(\"hi\", \"hi\") { return strlen(\"hello\"); } return 0; }\n");
+
+	REQUIRE(assembly.find("bl _str_eq") != std::string::npos);
+	REQUIRE(assembly.find("bl _strlen") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_std_numeric_helper_calls)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn main() -> i32 { print_i32(42); println_i32(parse_i32(\"-7\")); return read_i32(); }\n");
+
+	REQUIRE(assembly.find("bl _print_i32") != std::string::npos);
+	REQUIRE(assembly.find("bl _println_i32") != std::string::npos);
+	REQUIRE(assembly.find("bl _parse_i32") != std::string::npos);
+	REQUIRE(assembly.find("bl _read_i32") != std::string::npos);
 }
