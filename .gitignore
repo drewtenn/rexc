@@ -47,3 +47,5 @@ generated/
 
 # macOS
 .DS_Store
+
+.*vsix
