@@ -394,8 +394,12 @@ printf 'friend\n' | build/std_io
 ```
 
 Assembly-only (`-S`) and object-only (`-c`) builds can reference standard
-library symbols, but they do not include the runtime object. Manual final links
-must provide `print`, `println`, `read_line`, and `exit`.
+library symbols, but they do not include the runtime object. Source-level
+prelude names are `print`, `println`, `read_line`, and `exit`. ELF assembly
+references those names directly. `arm64-macos` assembly references Darwin
+symbols `_print`, `_println`, `_read_line`, and `_exit`; the hosted Darwin
+runtime provides `_print`, `_println`, and `_read_line`, while `_exit` is
+normally supplied by libc when linked with `clang`.
 
 ## Operators And Control Flow
 
