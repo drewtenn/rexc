@@ -8,6 +8,7 @@
 #include "rexc/sema.hpp"
 #include "rexc/source.hpp"
 
+#include "alloc/library.hpp"
 #include "core/library.hpp"
 #include "source.hpp"
 #include "std/library.hpp"
@@ -71,6 +72,7 @@ const std::vector<FunctionDecl> &prelude_functions()
 	static const std::vector<FunctionDecl> functions = [] {
 		std::vector<FunctionDecl> result;
 		append_functions(result, core::prelude_functions());
+		append_functions(result, alloc::prelude_functions());
 		append_functions(result, std_layer::prelude_functions());
 		return result;
 	}();

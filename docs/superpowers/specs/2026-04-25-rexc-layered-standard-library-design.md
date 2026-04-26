@@ -320,6 +320,10 @@ for heap-backed types such as owned strings, vectors, and boxed values. This
 layer should depend on `core` plus an allocator interface, but not on files,
 terminals, environment variables, or process services.
 
+During bootstrap, `alloc` may start as a portable bump arena implemented in
+Rexc source with `static mut` byte storage and scalar offset state. That is an
+allocator contract seed, not the final ownership model for vectors or strings.
+
 ### Stage 6: Grow Hosted `std`
 
 Move hosted functionality into `std`: console I/O, process arguments,

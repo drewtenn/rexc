@@ -186,3 +186,13 @@ TEST_CASE(codegen_arm64_macos_emits_static_i32_scalar_load_and_store)
 	REQUIRE(assembly.find("ldr w0, [x") != std::string::npos);
 	REQUIRE(assembly.find("str w0, [x") != std::string::npos);
 }
+
+TEST_CASE(codegen_arm64_macos_emits_alloc_helper_calls)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); return alloc_remaining(); }\n");
+
+	REQUIRE(assembly.find("bl _alloc_reset") != std::string::npos);
+	REQUIRE(assembly.find("bl _alloc_bytes") != std::string::npos);
+	REQUIRE(assembly.find("bl _alloc_remaining") != std::string::npos);
+}

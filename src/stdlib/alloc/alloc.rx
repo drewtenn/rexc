@@ -1,0 +1,24 @@
+static mut ALLOC_ARENA: [u8; 65536];
+static mut ALLOC_OFFSET: i32 = 0;
+
+fn alloc_remaining() -> i32 {
+	return 65536 - ALLOC_OFFSET;
+}
+
+fn alloc_reset() -> i32 {
+	ALLOC_OFFSET = 0;
+	return 0;
+}
+
+fn alloc_bytes(len: i32) -> *u8 {
+	if len <= 0 {
+		return ALLOC_ARENA + ALLOC_OFFSET;
+	}
+	if len > alloc_remaining() {
+		return ALLOC_ARENA + 0;
+	}
+
+	let start: i32 = ALLOC_OFFSET;
+	ALLOC_OFFSET = ALLOC_OFFSET + len;
+	return ALLOC_ARENA + start;
+}

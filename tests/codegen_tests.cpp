@@ -569,3 +569,13 @@ TEST_CASE(codegen_i386_emits_static_i32_scalar_load_and_store)
 	REQUIRE(assembly.find("movl .Lstatic_ALLOC_OFFSET, %eax") != std::string::npos);
 	REQUIRE(assembly.find("movl %eax, .Lstatic_ALLOC_OFFSET") != std::string::npos);
 }
+
+TEST_CASE(codegen_i386_emits_alloc_helper_calls)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); return alloc_remaining(); }\n");
+
+	REQUIRE(assembly.find("call alloc_reset") != std::string::npos);
+	REQUIRE(assembly.find("call alloc_bytes") != std::string::npos);
+	REQUIRE(assembly.find("call alloc_remaining") != std::string::npos);
+}

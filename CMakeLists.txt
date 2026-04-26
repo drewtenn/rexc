@@ -69,6 +69,7 @@ set(REXC_STDLIB_RX_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/str.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/mem.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/num.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/alloc/alloc.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/io.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/process.rx"
 )
@@ -108,6 +109,7 @@ add_library(rexc_core
 	src/stdlib/stdlib.cpp
 	"${REXC_STDLIB_GENERATED_SOURCE}"
 	src/stdlib/core/library.cpp
+	src/stdlib/alloc/library.cpp
 	src/stdlib/std/library.cpp
 	src/stdlib/sys/runtime_i386.cpp
 	src/stdlib/sys/runtime_x86_64.cpp

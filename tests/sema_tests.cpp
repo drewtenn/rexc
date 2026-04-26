@@ -409,6 +409,22 @@ TEST_CASE(sema_accepts_core_memory_helpers)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_alloc_helpers)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 {\n"
+		"  alloc_reset();\n"
+		"  let p: *u8 = alloc_bytes(8);\n"
+		"  memset_u8(p, 65 as u8, 8);\n"
+		"  return alloc_remaining();\n"
+		"}\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_rejects_std_prelude_print_i32_wrong_argument_type)
 {
 	rexc::Diagnostics diagnostics;
