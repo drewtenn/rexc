@@ -1,7 +1,7 @@
 // Parser/frontend tests for grammar coverage and AST shape.
 //
 // These tests exercise parse_source through the generated ANTLR parser and the
-// AST builder. They verify that accepted Rexc syntax becomes the compiler-owned
+// AST builder. They verify that accepted Rexy syntax becomes the compiler-owned
 // AST shape expected by sema and later stages.
 #include "rexc/parse.hpp"
 #include "rexc/diagnostics.hpp"

@@ -1,9 +1,9 @@
-# Rexc Compiler Roadmap
+# rexc Compiler Roadmap
 
 Updated: 2026-04-26
 
-This roadmap tracks Rexc as a portable compiler first, not only as a
-standard-library design or a Drunix-specific tool. Rexc should build and run as
+This roadmap tracks `rexc` as a portable compiler first, not only as a
+standard-library design or a Drunix-specific tool. `rexc` should build and run as
 a normal host compiler on macOS, Linux, and Windows while still producing
 useful systems programs for Drunix and other explicit output targets.
 
@@ -24,8 +24,8 @@ The stages below are grouped by state:
   host-specific filesystem, process, toolchain, assembler, and linker behavior
   isolated behind small boundaries.
 - Keep Drunix visible as a target: target and runtime choices should continue
-  to explain how a Rexc program becomes a Drunix user program.
-- Keep portable behavior in Rexc source whenever the language can express it.
+  to explain how a Rexy program becomes a Drunix user program.
+- Keep portable behavior in Rexy source whenever the language can express it.
   Target-specific C++ or assembly should stay at ABI, syscall, libc, startup,
   and linker boundaries.
 - Add compiler features when the standard library needs them instead of copying
@@ -35,7 +35,7 @@ The stages below are grouped by state:
 
 ## Current Snapshot
 
-Rexc's host portability goal is macOS, Linux, and Windows. The compiler
+`rexc`'s host portability goal is macOS, Linux, and Windows. The compiler
 currently supports a small but complete output pipeline:
 
 ```text
@@ -64,7 +64,7 @@ The currently implemented output target families are:
 - `x86_64-linux` / `x86_64-elf`
 - `arm64-macos`
 
-Executable builds can include a hosted runtime and the Rexc-source standard
+Executable builds can include a hosted runtime and the Rexy-source standard
 library. Drunix builds use the `i386-drunix` runtime path with `--drunix-root`
 and link against Drunix startup objects, runtime archive, and linker script.
 
@@ -74,7 +74,7 @@ and link against Drunix startup objects, runtime archive, and linker script.
 
 Status: completed.
 
-Rexc has a CMake build, generated ANTLR parser, reusable `rexc_core` library,
+`rexc` has a CMake build, generated ANTLR parser, reusable `rexc_core` library,
 CLI executable, unit tests, parser architecture tests, CLI smoke tests, assemble
 smoke tests, examples, and book/documentation build support.
 
@@ -104,7 +104,7 @@ AST in `include/rexc/ast.hpp`.
 
 Delivered:
 
-- grammar in `grammar/Rexc.g4`;
+- grammar in `grammar/Rexy.g4`;
 - parser entry points in `include/rexc/parse.hpp` and `src/parse.cpp`;
 - AST data model for source-level modules, declarations, statements, and
   expressions.
@@ -117,7 +117,7 @@ Remaining polish:
 
 ### Phase 2: Semantic Analysis And Type Model
 
-Status: completed for primitive Rexc programs.
+Status: completed for primitive Rexy programs.
 
 Semantic analysis validates names, duplicate declarations, function calls,
 return types, initializer and assignment types, mutability, pointer operations,
@@ -164,7 +164,7 @@ Remaining polish:
 
 Status: completed for current x86 targets.
 
-Rexc emits GNU-style assembly for `i386` and `x86_64`, can assemble object
+`rexc` emits GNU-style assembly for `i386` and `x86_64`, can assemble object
 files, and can link Linux-compatible ELF executables. The Drunix path can link
 an `i386-drunix` executable using Drunix userland startup and runtime inputs.
 
@@ -182,14 +182,14 @@ Remaining polish:
 
 - add more ABI stress coverage around calls, returns, and mixed-width values;
 - keep Drunix integration aligned with Drunix userland runtime changes;
-- decide whether Rexc should eventually write object files directly or keep
+- decide whether Rexy should eventually write object files directly or keep
   using external assemblers.
 
 ### Phase 5: Darwin ARM64 Backend
 
 Status: completed for native macOS command-line programs.
 
-Rexc supports the `arm64-macos` target, emits Darwin ARM64 assembly, assembles
+`rexc` supports the `arm64-macos` target, emits Darwin ARM64 assembly, assembles
 with Apple `as`, links with the host toolchain, and can build a native
 command-line executable on Apple Silicon macOS.
 
@@ -205,13 +205,13 @@ Remaining polish:
 - broaden ARM64 backend parity tests against the x86 backends;
 - decide whether ARM64 should grow Linux or Drunix target variants.
 
-### Phase 6: Rexc-Source Standard Library Bootstrap
+### Phase 6: Rexy-Source Standard Library Bootstrap
 
 Status: completed as a bootstrap, not as a final library design.
 
 The standard library now has `core`, `alloc`, `std`, and narrow `sys` runtime
 layers. Portable library behavior lives in `.rx` files, compiler-facing
-function metadata is derived from embedded Rexc source, and hosted executable
+function metadata is derived from embedded Rexy source, and hosted executable
 builds compile the portable stdlib into the runtime object.
 
 Delivered:
@@ -242,7 +242,7 @@ Known limits:
 
 Status: completed for user modules.
 
-Rexc has moved beyond inline-only modules. The parser and CLI can load
+`rexc` has moved beyond inline-only modules. The parser and CLI can load
 file-backed modules from an entry file directory and from `--package-path`
 roots, then merge those parsed modules into one checked program.
 
@@ -268,7 +268,7 @@ Known limits:
 
 Status: in progress.
 
-Goal: make Rexc programs scale beyond single files.
+Goal: make Rexy programs scale beyond single files.
 
 Planned work:
 
@@ -285,8 +285,8 @@ Planned work:
 
 Exit criteria:
 
-- a multi-file Rexc program can compile without custom compiler glue;
-- stdlib imports look like ordinary Rexc imports;
+- a multi-file Rexy program can compile without custom compiler glue;
+- stdlib imports look like ordinary Rexy imports;
 - private items stay private across module boundaries;
 - package/module failures produce actionable diagnostics.
 
@@ -294,7 +294,7 @@ Exit criteria:
 
 ### Phase 9: Rich Data Representation
 
-Goal: give Rexc enough data shapes to replace bootstrap library conventions.
+Goal: give Rexy enough data shapes to replace bootstrap library conventions.
 
 Planned work:
 
@@ -327,7 +327,7 @@ Planned work:
 
 Exit criteria:
 
-- `alloc` can be implemented mostly in Rexc source on top of target allocator
+- `alloc` can be implemented mostly in Rexy source on top of target allocator
   primitives;
 - owned strings and vectors have tests that cover allocation, mutation,
   passing, returning, and failure behavior;
@@ -357,7 +357,7 @@ Exit criteria:
 
 ### Phase 12: Host Portability, Runtime, And Target Maturity
 
-Goal: make Rexc reliable as a compiler host on macOS, Linux, and Windows while
+Goal: make Rexy reliable as a compiler host on macOS, Linux, and Windows while
 keeping output targets explicit and well tested.
 
 Planned work:
@@ -389,7 +389,7 @@ Exit criteria:
 
 ### Phase 13: Diagnostics, Tooling, And Developer Experience
 
-Goal: make Rexc easier to use, debug, and evolve.
+Goal: make Rexy easier to use, debug, and evolve.
 
 Planned work:
 
@@ -405,7 +405,7 @@ Exit criteria:
 
 - common user mistakes point to the source span that caused them;
 - failed stdlib builds read like compiler errors, not backend artifacts;
-- examples cover the normal path for new Rexc users.
+- examples cover the normal path for new Rexy users.
 
 ### Phase 14: Optimization And Backend Architecture
 
@@ -428,20 +428,20 @@ Exit criteria:
 
 ### Phase 15: Self-Hosting Horizon
 
-Goal: make Rexc capable enough to implement substantial parts of its own
-tooling or libraries in Rexc.
+Goal: make Rexy capable enough to implement substantial parts of its own
+tooling or libraries in Rexy.
 
 This is a long-horizon phase, not near-term work. Before it becomes practical,
-Rexc needs real modules, richer data types, allocation, collections, useful
+Rexy needs real modules, richer data types, allocation, collections, useful
 error handling, file I/O, and enough language ergonomics to write medium-sized
 programs without fighting the compiler.
 
 Possible milestones:
 
-- write nontrivial command-line tools in Rexc;
-- move more build-time stdlib generation logic into Rexc;
-- experiment with parsing or code-generation utilities written in Rexc;
-- eventually evaluate whether a Rexc-in-Rexc compiler component is useful.
+- write nontrivial command-line tools in Rexy;
+- move more build-time stdlib generation logic into Rexy;
+- experiment with parsing or code-generation utilities written in Rexy;
+- eventually evaluate whether a Rexy-in-rexc compiler component is useful.
 
 ## Cross-Cutting Work
 

@@ -1,4 +1,4 @@
-# Typst/Pandoc layout metadata for the Rexc PDF build.
+# Typst/Pandoc layout metadata for the Rexy PDF build.
 ---
 papersize: us-letter
 fontsize: 10.5pt

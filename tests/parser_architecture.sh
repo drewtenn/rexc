@@ -10,5 +10,5 @@ if grep -Eq 'enum class TokenKind|class Lexer|class Parser' "${parser}"; then
 	exit 1
 fi
 
-grep -q 'RexcLexer' "${parser}"
-grep -q 'RexcParser' "${parser}"
+grep -q 'RexyLexer' "${parser}"
+grep -q 'RexyParser' "${parser}"

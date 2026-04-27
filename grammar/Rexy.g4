@@ -1,5 +1,5 @@
-// Canonical ANTLR grammar for Rexc source syntax.
-grammar Rexc;
+// Canonical ANTLR grammar for Rexy source syntax.
+grammar Rexy;
 
 compilationUnit
 	: item* EOF

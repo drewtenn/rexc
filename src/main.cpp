@@ -1,4 +1,4 @@
-// Rexc command-line driver.
+// rexc command-line driver.
 //
 // main.cpp owns process-level concerns: command-line parsing, file I/O, stage
 // sequencing, diagnostic printing, and exit status. The actual compiler work is

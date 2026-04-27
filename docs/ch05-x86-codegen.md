@@ -12,25 +12,25 @@ pointer address, whether a name is a local or a static global, and whether the
 selected target is i386 or x86_64.
 
 The backend's job is to turn those facts into assembly. Assembly is a textual
-form of machine instructions. Rexc emits GNU assembler syntax, which means the
+form of machine instructions. `rexc` emits GNU assembler syntax, which means the
 next tool in the chain can be `as` or `x86_64-elf-as`.
 
 ### Stack Frames and Local Slots
 
 Every non-extern function gets a stack frame. A stack frame is the block of
 stack memory a function uses for its saved frame pointer, parameters, locals,
-and temporary call state. Rexc keeps the current model deliberately simple:
+and temporary call state. `rexc` keeps the current model deliberately simple:
 locals live in fixed stack slots, and expression results flow through the
 accumulator register.
 
 A `let` statement reserves one of those local slots and stores the initializer
-there. An assignment does not reserve a new slot. Rexc emits the right side into
+there. An assignment does not reserve a new slot. `rexc` emits the right side into
 the accumulator, then writes that value back to the slot already associated
 with the target local. That distinction is why semantic analysis had to reject
 assignments to immutable locals before code generation began.
 
-On i386, Rexc uses 32-bit slots for the currently supported scalar values. On
-x86_64, Rexc uses 64-bit slots and aligns the local frame to preserve the
+On i386, `rexc` uses 32-bit slots for the currently supported scalar values. On
+x86_64, `rexc` uses 64-bit slots and aligns the local frame to preserve the
 calling convention's stack expectations. Parameters follow the target ABI. An
 **ABI** (Application Binary Interface) is the binary contract that says where
 arguments go, which registers matter, how the stack is aligned, and how a
@@ -53,7 +53,7 @@ loaded through file-backed modules and functions declared in inline modules.
 
 ### Arithmetic, Division, and Comparisons
 
-Simple arithmetic follows a repeated pattern. Rexc emits the left operand into
+Simple arithmetic follows a repeated pattern. `rexc` emits the left operand into
 the accumulator, saves it, emits the right operand, moves the right operand into
 a scratch register, restores the left operand, and then emits the target
 instruction. The instruction suffix changes by target: i386 uses forms such as
@@ -65,7 +65,7 @@ sign extension first. Unsigned division requires clearing the remainder
 register first. Because semantic analysis preserved signedness, the backend can
 choose the right instruction shape without inspecting source text.
 
-Comparisons produce `bool`. Rexc emits a compare instruction, then a condition
+Comparisons produce `bool`. `rexc` emits a compare instruction, then a condition
 code instruction that writes one byte: `1` if the condition is true, `0` if it
 is false. The result is then zero-extended back into the accumulator-sized
 register. Signed comparisons use signed condition codes; unsigned comparisons
@@ -86,19 +86,19 @@ load-effective-address instruction: `leal` on i386 or `leaq` on x86_64. That
 puts the stack slot address for `x` into the accumulator instead of loading the
 value stored in that slot.
 
-For `p + i` and `p - i`, Rexc evaluates `p` as an address and `i` as an
+For `p + i` and `p - i`, Rexy evaluates `p` as an address and `i` as an
 integer offset. Before adding or subtracting, the backend multiplies the offset
 by the pointee size. A `*i32` offset scales by four bytes, while a `*i64`
 offset scales by eight bytes. Indexing uses the same code path because `p[i]`
 has already become `*(p + i)` by the time code generation runs.
 
-For `*p`, Rexc first emits `p` so the accumulator holds an address, then emits
+For `*p`, Rexy first emits `p` so the accumulator holds an address, then emits
 a load from memory at that address. The load instruction follows the pointee
 type: byte and word values are sign- or zero-extended, `i32` sign-extends on
 x86_64, `u32` zero-extends through `%eax`, and pointer-sized values use the
 target's normal word move.
 
-For `*p = value`, Rexc evaluates the value, saves it briefly, evaluates the
+For `*p = value`, Rexy evaluates the value, saves it briefly, evaluates the
 pointer target, restores the value into a scratch register, and stores through
 the address in the accumulator. The store width comes from the pointee type.
 
@@ -123,13 +123,13 @@ byte against zero, set `%al` when the value was false, and zero-extend the
 result back into the full accumulator register.
 
 The binary boolean operators are more interesting because `&&` and `||`
-short-circuit. For `&&`, Rexc emits the left operand and jumps directly to the
+short-circuit. For `&&`, `rexc` emits the left operand and jumps directly to the
 false label if it is zero. Only a true left operand lets execution reach the
 right operand. For `||`, the shape is reversed: a true left operand jumps
 directly to the true label. In both cases, the final labels materialize a
 normal `0` or `1` result in the accumulator.
 
-That means a Rexc expression such as `ready && expensive()` preserves the usual
+That means a Rexy expression such as `ready && expensive()` preserves the usual
 runtime promise: `expensive` is called only when `ready` is true.
 
 ### Control Flow Becomes Labels and Jumps
@@ -138,10 +138,10 @@ An `if/else` statement arrives in IR as a boolean condition plus two statement
 bodies. Assembly has no tree-shaped branch node, so the backend turns that
 shape into labels and jumps.
 
-First, Rexc emits the condition. Since conditions are `bool`, the accumulator
+First, `rexc` emits the condition. Since conditions are `bool`, the accumulator
 holds zero or one. The backend compares the low byte against zero. If it is
 zero, execution jumps to the else label. If it is non-zero, execution falls
-through into the then body. After the then body, Rexc emits an unconditional
+through into the then body. After the then body, `rexc` emits an unconditional
 jump over the else body to the end label.
 
 That gives the CPU a concrete path through what used to be a tree:
@@ -155,7 +155,7 @@ The interesting part is that this is the same idea on both targets. The exact
 register names and instruction suffixes differ, but the control-flow shape is
 shared.
 
-A `while` loop uses the same pieces with a different label layout. Rexc emits a
+A `while` loop uses the same pieces with a different label layout. `rexc` emits a
 start label, emits the loop condition, and jumps to the end label when the
 condition is false. If the condition is true, execution falls through into the
 body. After the body, an unconditional jump returns to the start label so the
@@ -177,7 +177,7 @@ That creates the usual loop shape:
 
 ### Where the Compiler Is by the End of Chapter 5
 
-Rexc can now emit assembly for typed functions, locals, returns, calls,
+`rexc` can now emit assembly for typed functions, locals, returns, calls,
 arithmetic, division, comparisons, explicit casts, boolean operators, strings,
 static storage, address-of, dereference, pointer arithmetic, indexing, direct
 and indirect assignment, `if/else` branches, and `while` loops with `break` and
@@ -190,6 +190,6 @@ The command-line driver can stop at assembly with `-S`, assemble an object with
 link still needs the Drunix startup object, runtime archive, and linker script,
 which is the handoff Chapter 6 follows.
 
-Rexc also has a Darwin ARM64 backend. It consumes the same typed IR, but emits
+Rexy also has a Darwin ARM64 backend. It consumes the same typed IR, but emits
 Apple ARM64 assembly, Darwin-style symbol names, and the ARM64 calling
 convention instead of the x86 instruction forms described in this chapter.

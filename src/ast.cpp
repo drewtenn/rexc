@@ -1,4 +1,4 @@
-// AST node construction for Rexc's source-level tree.
+// AST node construction for Rexy's source-level tree.
 //
 // The parser builds these nodes after ANTLR has accepted the grammar. The AST
 // preserves source structure and locations, but it deliberately does not know

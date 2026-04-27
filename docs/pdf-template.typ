@@ -1,8 +1,8 @@
-// Custom Typst template for the Rexc book PDF.
+// Custom Typst template for the Rexy book PDF.
 // It follows the Drunix book shape: cover page, contents page, then body.
 
 #set document(
-  title: "Rexc",
+  title: "Rexy",
   author: "Drew Tennenbaum",
 )
 

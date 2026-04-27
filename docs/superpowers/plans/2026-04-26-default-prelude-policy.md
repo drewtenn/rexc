@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Decide and implement Rexc's default prelude policy by narrowing which stdlib functions are available as bare names while preserving runtime emission and explicit stdlib paths.
+**Goal:** Decide and implement Rexy's default prelude policy by narrowing which stdlib functions are available as bare names while preserving runtime emission and explicit stdlib paths.
 
 **Architecture:** Split stdlib declarations into three uses: all runtime declarations, default bare prelude declarations, and disabled stdlib declarations for compiling the stdlib itself. Semantic analysis and IR lowering should use matching policy enums so accepted source and lowered symbols cannot diverge. This slice does not build ordinary stdlib module loading; explicit `std::...` bridge paths keep working where `std_*` symbols already provide them.
 
-**Tech Stack:** C++17, existing Rexc AST/sema/lower/codegen pipeline, embedded `.rx` stdlib source, Catch2-style `rexc_tests`.
+**Tech Stack:** C++17, existing Rexy AST/sema/lower/codegen pipeline, embedded `.rx` stdlib source, Catch2-style `rexc_tests`.
 
 ---
 
@@ -841,7 +841,7 @@ git commit -m "test: define default prelude sema behavior"
 In `docs/ch03-semantics.md`, after the module visibility section and before local-name analysis, add:
 
 ```markdown
-The default prelude is deliberately small. Rexc makes common string and console
+The default prelude is deliberately small. Rexy makes common string and console
 helpers available as bare names so compact examples can stay readable:
 `print`, `println`, `read_line`, string predicates such as `str_eq`, numeric
 parsers such as `parse_i32`, primitive print/read helpers, and `panic`.

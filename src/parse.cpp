@@ -1,14 +1,14 @@
-// ANTLR parser entry point plus Rexc AST construction.
+// ANTLR parser entry point plus Rexy AST construction.
 //
-// The grammar lives in grammar/Rexc.g4 and CMake generates RexcLexer and
-// RexcParser from it. parse.cpp wires those generated classes into Rexc,
-// translates ANTLR syntax errors into Rexc Diagnostics, then walks the ANTLR
+// The grammar lives in grammar/Rexy.g4 and CMake generates RexyLexer and
+// RexyParser from it. parse.cpp wires those generated classes into rexc,
+// translates ANTLR syntax errors into rexc Diagnostics, then walks the ANTLR
 // parse tree to build the compiler-owned AST from include/rexc/ast.hpp. It
 // does not define token kinds, parsing rules, or grammar decisions itself.
 #include "rexc/parse.hpp"
 
-#include "RexcLexer.h"
-#include "RexcParser.h"
+#include "RexyLexer.h"
+#include "RexyParser.h"
 
 #include <antlr4-runtime.h>
 
@@ -79,7 +79,7 @@ public:
 	{
 	}
 
-	ast::Module build(RexcParser::CompilationUnitContext *context)
+	ast::Module build(RexyParser::CompilationUnitContext *context)
 	{
 		ast::Module module;
 		for (auto *item : context->item())
@@ -128,7 +128,7 @@ private:
 		return false;
 	}
 
-	void build_item(ast::Module &module, RexcParser::ItemContext *context,
+	void build_item(ast::Module &module, RexyParser::ItemContext *context,
 	                const std::vector<std::string> &module_path)
 	{
 		if (auto *static_buffer = context->staticBuffer()) {
@@ -168,7 +168,7 @@ private:
 		}
 	}
 
-	ast::StaticBuffer build_static_buffer(RexcParser::StaticBufferContext *context,
+	ast::StaticBuffer build_static_buffer(RexyParser::StaticBufferContext *context,
 	                                      const std::vector<std::string> &module_path)
 	{
 		bool is_mutable = false;
@@ -191,7 +191,7 @@ private:
 		return buffer;
 	}
 
-	ast::StaticScalar build_static_scalar(RexcParser::StaticScalarContext *context,
+	ast::StaticScalar build_static_scalar(RexyParser::StaticScalarContext *context,
 	                                      const std::vector<std::string> &module_path)
 	{
 		bool is_mutable = false;
@@ -214,7 +214,7 @@ private:
 		return scalar;
 	}
 
-	ast::Function build_extern_function(RexcParser::ExternFunctionContext *context,
+	ast::Function build_extern_function(RexyParser::ExternFunctionContext *context,
 	                                    const std::vector<std::string> &module_path)
 	{
 		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
@@ -225,7 +225,7 @@ private:
 		return function;
 	}
 
-	ast::Function build_function_definition(RexcParser::FunctionDefinitionContext *context,
+	ast::Function build_function_definition(RexyParser::FunctionDefinitionContext *context,
 	                                        const std::vector<std::string> &module_path)
 	{
 		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
@@ -237,8 +237,8 @@ private:
 	}
 
 	ast::Function build_signature(antlr4::tree::TerminalNode *name,
-	                              RexcParser::ParameterListContext *parameters,
-	                              RexcParser::TypeContext *return_type,
+	                              RexyParser::ParameterListContext *parameters,
+	                              RexyParser::TypeContext *return_type,
 	                              SourceLocation function_location)
 	{
 		ast::Function function;
@@ -250,7 +250,7 @@ private:
 		return function;
 	}
 
-	std::vector<ast::Parameter> build_parameter_list(RexcParser::ParameterListContext *context)
+	std::vector<ast::Parameter> build_parameter_list(RexyParser::ParameterListContext *context)
 	{
 		std::vector<ast::Parameter> parameters;
 		for (auto *parameter : context->parameter())
@@ -258,18 +258,18 @@ private:
 		return parameters;
 	}
 
-	ast::Parameter build_parameter(RexcParser::ParameterContext *context)
+	ast::Parameter build_parameter(RexyParser::ParameterContext *context)
 	{
 		auto *name = context->IDENT();
 		return ast::Parameter{name->getText(), build_type(context->type()), location(name)};
 	}
 
-	ast::TypeName build_type(RexcParser::TypeContext *context)
+	ast::TypeName build_type(RexyParser::TypeContext *context)
 	{
 		return ast::TypeName{context->getText(), location(context)};
 	}
 
-	std::vector<std::unique_ptr<ast::Stmt>> build_block(RexcParser::BlockContext *context)
+	std::vector<std::unique_ptr<ast::Stmt>> build_block(RexyParser::BlockContext *context)
 	{
 		std::vector<std::unique_ptr<ast::Stmt>> body;
 		for (auto *statement : context->statement())
@@ -277,7 +277,7 @@ private:
 		return body;
 	}
 
-	std::unique_ptr<ast::Stmt> build_statement(RexcParser::StatementContext *context)
+	std::unique_ptr<ast::Stmt> build_statement(RexyParser::StatementContext *context)
 	{
 		if (auto *let = context->letStatement())
 			return build_let_statement(let);
@@ -304,7 +304,7 @@ private:
 		    std::make_unique<ast::IntegerExpr>(location(context), 0, "0"));
 	}
 
-	std::unique_ptr<ast::Stmt> build_let_statement(RexcParser::LetStatementContext *context)
+	std::unique_ptr<ast::Stmt> build_let_statement(RexyParser::LetStatementContext *context)
 	{
 		bool is_mutable = false;
 		for (auto *child : context->children) {
@@ -321,7 +321,7 @@ private:
 	}
 
 	std::unique_ptr<ast::Stmt> build_assign_statement(
-	    RexcParser::AssignStatementContext *context)
+	    RexyParser::AssignStatementContext *context)
 	{
 		auto *name = context->IDENT();
 		return std::make_unique<ast::AssignStmt>(
@@ -329,27 +329,27 @@ private:
 	}
 
 	std::unique_ptr<ast::Stmt> build_indirect_assign_statement(
-	    RexcParser::IndirectAssignStatementContext *context)
+	    RexyParser::IndirectAssignStatementContext *context)
 	{
 		return std::make_unique<ast::IndirectAssignStmt>(
 		    location(context), build_expression(context->expression(0)),
 		    build_expression(context->expression(1)));
 	}
 
-	std::unique_ptr<ast::Stmt> build_call_statement(RexcParser::CallStatementContext *context)
+	std::unique_ptr<ast::Stmt> build_call_statement(RexyParser::CallStatementContext *context)
 	{
 		return std::make_unique<ast::ExprStmt>(
 		    location(context), build_call_expression(context->callExpression()));
 	}
 
 	std::unique_ptr<ast::Stmt> build_return_statement(
-	    RexcParser::ReturnStatementContext *context)
+	    RexyParser::ReturnStatementContext *context)
 	{
 		return std::make_unique<ast::ReturnStmt>(
 		    location(context), build_expression(context->expression()));
 	}
 
-	std::unique_ptr<ast::Stmt> build_if_statement(RexcParser::IfStatementContext *context)
+	std::unique_ptr<ast::Stmt> build_if_statement(RexyParser::IfStatementContext *context)
 	{
 		auto blocks = context->block();
 		std::vector<std::unique_ptr<ast::Stmt>> else_body;
@@ -362,19 +362,19 @@ private:
 	}
 
 	std::unique_ptr<ast::Stmt> build_while_statement(
-	    RexcParser::WhileStatementContext *context)
+	    RexyParser::WhileStatementContext *context)
 	{
 		return std::make_unique<ast::WhileStmt>(
 		    location(context), build_expression(context->expression()),
 		    build_block(context->block()));
 	}
 
-	std::unique_ptr<ast::Expr> build_expression(RexcParser::ExpressionContext *context)
+	std::unique_ptr<ast::Expr> build_expression(RexyParser::ExpressionContext *context)
 	{
 		return build_logical_or(context->logicalOr());
 	}
 
-	std::unique_ptr<ast::Expr> build_logical_or(RexcParser::LogicalOrContext *context)
+	std::unique_ptr<ast::Expr> build_logical_or(RexyParser::LogicalOrContext *context)
 	{
 		auto operands = context->logicalAnd();
 		auto lhs = build_logical_and(operands[0]);
@@ -384,7 +384,7 @@ private:
 		return lhs;
 	}
 
-	std::unique_ptr<ast::Expr> build_logical_and(RexcParser::LogicalAndContext *context)
+	std::unique_ptr<ast::Expr> build_logical_and(RexyParser::LogicalAndContext *context)
 	{
 		auto operands = context->comparison();
 		auto lhs = build_comparison(operands[0]);
@@ -394,7 +394,7 @@ private:
 		return lhs;
 	}
 
-	std::unique_ptr<ast::Expr> build_comparison(RexcParser::ComparisonContext *context)
+	std::unique_ptr<ast::Expr> build_comparison(RexyParser::ComparisonContext *context)
 	{
 		auto operands = context->additive();
 		auto lhs = build_additive(operands[0]);
@@ -404,7 +404,7 @@ private:
 		return lhs;
 	}
 
-	std::unique_ptr<ast::Expr> build_additive(RexcParser::AdditiveContext *context)
+	std::unique_ptr<ast::Expr> build_additive(RexyParser::AdditiveContext *context)
 	{
 		auto operands = context->multiplicative();
 		auto lhs = build_multiplicative(operands[0]);
@@ -415,7 +415,7 @@ private:
 	}
 
 	std::unique_ptr<ast::Expr> build_multiplicative(
-	    RexcParser::MultiplicativeContext *context)
+	    RexyParser::MultiplicativeContext *context)
 	{
 		auto operands = context->cast();
 		auto lhs = build_cast(operands[0]);
@@ -425,7 +425,7 @@ private:
 		return lhs;
 	}
 
-	std::unique_ptr<ast::Expr> build_cast(RexcParser::CastContext *context)
+	std::unique_ptr<ast::Expr> build_cast(RexyParser::CastContext *context)
 	{
 		auto value = build_unary(context->unary());
 		for (auto *type : context->type())
@@ -445,7 +445,7 @@ private:
 		    location(operator_node), std::move(op), std::move(lhs), std::move(rhs));
 	}
 
-	std::unique_ptr<ast::Expr> build_unary(RexcParser::UnaryContext *context)
+	std::unique_ptr<ast::Expr> build_unary(RexyParser::UnaryContext *context)
 	{
 		if (auto *postfix = context->postfix())
 			return build_postfix(postfix);
@@ -457,7 +457,7 @@ private:
 		    build_unary(context->unary()));
 	}
 
-	std::unique_ptr<ast::Expr> build_postfix(RexcParser::PostfixContext *context)
+	std::unique_ptr<ast::Expr> build_postfix(RexyParser::PostfixContext *context)
 	{
 		auto value = build_primary(context->primary());
 		for (auto *index : context->expression()) {
@@ -470,7 +470,7 @@ private:
 		return value;
 	}
 
-	std::unique_ptr<ast::Expr> build_primary(RexcParser::PrimaryContext *context)
+	std::unique_ptr<ast::Expr> build_primary(RexyParser::PrimaryContext *context)
 	{
 		if (auto *integer = context->INTEGER()) {
 			auto text = integer->getText();
@@ -506,7 +506,7 @@ private:
 	}
 
 	std::unique_ptr<ast::Expr> build_call_expression(
-	    RexcParser::CallExpressionContext *context)
+	    RexyParser::CallExpressionContext *context)
 	{
 		auto *name = context->qualifiedName()->IDENT().front();
 		auto call = std::make_unique<ast::CallExpr>(
@@ -518,7 +518,7 @@ private:
 		return call;
 	}
 
-	std::vector<std::string> build_qualified_name(RexcParser::QualifiedNameContext *context)
+	std::vector<std::string> build_qualified_name(RexyParser::QualifiedNameContext *context)
 	{
 		std::vector<std::string> path;
 		for (auto *identifier : context->IDENT())
@@ -765,9 +765,9 @@ ParseResult parse_source(const SourceFile &source, Diagnostics &diagnostics,
                          ParseOptions options)
 {
 	antlr4::ANTLRInputStream input(source.text());
-	RexcLexer lexer(&input);
+	RexyLexer lexer(&input);
 	antlr4::CommonTokenStream tokens(&lexer);
-	RexcParser parser(&tokens);
+	RexyParser parser(&tokens);
 	DiagnosticErrorListener error_listener(source, diagnostics);
 
 	lexer.removeErrorListeners();

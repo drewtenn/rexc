@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "Rexc",
-  "scopeName": "source.rexc",
+  "name": "Rexy",
+  "scopeName": "source.rexy",
   "patterns": [
     {
       "include": "#comments"
@@ -29,7 +29,7 @@
     "comments": {
       "patterns": [
         {
-          "name": "comment.line.double-slash.rexc",
+          "name": "comment.line.double-slash.rexy",
           "match": "//.*$"
         }
       ]
@@ -37,11 +37,11 @@
     "escape": {
       "patterns": [
         {
-          "name": "constant.character.escape.rexc",
+          "name": "constant.character.escape.rexy",
           "match": "\\\\[nrt'\"\\\\]"
         },
         {
-          "name": "invalid.illegal.escape.rexc",
+          "name": "invalid.illegal.escape.rexy",
           "match": "\\\\."
         }
       ]
@@ -49,38 +49,38 @@
     "functions": {
       "patterns": [
         {
-          "name": "meta.function.definition.rexc",
+          "name": "meta.function.definition.rexy",
           "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
-              "name": "keyword.declaration.function.rexc"
+              "name": "keyword.declaration.function.rexy"
             },
             "2": {
-              "name": "entity.name.function.rexc"
+              "name": "entity.name.function.rexy"
             }
           }
         },
         {
-          "name": "meta.function.extern.rexc",
+          "name": "meta.function.extern.rexy",
           "match": "\\b(extern)\\s+(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
-              "name": "storage.modifier.extern.rexc"
+              "name": "storage.modifier.extern.rexy"
             },
             "2": {
-              "name": "keyword.declaration.function.rexc"
+              "name": "keyword.declaration.function.rexy"
             },
             "3": {
-              "name": "entity.name.function.rexc"
+              "name": "entity.name.function.rexy"
             }
           }
         },
         {
-          "name": "support.function.call.rexc",
+          "name": "support.function.call.rexy",
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
           "captures": {
             "1": {
-              "name": "entity.name.function.call.rexc"
+              "name": "entity.name.function.call.rexy"
             }
           }
         }
@@ -89,19 +89,19 @@
     "keywords": {
       "patterns": [
         {
-          "name": "keyword.control.rexc",
+          "name": "keyword.control.rexy",
           "match": "\\b(?:return|if|else|while|break|continue)\\b"
         },
         {
-          "name": "keyword.declaration.rexc",
+          "name": "keyword.declaration.rexy",
           "match": "\\b(?:let|static)\\b"
         },
         {
-          "name": "storage.modifier.rexc",
+          "name": "storage.modifier.rexy",
           "match": "\\b(?:mut|extern)\\b"
         },
         {
-          "name": "keyword.operator.cast.rexc",
+          "name": "keyword.operator.cast.rexy",
           "match": "\\b(?:as)\\b"
         }
       ]
@@ -109,7 +109,7 @@
     "literals": {
       "patterns": [
         {
-          "name": "string.quoted.double.rexc",
+          "name": "string.quoted.double.rexy",
           "begin": "\"",
           "end": "\"",
           "patterns": [
@@ -119,7 +119,7 @@
           ]
         },
         {
-          "name": "constant.character.rexc",
+          "name": "constant.character.rexy",
           "begin": "'",
           "end": "'",
           "patterns": [
@@ -129,11 +129,11 @@
           ]
         },
         {
-          "name": "constant.language.boolean.rexc",
+          "name": "constant.language.boolean.rexy",
           "match": "\\b(?:true|false)\\b"
         },
         {
-          "name": "constant.numeric.integer.rexc",
+          "name": "constant.numeric.integer.rexy",
           "match": "\\b[0-9]+\\b"
         }
       ]
@@ -141,27 +141,27 @@
     "operators": {
       "patterns": [
         {
-          "name": "keyword.operator.comparison.rexc",
+          "name": "keyword.operator.comparison.rexy",
           "match": "==|!=|<=|>=|<|>"
         },
         {
-          "name": "keyword.operator.logical.rexc",
+          "name": "keyword.operator.logical.rexy",
           "match": "&&|\\|\\||!"
         },
         {
-          "name": "keyword.operator.assignment.rexc",
+          "name": "keyword.operator.assignment.rexy",
           "match": "="
         },
         {
-          "name": "keyword.operator.arrow.rexc",
+          "name": "keyword.operator.arrow.rexy",
           "match": "->"
         },
         {
-          "name": "keyword.operator.arithmetic.rexc",
+          "name": "keyword.operator.arithmetic.rexy",
           "match": "\\+|-|\\*|/"
         },
         {
-          "name": "keyword.operator.reference.rexc",
+          "name": "keyword.operator.reference.rexy",
           "match": "&"
         }
       ]
@@ -169,19 +169,19 @@
     "punctuation": {
       "patterns": [
         {
-          "name": "punctuation.section.block.rexc",
+          "name": "punctuation.section.block.rexy",
           "match": "[{}]"
         },
         {
-          "name": "punctuation.section.brackets.rexc",
+          "name": "punctuation.section.brackets.rexy",
           "match": "[\\[\\]]"
         },
         {
-          "name": "punctuation.section.parens.rexc",
+          "name": "punctuation.section.parens.rexy",
           "match": "[()]"
         },
         {
-          "name": "punctuation.separator.rexc",
+          "name": "punctuation.separator.rexy",
           "match": "[,;:]"
         }
       ]
@@ -189,7 +189,7 @@
     "types": {
       "patterns": [
         {
-          "name": "storage.type.primitive.rexc",
+          "name": "storage.type.primitive.rexy",
           "match": "\\b(?:i8|i16|i32|i64|u8|u16|u32|u64|bool|char|str)\\b"
         }
       ]

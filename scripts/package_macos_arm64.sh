@@ -29,7 +29,7 @@ cp "${build_dir}/rexc" "$package_dir/rexc"
 chmod 755 "$package_dir/rexc"
 
 cat > "$package_dir/README.txt" <<'TXT'
-Rexc macOS arm64 package
+rexc macOS arm64 package
 
 This package contains a native Apple Silicon rexc CLI.
 

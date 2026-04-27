@@ -4,12 +4,12 @@
 
 ### Why the Compiler Needs Another Shape
 
-After semantic analysis, Rexc has a checked AST. That AST is useful because it
+After semantic analysis, `rexc` has a checked AST. That AST is useful because it
 looks like the source program. It is less ideal for code generation, because it
 still carries parser-facing details: source type names, source statement
 classes, and expression nodes arranged for grammar first.
 
-Rexc lowers the AST into **IR** (Intermediate Representation, a compiler-owned
+Rexy lowers the AST into **IR** (Intermediate Representation, a compiler-owned
 program shape between the frontend and backend). The IR is not source text and
 it is not assembly. It is the compiler's working form: typed, smaller than the
 AST, and direct enough for assembly emission.
@@ -100,7 +100,7 @@ unary dereference and binary pointer-addition paths.
 
 ### Where the Compiler Is by the End of Chapter 4
 
-Rexc now holds a typed IR module. The source has been parsed, checked, and
+Rexy now holds a typed IR module. The source has been parsed, checked, and
 lowered into a backend-facing representation. Every function and global has a
 module-aware name. Every value has a primitive type. Every branch and loop
 condition is already known to be boolean. Every explicit cast has a validated

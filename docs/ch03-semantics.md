@@ -4,7 +4,7 @@
 
 ### When Grammar Is Not Enough
 
-By the time semantic analysis begins, the parser has already done its job. Rexc
+By the time semantic analysis begins, the parser has already done its job. Rexy
 has a tree made of functions, statements, expressions, and type names. That
 tree is syntactically valid. It is not necessarily meaningful.
 
@@ -16,7 +16,7 @@ language's grammar, but it still cannot run."
 
 ### The Primitive Type Model
 
-Rexc currently has a small systems-language type set:
+Rexy currently has a small systems-language type set:
 
 | Family | Types |
 | --- | --- |
@@ -25,7 +25,7 @@ Rexc currently has a small systems-language type set:
 | Other scalar values | `bool`, `char`, `str` |
 | Pointers | `*T` |
 
-A type name in the AST is only source spelling. During semantic analysis, Rexc
+A type name in the AST is only source spelling. During semantic analysis, Rexy
 parses that spelling into a primitive type value. That value is what the rest
 of the compiler compares. Two source locations that both say `i32` become the
 same internal type. A misspelled type never gets that far; it becomes a
@@ -100,7 +100,7 @@ body, but they are not assignable. A `let` statement checks its initializer
 before inserting the new name, so a declaration such as `let x: i32 = x;` is
 still an unknown-name error rather than a self-reference that silently works.
 
-Rexc separates declaration from mutation. A plain `let` creates an immutable
+Rexy separates declaration from mutation. A plain `let` creates an immutable
 local. A `let mut` creates a mutable local. Assignment is only valid when the
 target name already exists and was declared mutable:
 
@@ -136,7 +136,7 @@ static scalars are checked just like assignments to mutable locals.
 
 ### Block Scopes
 
-Branches get their own copies of the local table. When Rexc analyzes an `if`
+Branches get their own copies of the local table. When Rexy analyzes an `if`
 statement, it checks the condition, then analyzes the `then` body with one
 local table and the `else` body with another. A local declared inside a branch
 is visible later in that same branch, but it does not leak out to the code
@@ -155,7 +155,7 @@ Loop-control statements add one more fact for sema to track: whether the
 current statement is inside a loop. A `break` exits the innermost loop, and a
 `continue` skips to that loop's next condition check. Both are meaningful only
 while a loop is being analyzed. If either appears in a function body or an
-`if` branch that is not nested inside a loop, Rexc reports a diagnostic.
+`if` branch that is not nested inside a loop, Rexy reports a diagnostic.
 
 ### Expressions Must Produce the Promised Type
 
@@ -165,21 +165,21 @@ against the local's declared type. A function-call argument is checked against
 the corresponding parameter type.
 
 This is especially important for integer literals. The literal text `1` does
-not name a width on its own. If it initializes a `u8`, Rexc checks it as a
-`u8`. If it returns from an `i64` function, Rexc checks it as an `i64`. The
+not name a width on its own. If it initializes a `u8`, Rexy checks it as a
+`u8`. If it returns from an `i64` function, Rexy checks it as an `i64`. The
 literal carries its decimal spelling from the lexer so this range check can be
 done without accidental host-side overflow.
 
 Arithmetic operators require integer operands of the same type and produce that
 same type. Comparison operators also require same-typed integer operands, but
-they produce `bool`. An `if` or `while` condition must already be `bool`; Rexc
+they produce `bool`. An `if` or `while` condition must already be `bool`; Rexy
 does not silently treat integers as truthy or falsy.
 
 Boolean operators live fully in the `bool` world. Unary `!` requires a `bool`
 operand and produces `bool`. The `&&` and `||` operators also require both
 operands to be `bool` and produce `bool`. Semantic analysis checks both sides
 even though the backend later emits short-circuit jumps, because both operands
-must be valid Rexc expressions before runtime control flow matters.
+must be valid Rexy expressions before runtime control flow matters.
 
 Explicit casts use `as` and deliberately start with a small, predictable
 surface. Integer values can be cast to other integer types. A `bool` can be
@@ -205,7 +205,7 @@ policy, while normal user analysis keeps the smaller default prelude.
 
 ### Where the Compiler Is by the End of Chapter 3
 
-Rexc can now reject programs that are grammatically valid but semantically
+`rexc` can now reject programs that are grammatically valid but semantically
 wrong. It knows which functions, modules, imports, globals, and locals are
 visible, which primitive types are valid, which calls match their signatures,
 and which expressions produce which types. It also knows which explicit casts

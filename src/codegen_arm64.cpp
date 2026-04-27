@@ -1,4 +1,4 @@
-// Darwin ARM64 assembly backend for Rexc's typed IR.
+// Darwin ARM64 assembly backend for Rexy's typed IR.
 #include "rexc/codegen_arm64.hpp"
 #include "rexc/types.hpp"
 

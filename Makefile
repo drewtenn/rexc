@@ -1,4 +1,4 @@
-# Convenience make targets for building, testing, and rendering the Rexc book.
+# Convenience make targets for building, testing, and rendering the Rexy book.
 PYTHON ?= python3
 
 .PHONY: build test build-macos-arm64 test-macos-arm64 package-macos-arm64

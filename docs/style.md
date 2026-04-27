@@ -16,7 +16,7 @@ already know.
    convention.
 
 3. **Use minimal code blocks.** Code blocks belong only where exact syntax is
-   the lesson: a short Rexc example, a compact table, or a tiny assembly shape.
+   the lesson: a short Rexy example, a compact table, or a tiny assembly shape.
    Prefer prose for implementation details when prose teaches the idea faster
    than pasted source.
 

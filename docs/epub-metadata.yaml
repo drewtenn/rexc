@@ -1,12 +1,12 @@
-# Pandoc metadata for the Rexc EPUB build.
+# Pandoc metadata for the Rexy EPUB build.
 ---
-title: "REXC - Building a Systems Language Compiler for Drunix"
+title: "Rexy - Building a Systems Language Compiler for Drunix"
 author:
   - Drew Tennenbaum
 language: en-US
 rights: "Copyright © 2026 Drew Tennenbaum. All rights reserved."
 description: >
-  A chapter-driven walkthrough of Rexc, an experimental systems-language
-  compiler for Drunix userland. Covers lexing, parsing, semantic analysis,
+  A chapter-driven walkthrough of Rexy, an experimental systems language for
+  Drunix userland, and rexc, its compiler. Covers lexing, parsing, semantic analysis,
   typed IR, x86 assembly emission, and linking into Drunix ELF programs.
 ---

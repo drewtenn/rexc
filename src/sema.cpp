@@ -1,4 +1,4 @@
-// Semantic analysis for the parsed Rexc AST.
+// Semantic analysis for the parsed Rexy AST.
 //
 // The parser proves only that source text has the shape of the grammar. This
 // stage proves the program is meaningful enough to lower: functions and locals

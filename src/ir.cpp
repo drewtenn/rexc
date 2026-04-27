@@ -1,4 +1,4 @@
-// Constructors for Rexc's typed intermediate representation.
+// Constructors for Rexy's typed intermediate representation.
 //
 // The IR is the backend-facing form produced after semantic analysis. It keeps
 // resolved primitive types on values, locals, functions, branches, and calls so

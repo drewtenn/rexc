@@ -1,10 +1,10 @@
-// GNU assembly backend for Rexc's typed IR.
+// GNU assembly backend for Rexy's typed IR.
 //
 // This file is the final compiler stage before an external assembler. It
 // chooses an i386 or x86_64 calling convention, lays out stack slots, emits
 // labels for branches/loops, materializes literals, and turns typed IR values
 // into target instructions. It reports backend diagnostics for IR that is
-// valid Rexc but unsupported by the selected machine target, such as 64-bit
+// valid Rexy but unsupported by the selected machine target, such as 64-bit
 // values on the current i386 path.
 #include "rexc/codegen_x86.hpp"
 #include "rexc/types.hpp"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Rexc cover image used by the PDF and EPUB build."""
+"""Generate the Rexy cover image used by the PDF and EPUB build."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def main() -> int:
     small = font(24)
 
     draw.line((145, 190, WIDTH - 145, 190), fill=(18, 24, 32), width=3)
-    y = centered(draw, 260, "REXC", title)
+    y = centered(draw, 260, "Rexy", title)
     y = centered(draw, y + 38, "Building a Systems Language Compiler", subtitle)
     y = centered(draw, y + 10, "for Drunix", subtitle)
     draw.line((145, y + 62, WIDTH - 145, y + 62), fill=(18, 24, 32), width=3)

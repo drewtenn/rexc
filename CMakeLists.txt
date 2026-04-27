@@ -1,4 +1,4 @@
-# Root CMake build: fetch ANTLR, generate parser sources, and build Rexc targets.
+# Root CMake build: fetch ANTLR, generate parser sources, and build rexc targets.
 cmake_minimum_required(VERSION 3.20)
 project(rexc LANGUAGES CXX)
 
@@ -40,16 +40,16 @@ FetchContent_MakeAvailable(antlr4cpp)
 
 set(REXC_ANTLR_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/antlr")
 set(REXC_ANTLR_GENERATED_SOURCES
-	"${REXC_ANTLR_GENERATED_DIR}/RexcBaseListener.cpp"
-	"${REXC_ANTLR_GENERATED_DIR}/RexcLexer.cpp"
-	"${REXC_ANTLR_GENERATED_DIR}/RexcListener.cpp"
-	"${REXC_ANTLR_GENERATED_DIR}/RexcParser.cpp"
+	"${REXC_ANTLR_GENERATED_DIR}/RexyBaseListener.cpp"
+	"${REXC_ANTLR_GENERATED_DIR}/RexyLexer.cpp"
+	"${REXC_ANTLR_GENERATED_DIR}/RexyListener.cpp"
+	"${REXC_ANTLR_GENERATED_DIR}/RexyParser.cpp"
 )
 set(REXC_ANTLR_GENERATED_HEADERS
-	"${REXC_ANTLR_GENERATED_DIR}/RexcBaseListener.h"
-	"${REXC_ANTLR_GENERATED_DIR}/RexcLexer.h"
-	"${REXC_ANTLR_GENERATED_DIR}/RexcListener.h"
-	"${REXC_ANTLR_GENERATED_DIR}/RexcParser.h"
+	"${REXC_ANTLR_GENERATED_DIR}/RexyBaseListener.h"
+	"${REXC_ANTLR_GENERATED_DIR}/RexyLexer.h"
+	"${REXC_ANTLR_GENERATED_DIR}/RexyListener.h"
+	"${REXC_ANTLR_GENERATED_DIR}/RexyParser.h"
 )
 
 add_custom_command(
@@ -59,9 +59,9 @@ add_custom_command(
 	        -Dlanguage=Cpp
 	        -Xexact-output-dir
 	        -o "${REXC_ANTLR_GENERATED_DIR}"
-	        "${CMAKE_CURRENT_SOURCE_DIR}/grammar/Rexc.g4"
-	DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/grammar/Rexc.g4" "${REXC_ANTLR_JAR}"
-	COMMENT "Generating Rexc ANTLR parser"
+	        "${CMAKE_CURRENT_SOURCE_DIR}/grammar/Rexy.g4"
+	DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/grammar/Rexy.g4" "${REXC_ANTLR_JAR}"
+	COMMENT "Generating Rexy ANTLR parser"
 	VERBATIM
 )
 
@@ -93,7 +93,7 @@ add_custom_command(
 	        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_stdlib_source.cmake"
 	        "${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/source.cpp.in"
 	        ${REXC_STDLIB_RX_SOURCES}
-	COMMENT "Embedding Rexc stdlib source"
+	COMMENT "Embedding Rexy stdlib source"
 	VERBATIM
 )
 

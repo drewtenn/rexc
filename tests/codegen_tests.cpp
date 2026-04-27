@@ -1,6 +1,6 @@
 // Unit coverage for x86 assembly emission and backend diagnostics.
 //
-// These tests parse real Rexc snippets, run sema and IR lowering, then inspect
+// These tests parse real Rexy snippets, run sema and IR lowering, then inspect
 // emitted assembly. That keeps backend checks tied to the same frontend shapes
 // users write instead of constructing IR by hand for every case.
 #include "rexc/codegen_x86.hpp"

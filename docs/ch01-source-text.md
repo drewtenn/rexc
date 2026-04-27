@@ -4,7 +4,7 @@
 
 ### The Moment the Compiler Opens the File
 
-Rexc begins in a quieter place than Drunix. There is no firmware handoff, no
+Rexy begins in a quieter place than Drunix. There is no firmware handoff, no
 CPU mode to claim, and no interrupt table waiting to be installed. The first
 state is simply a source file loaded into memory. The command-line driver has
 read the `.rx` file into a `SourceFile`, and from this point forward every
@@ -12,7 +12,7 @@ diagnostic can point back to a path, line, and column.
 
 That location tracking matters immediately. A compiler spends a lot of its time
 saying no, and a useful no has to name the exact part of the program that made
-the compiler stop. Before Rexc knows whether a function exists or a type is
+the compiler stop. Before Rexy knows whether a function exists or a type is
 valid, it must know where every piece of text came from.
 
 ### Turning Characters into Tokens
@@ -22,7 +22,7 @@ that reads raw characters and groups them into tokens. A token is a small
 classified unit of source text: an identifier, a keyword, a number, a string
 literal, or punctuation such as `(` and `{`.
 
-Consider this small Rexc program:
+Consider this small Rexy program:
 
 ```rust
 fn main() -> i32 {
@@ -73,11 +73,11 @@ Integer literals carry two pieces of information. They carry the parsed numeric
 value where that is convenient, but they also keep the original decimal text.
 That second detail is easy to miss, and it matters.
 
-Some Rexc integers are larger than the host type the parser uses for quick
+Some Rexy integers are larger than the host type the parser uses for quick
 conversion. A `u64` literal such as `18446744073709551615` is a perfectly valid
 source value, but it does not fit into a signed 64-bit parser result. If the
 compiler threw away the original text too early, it could accidentally wrap the
-value and type-check the wrong number. Rexc avoids that by letting semantic
+value and type-check the wrong number. Rexy avoids that by letting semantic
 analysis inspect the literal's decimal spelling later, when the expected type
 is known.
 
@@ -88,7 +88,7 @@ to the source if an escape sequence is malformed or a literal is unterminated.
 
 ### Where the Compiler Is by the End of Chapter 1
 
-Rexc has now crossed its first boundary. The input is no longer anonymous text.
+`rexc` has now crossed its first boundary. The input is no longer anonymous text.
 It is a stream of tokens, and every token knows where it came from.
 
 The compiler can recognise keywords, identifiers, punctuation, operators,

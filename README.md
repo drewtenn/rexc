@@ -1,9 +1,9 @@
-# Rexc
+# Rexy
 
-Rexc is an experimental systems-language compiler intended to be a portable
-host tool on macOS, Linux, and Windows first. Drunix remains an important
-target and proving ground, but the compiler itself should build and run as a
-normal developer tool across all major operating systems.
+Rexy is an experimental systems language. `rexc` is its compiler, intended to
+be a portable host tool on macOS, Linux, and Windows first. Drunix remains an
+important target and proving ground, but the compiler itself should build and
+run as a normal developer tool across all major operating systems.
 
 That means core compiler code should stay host-neutral. OS-specific behavior
 belongs behind small boundaries for filesystem access, process execution,
@@ -83,7 +83,7 @@ sudo dnf install -y cmake ninja-build gcc-c++ java-21-openjdk pandoc typst perl 
 
 Windows:
 
-Windows is a first-class host portability goal for Rexc. The exact dependency
+Windows is a first-class host portability goal for `rexc`. The exact dependency
 recipe still needs to be documented as the compiler's host-toolchain boundary
 is cleaned up for MSVC, clang-cl, MinGW, PowerShell, and Windows path/process
 behavior.
@@ -95,7 +95,7 @@ Notes:
 
 ## Book
 
-The Rexc book lives in `docs/`. It follows the same chapter-driven teaching
+The Rexy book lives in `docs/`. It follows the same chapter-driven teaching
 style as the Drunix book: each chapter narrates one stage of the compiler
 pipeline and ends by describing what the compiler knows at that point.
 
@@ -110,7 +110,7 @@ make docs
 ```
 
 Individual outputs can be built with `make pdf` or `make epub`. The generated
-files are `docs/Rexc.pdf` and `docs/Rexc.epub`.
+files are `docs/Rexy.pdf` and `docs/Rexy.epub`.
 
 ## Build
 
@@ -125,7 +125,7 @@ ctest --test-dir build --output-on-failure
 
 ## VS Code Extension
 
-The VS Code extension lives in `tools/vscode-rexc`. It is made of static
+The VS Code extension lives in `tools/vscode-rexy`. It is made of static
 extension metadata, language configuration, and TextMate grammar files, so the
 build validates those files and packages them into a VSIX.
 
@@ -137,13 +137,13 @@ Prerequisites:
 Build the extension from the repository root with:
 
 ```sh
-cd tools/vscode-rexc
+cd tools/vscode-rexy
 node scripts/verify-extension.mjs
 npx --yes @vscode/vsce package --no-dependencies
 ```
 
-The packaging command writes a `rexc-<version>.vsix` file in
-`tools/vscode-rexc`. Install it from VS Code with
+The packaging command writes a `rexy-<version>.vsix` file in
+`tools/vscode-rexy`. Install it from VS Code with
 **Extensions: Install from VSIX...**.
 
 ## Build A macOS arm64 Compiler
@@ -205,7 +205,7 @@ The default target is the native host target. On Apple Silicon macOS, omitting
 objects, or Mach-O command-line executables. On non-Darwin hosts, the default
 target remains `i386`. Use `--target` whenever you want to cross-compile.
 `-S` writes assembly, while `-c` runs the target assembler and writes an object
-file. Omitting `-S` and `-c` asks Rexc to produce a linked command-line
+file. Omitting `-S` and `-c` asks Rexy to produce a linked command-line
 executable for the selected or default target.
 
 The short target names remain supported, and explicit aliases such as
@@ -233,7 +233,7 @@ file build/core-arm64 build/core-i386.elf build/core-x86_64.elf
 
 ### Build A Darwin arm64 Executable
 
-On Apple Silicon macOS, Rexc can build a Mach-O `arm64` command-line
+On Apple Silicon macOS, `rexc` can build a Mach-O `arm64` command-line
 executable in one invocation:
 
 ```sh
@@ -253,10 +253,10 @@ Expected `file` output includes:
 Mach-O 64-bit executable arm64
 ```
 
-The final `echo $?` prints the Rexc `main` return value. For
+The final `echo $?` prints the Rexy `main` return value. For
 `examples/core.rx`, that value is `42`.
 
-Under the hood, Rexc emits temporary Darwin ARM64 assembly, assembles it with
+Under the hood, `rexc` emits temporary Darwin ARM64 assembly, assembles it with
 Apple `as -arch arm64`, then links the object with `clang -arch arm64` and the
 normal macOS runtime startup. Use `-S` when you only want assembly, and `-c`
 when you only want the Mach-O object.
@@ -265,20 +265,20 @@ This flow creates a Darwin command-line executable, not a `.app` bundle. To put
 the executable inside a minimal app bundle manually:
 
 ```sh
-mkdir -p build/CoreRexc.app/Contents/MacOS
-cp build/macos-arm64-release/core-arm64 build/CoreRexc.app/Contents/MacOS/CoreRexc
-cat > build/CoreRexc.app/Contents/Info.plist <<'PLIST'
+mkdir -p build/CoreRexy.app/Contents/MacOS
+cp build/macos-arm64-release/core-arm64 build/CoreRexy.app/Contents/MacOS/CoreRexy
+cat > build/CoreRexy.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>CoreRexc</string>
+  <string>CoreRexy</string>
   <key>CFBundleIdentifier</key>
   <string>dev.rexc.core</string>
   <key>CFBundleName</key>
-  <string>CoreRexc</string>
+  <string>CoreRexy</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleVersion</key>
@@ -288,11 +288,11 @@ cat > build/CoreRexc.app/Contents/Info.plist <<'PLIST'
 PLIST
 ```
 
-The current Rexc examples are console-style programs, so launching the bundle
-from Finder will not show a window. For visible GUI apps, Rexc would need
+The current Rexy example programs are console-style programs, so launching the bundle
+from Finder will not show a window. For visible GUI apps, Rexy would need
 bindings or runtime support for Cocoa/AppKit entry points.
 
-To build a linked Drunix i386 executable in one compiler invocation, point Rexc
+To build a linked Drunix i386 executable in one compiler invocation, point `rexc`
 at a Drunix checkout that has `user/user.ld`, `user/lib/crt0.o`, and
 `user/lib/libc.a`:
 
@@ -301,12 +301,12 @@ build/rexc examples/core.rx --target i386-drunix --drunix-root /path/to/DrunixOS
 ```
 
 For compatibility, `--drunix-root` also treats i386 aliases as the
-`i386-drunix` runtime target. Drunix executable links include Rexc's hosted
+`i386-drunix` runtime target. Drunix executable links include Rexy's hosted
 standard-library runtime object before `user/lib/libc.a`.
 
 ## Modules And Package Paths
 
-Use `mod foo;` to load a file-backed module named `foo`. Rexc looks for either
+Use `mod foo;` to load a file-backed module named `foo`. `rexc` looks for either
 `foo.rx` or `foo/mod.rx`, parses that file as module `foo`, and gives its
 items symbol names such as `foo_add`. Mark the module and any cross-module
 items `pub` when other modules need to reach them.
@@ -351,7 +351,7 @@ wins; if it exists in multiple package roots, the first matching root wins.
 
 ## Targets
 
-Rexc's host portability goal is macOS, Linux, and Windows. Separately, the
+Rexy's host portability goal is macOS, Linux, and Windows. Separately, the
 currently implemented output targets are Linux-compatible x86 targets, a Drunix
 i386 target, and a Darwin ARM64 target:
 
@@ -362,13 +362,13 @@ i386 target, and a Darwin ARM64 target:
 | `x86_64-linux` / `x86_64-elf` | `--target x86_64`, `--target x86_64-linux`, or `--target x86_64-elf` | `--64` | `ELF64` | Uses the Linux/System V x86_64 calling convention and runtime hooks. |
 | `arm64-macos` | omitted on macOS or `--target arm64-macos` | Apple `as -arch arm64` | Mach-O 64-bit arm64 object | Uses Darwin symbol names and Apple ARM64 calling convention. |
 
-All targets emit assembly for functions named in the Rexc source. Final
+All targets emit assembly for functions named in the Rexy source. Final
 executables still need a startup object such as `crt0.o`, a runtime library,
 and a linker script or linker defaults that match the selected ABI.
 
 ## Compiler Pipeline
 
-Rexc is organized as a small, explicit compiler pipeline. Each stage consumes
+`rexc` is organized as a small, explicit compiler pipeline. Each stage consumes
 the previous stage's output and either produces the next representation or adds
 diagnostics and stops.
 
@@ -389,7 +389,7 @@ source .rx
    non-zero if any frontend or backend stage fails.
 
 2. **Lexing and parsing**: ANTLR generates the lexer and parser from
-   `grammar/Rexc.g4`. `src/parse.cpp` invokes those generated classes for
+   `grammar/Rexy.g4`. `src/parse.cpp` invokes those generated classes for
    functions, extern declarations, immutable and mutable `let` declarations,
    assignment, indirect pointer assignment, `return`, `if/else`, `while`,
    `break`, and `continue` statements, expressions, explicit casts, type names,
@@ -452,7 +452,7 @@ source .rx
 
 ## Core Types
 
-Rexc supports signed integers (`i8`, `i16`, `i32`, `i64`), unsigned integers
+Rexy supports signed integers (`i8`, `i16`, `i32`, `i64`), unsigned integers
 (`u8`, `u16`, `u32`, `u64`), `bool`, `char`, `str`, and pointer types written
 as `*T`.
 
@@ -467,20 +467,20 @@ Linux/System V x86_64 calling convention.
 
 ## Standard Library
 
-Rexc's standard library is being shaped after Rust's layered model, scaled down
-to what Rexc can support today. `core` is the always-available,
+Rexy's standard library is being shaped after Rust's layered model, scaled down
+to what Rexy can support today. `core` is the always-available,
 target-independent contract layer. A future `alloc` layer will own heap-backed
-types once Rexc has an allocator contract. `std` is the hosted layer linked
+types once Rexy has an allocator contract. `std` is the hosted layer linked
 into normal command-line executables.
 
 The current implementation is still a bootstrap stage, but the direction is
-Rexc-first and portable by default: hosted `std` functions are declared by
-compiler metadata and portable behavior is compiled from Rexc source into the
+Rexy-first and portable by default: hosted `std` functions are declared by
+compiler metadata and portable behavior is compiled from Rexy source into the
 hosted runtime object. Code should split by target only at the lowest host or
 hardware boundary. Target-specific assembly is limited to primitive
 ABI/syscall adapters such as `read`, `write`, `exit`, and future allocation
-hooks. When stdlib work needs a language feature Rexc does not have yet, the
-roadmap is to implement that Rexc capability and then keep moving in Rexc
+hooks. When stdlib work needs a language feature Rexy does not have yet, the
+roadmap is to implement that Rexy capability and then keep moving in Rexy
 source.
 
 The source tree mirrors those layers: `src/stdlib/core/` contains
@@ -494,7 +494,7 @@ console, string, parse/read, and panic helpers without module syntax:
 | --- | --- | --- |
 | `print` | `fn(str) -> i32` | Writes a string to stdout without adding a newline. |
 | `println` | `fn(str) -> i32` | Writes a string to stdout followed by `\n`. |
-| `read_line` | `fn() -> str` | Reads one stdin line into a Rexc-owned static 1024-byte buffer and returns it as `str`. |
+| `read_line` | `fn() -> str` | Reads one stdin line into a Rexy-owned static 1024-byte buffer and returns it as `str`. |
 | `strlen` | `fn(str) -> i32` | Returns the byte length of a null-terminated string. |
 | `str_is_empty` | `fn(str) -> bool` | Returns whether a null-terminated string has zero bytes before its terminator. |
 | `str_eq` | `fn(str, str) -> bool` | Compares two null-terminated byte strings for equality. |
@@ -516,13 +516,13 @@ console, string, parse/read, and panic helpers without module syntax:
 
 `read_line` strips one trailing newline when present, always null-terminates the
 buffer, and overwrites the same buffer on the next `read_line` call. It is
-implemented in Rexc using a `static mut [u8; 1024]` buffer and the primitive
+implemented in Rexy using a `static mut [u8; 1024]` buffer and the primitive
 `sys_read` hook. `strlen`, `str_is_empty`, `str_eq`, `str_starts_with`,
 `str_ends_with`, `str_contains`, `str_find`, and `parse_i32` are early
-`core`-style target-independent contracts implemented in Rexc source.
+`core`-style target-independent contracts implemented in Rexy source.
 `parse_i32` accepts
 an optional leading `-` followed by decimal digits; empty strings, invalid
-characters, and overflow return `0` until Rexc has richer result types.
+characters, and overflow return `0` until Rexy has richer result types.
 
 Public stdlib helpers outside the default prelude still emit into hosted
 runtime builds. Bridge-backed `std_*` declarations also remain available
@@ -557,36 +557,36 @@ prelude names are `print`, `println`, `read_line`, `strlen`, `str_is_empty`,
 `parse_i32`, `parse_bool`, `print_i32`, `println_i32`, `print_bool`,
 `println_bool`, `print_char`, `println_char`, `read_i32`, `read_bool`, and
 `panic`. ELF assembly references those names directly. `panic` is implemented
-in Rexc on top of `sys_write` and `sys_exit`. `arm64-macos` assembly references
+in Rexy on top of `sys_write` and `sys_exit`. `arm64-macos` assembly references
 Darwin symbols with leading underscores. The hosted target adapters provide
 only the primitive `sys_read`, `sys_write`, and `sys_exit` hooks needed by the
-Rexc stdlib source.
+Rexy stdlib source.
 
 ### Standard Library Roadmap
 
-Rexc's stdlib should move toward this Rust-style shape:
+Rexy's stdlib should move toward this Rust-style shape:
 
-| Layer | Role | Rexc direction |
+| Layer | Role | Rexy direction |
 | --- | --- | --- |
 | `core` | Target-independent primitives and compiler-known contracts. No OS, process, file, terminal, or heap dependency. | Keep primitive operations, string/slice contracts, panic/abort hooks, and eventually traits here. |
-| `alloc` | Heap-backed library types that require an allocator but not an OS. | Add after Rexc has allocator hooks; this is where owned strings, vectors, and boxed values should live. |
+| `alloc` | Heap-backed library types that require an allocator but not an OS. | Add after Rexy has allocator hooks; this is where owned strings, vectors, and boxed values should live. |
 | `std` | Hosted OS integration layered on `core` and `alloc`. | Keep console I/O, process exit, files, environment, arguments, and platform services here. |
 | `sys`/runtime adapters | Narrow target- and OS-specific bridge code. | Split by target triple such as `i386-linux`, `i386-drunix`, `x86_64-linux`, and `arm64-macos`; keep assembly here only when ABI or syscall details require it. |
 
-Critical rule: stdlib behavior should be implemented in portable Rexc. Split
+Critical rule: stdlib behavior should be implemented in portable Rexy. Split
 code by target only at the lowest hardware or host boundary: primitive read,
-write, exit, allocation, and similar effects. Do not sidestep a missing Rexc
+write, exit, allocation, and similar effects. Do not sidestep a missing Rexy
 capability by copying the behavior into each architecture file. If `std` needs
 byte indexing, static buffers, slices, allocation, result types, or another
-language feature, implement that feature in Rexc's compiler/backend first, then
-implement the library operation in Rexc.
+language feature, implement that feature in Rexy's compiler/backend first, then
+implement the library operation in Rexy.
 
 Canonical stdlib implementation files should be `.rx` files. C++ in
 `src/stdlib/` should catalog, load/embed, and compile those files, plus provide
 primitive `sys` adapters. Embedded C++ source strings are temporary bootstrap
 bridges, not the desired home for portable stdlib code.
 
-The prelude catalog should also become Rexc-source driven. Instead of keeping
+The prelude catalog should also become Rexy-source driven. Instead of keeping
 parallel C++ signature lists for ordinary stdlib functions, the compiler should
 parse the stdlib `.rx` modules first, extract their public function signatures,
 and inject or import those declarations into user programs during semantic
@@ -598,13 +598,13 @@ Near-term stdlib work should continue moving portable implementations out of
 target adapters and removing duplicated metadata. String length, comparison,
 emptiness, prefix/suffix/search helpers, integer formatting, parsing, line
 reading, allocation helpers, and later collection logic should be implemented
-once in Rexc library source, with signatures discovered from that source and
+once in Rexy library source, with signatures discovered from that source and
 only `read`, `write`, `exit`, allocation, and similar host hooks supplied per
 target.
 
 ## Operators And Control Flow
 
-Rexc supports integer arithmetic with `+`, `-`, `*`, and `/`. Integer
+Rexy supports integer arithmetic with `+`, `-`, `*`, and `/`. Integer
 comparisons are supported with `==`, `!=`, `<`, `<=`, `>`, and `>=`; comparison
 results have type `bool`. Both comparison operands must be integers with the
 same type. Signed integer comparisons use signed condition codes, and unsigned
@@ -641,7 +641,7 @@ fn main() -> i32 {
 }
 ```
 
-Rexc also supports `if` and `if/else` statements:
+Rexy also supports `if` and `if/else` statements:
 
 ```rust
 fn main() -> i32 {
@@ -684,7 +684,7 @@ innermost loop. Both are only valid inside loops.
 
 ## Build For Drunix Userland
 
-Rexc currently emits assembly for Linux-compatible `i386` and `x86_64`
+Rexy currently emits assembly for Linux-compatible `i386` and `x86_64`
 targets. To build a runnable Drunix userland executable with the current Drunix
 runtime, select the `i386` target, assemble a 32-bit object file, then link it
 with Drunix's user runtime and linker script.
@@ -695,7 +695,7 @@ Set the Drunix checkout path:
 DRUNIX=/Users/drew/development/DrunixOS
 ```
 
-Build the Rexc compiler:
+Build the rexc compiler:
 
 ```sh
 cmake -S . -B build

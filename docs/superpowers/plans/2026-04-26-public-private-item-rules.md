@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Finalize Rexc's current public/private module and item rules so the behavior is explicit, covered by semantic tests, and documented as the Phase 8 baseline.
+**Goal:** Finalize Rexy's current public/private module and item rules so the behavior is explicit, covered by semantic tests, and documented as the Phase 8 baseline.
 
 **Architecture:** Keep visibility enforcement in semantic analysis, where the compiler already has a complete module/function/static table. Do not add new syntax or package-level export machinery in this slice. The implementation should make the existing policy obvious through named helper functions, add missing edge-case tests, and update user-facing docs to describe the rule precisely.
 

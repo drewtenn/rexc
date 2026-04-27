@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Rexc's stdlib namespace rules explicit so `std::...` bridge paths, user modules, and lowered symbols cannot drift into ambiguous behavior.
+**Goal:** Make Rexy's stdlib namespace rules explicit so `std::...` bridge paths, user modules, and lowered symbols cannot drift into ambiguous behavior.
 
 **Architecture:** Keep this slice inside the existing name/sema/lower pipeline. Replace the implicit `std_` splitting rule with one explicit bridge-path helper, then make sema and lowering consume that helper consistently. This does not add ordinary stdlib module loading; it only clarifies the bridge namespace that already exists.
 
-**Tech Stack:** C++17, existing `names.hpp` helpers, embedded Rexc stdlib source, Catch2-style `rexc_tests`, Markdown docs.
+**Tech Stack:** C++17, existing `names.hpp` helpers, embedded Rexy stdlib source, Catch2-style `rexc_tests`, Markdown docs.
 
 ---
 
