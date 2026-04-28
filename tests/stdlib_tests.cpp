@@ -145,6 +145,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 		rexc::stdlib::find_stdlib_function("std::process::arg_at");
 	auto std_process_kill_path =
 		rexc::stdlib::find_stdlib_function("std::process::kill");
+	auto std_process_execve_path =
+		rexc::stdlib::find_stdlib_function("std::process::execve");
 	auto env_get = rexc::stdlib::find_stdlib_function("env_get");
 	auto std_env_len_path =
 		rexc::stdlib::find_stdlib_function("std::env::len");
@@ -228,6 +230,7 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(std_process_args_len_path != nullptr);
 	REQUIRE(std_process_arg_at_path != nullptr);
 	REQUIRE(std_process_kill_path != nullptr);
+	REQUIRE(std_process_execve_path != nullptr);
 	REQUIRE(env_get != nullptr);
 	REQUIRE(std_env_len_path != nullptr);
 	REQUIRE(std_env_at_path != nullptr);
@@ -418,6 +421,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(std_process_arg_at_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(std_process_kill_path->parameters.size(), std::size_t(2));
 	REQUIRE_EQ(std_process_kill_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_process_execve_path->parameters.size(), std::size_t(3));
+	REQUIRE_EQ(std_process_execve_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(env_get->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(env_get->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(std_env_len_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
@@ -527,6 +532,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "sys_env_len:"));
 	REQUIRE(contains(i386, "sys_env_at:"));
 	REQUIRE(contains(i386, "sys_kill:"));
+	REQUIRE(contains(i386, "sys_execve:"));
 	REQUIRE(contains(i386, "call sys_write"));
 	REQUIRE(contains(i386, "call sys_read"));
 	REQUIRE(contains(i386, "call sys_exit"));
@@ -551,6 +557,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386_drunix, "sys_env_len:"));
 	REQUIRE(contains(i386_drunix, "sys_env_at:"));
 	REQUIRE(contains(i386_drunix, "sys_kill:"));
+	REQUIRE(contains(i386_drunix, "sys_execve:"));
 	REQUIRE(contains(i386_drunix, "movl $162, %eax"));
 	REQUIRE(contains(i386_drunix, "movl $265, %eax"));
 	REQUIRE(contains(i386_drunix, ".globl __rexc_argc"));
@@ -605,6 +612,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "sys_env_len:"));
 	REQUIRE(contains(x86_64, "sys_env_at:"));
 	REQUIRE(contains(x86_64, "sys_kill:"));
+	REQUIRE(contains(x86_64, "sys_execve:"));
 	REQUIRE(contains(x86_64, "call sys_write"));
 	REQUIRE(contains(x86_64, "call sys_read"));
 	REQUIRE(contains(x86_64, "call sys_exit"));
@@ -657,6 +665,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "_sys_env_len:"));
 	REQUIRE(contains(arm64, "_sys_env_at:"));
 	REQUIRE(contains(arm64, "_sys_kill:"));
+	REQUIRE(contains(arm64, "_sys_execve:"));
 	REQUIRE(contains(arm64, "bl _sys_write"));
 	REQUIRE(contains(arm64, "bl _sys_read"));
 	REQUIRE(contains(arm64, "bl _sys_exit"));

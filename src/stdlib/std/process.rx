@@ -3,6 +3,7 @@ extern fn sys_arg(index: i32) -> str;
 extern fn sys_env_len() -> i32;
 extern fn sys_env_at(index: i32) -> str;
 extern fn sys_kill(pid: i32, signal: i32) -> i32;
+extern fn sys_execve(path: str, argv: *str, envp: *str) -> i32;
 
 fn exit(status: i32) -> i32 {
 	return sys_exit(status);
@@ -45,6 +46,14 @@ fn kill(pid: i32, signal: i32) -> i32 {
 
 fn std_process_kill(pid: i32, signal: i32) -> i32 {
 	return kill(pid, signal);
+}
+
+fn execve(path: str, argv: *str, envp: *str) -> i32 {
+	return sys_execve(path, argv, envp);
+}
+
+fn std_process_execve(path: str, argv: *str, envp: *str) -> i32 {
+	return execve(path, argv, envp);
 }
 
 fn env_len() -> i32 {

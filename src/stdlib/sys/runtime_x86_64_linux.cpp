@@ -94,6 +94,11 @@ sys_kill:
 	movq $62, %rax
 	syscall
 	ret
+.globl sys_execve
+sys_execve:
+	movq $59, %rax
+	syscall
+	ret
 .globl sys_args_len
 sys_args_len:
 	movq __rexc_argc(%rip), %rax

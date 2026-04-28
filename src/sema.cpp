@@ -1005,6 +1005,10 @@ private:
 			return true;
 		if (source.kind == PrimitiveKind::Bool && is_integer(target))
 			return true;
+		if (is_integer(source) && (is_pointer(target) || target.kind == PrimitiveKind::Str))
+			return true;
+		if ((is_pointer(source) || source.kind == PrimitiveKind::Str) && is_integer(target))
+			return true;
 		PrimitiveType char_scalar_type{PrimitiveKind::UnsignedInteger, 32};
 		if (source.kind == PrimitiveKind::Char && target == char_scalar_type)
 			return true;

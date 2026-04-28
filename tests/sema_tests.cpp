@@ -1036,13 +1036,13 @@ TEST_CASE(sema_accepts_supported_explicit_casts)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-TEST_CASE(sema_rejects_str_casts)
+TEST_CASE(sema_rejects_unsupported_bool_to_str_casts)
 {
 	rexc::Diagnostics diagnostics;
-	auto result = analyze("fn main() -> u32 { let s: str = \"hi\"; return s as u32; }\n",
+	auto result = analyze("fn main() -> str { let ok: bool = true; return ok as str; }\n",
 	                      diagnostics);
 	REQUIRE(!result.ok());
-	REQUIRE(diagnostics.format().find("cannot cast 'str' to 'u32'") != std::string::npos);
+	REQUIRE(diagnostics.format().find("cannot cast 'bool' to 'str'") != std::string::npos);
 }
 
 TEST_CASE(sema_accepts_u8_pointer_to_str_cast)
@@ -1063,6 +1063,17 @@ TEST_CASE(sema_accepts_pointer_to_pointer_casts)
 	auto result = analyze(
 		"static mut BUFFER: [u8; 16];\n"
 		"fn main() -> i32 { let p: *i32 = (BUFFER + 0) as *i32; return 0; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_zero_to_pointer_and_str_casts)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { let ptr: *str = 0 as *str; let text: str = 0 as str; return ptr as i32 + text as i32; }\n",
 		diagnostics);
 
 	REQUIRE(result.ok());

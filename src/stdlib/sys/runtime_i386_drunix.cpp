@@ -149,6 +149,19 @@ sys_kill:
 	popl %ebx
 	leave
 	ret
+.globl sys_execve
+sys_execve:
+	pushl %ebp
+	movl %esp, %ebp
+	pushl %ebx
+	movl $11, %eax
+	movl 8(%ebp), %ebx
+	movl 12(%ebp), %ecx
+	movl 16(%ebp), %edx
+	int $0x80
+	popl %ebx
+	leave
+	ret
 .globl sys_args_len
 sys_args_len:
 	movl __rexc_argc, %eax

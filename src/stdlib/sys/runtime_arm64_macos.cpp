@@ -95,6 +95,14 @@ _sys_kill:
 	bl _kill
 	ldp x29, x30, [sp], #16
 	ret
+.globl _sys_execve
+.p2align 2
+_sys_execve:
+	stp x29, x30, [sp, #-16]!
+	mov x29, sp
+	bl _execve
+	ldp x29, x30, [sp], #16
+	ret
 .globl _sys_args_len
 .p2align 2
 _sys_args_len:
