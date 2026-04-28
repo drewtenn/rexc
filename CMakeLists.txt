@@ -74,6 +74,7 @@ set(REXC_STDLIB_RX_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/process.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/fs.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/path.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/time.rx"
 )
 
 set(REXC_STDLIB_GENERATED_SOURCE

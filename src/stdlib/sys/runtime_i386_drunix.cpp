@@ -55,6 +55,32 @@ sys_exit:
 	int $0x80
 .Lsys_exit_hang:
 	jmp .Lsys_exit_hang
+.globl sys_sleep
+sys_sleep:
+	pushl %ebp
+	movl %esp, %ebp
+	pushl %ebx
+	subl $16, %esp
+	movl 8(%ebp), %eax
+	movl %eax, 0(%esp)
+	movl $0, 4(%esp)
+	movl $0, 8(%esp)
+	movl $0, 12(%esp)
+	movl $162, %eax
+	leal 0(%esp), %ebx
+	leal 8(%esp), %ecx
+	int $0x80
+	testl %eax, %eax
+	je .Lsys_sleep_done
+	movl 8(%esp), %eax
+	jmp .Lsys_sleep_return
+.Lsys_sleep_done:
+	xorl %eax, %eax
+.Lsys_sleep_return:
+	addl $16, %esp
+	popl %ebx
+	leave
+	ret
 .globl sys_file_open_read
 sys_file_open_read:
 	pushl %ebp

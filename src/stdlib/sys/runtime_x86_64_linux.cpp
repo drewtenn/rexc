@@ -33,6 +33,27 @@ sys_read:
 sys_exit:
 	movq $60, %rax
 	syscall
+.globl sys_sleep
+sys_sleep:
+	subq $32, %rsp
+	movslq %edi, %rax
+	movq %rax, 0(%rsp)
+	movq $0, 8(%rsp)
+	movq $0, 16(%rsp)
+	movq $0, 24(%rsp)
+	movq $35, %rax
+	leaq 0(%rsp), %rdi
+	leaq 16(%rsp), %rsi
+	syscall
+	testq %rax, %rax
+	je .Lsys_sleep_done
+	movq 16(%rsp), %rax
+	jmp .Lsys_sleep_return
+.Lsys_sleep_done:
+	xorq %rax, %rax
+.Lsys_sleep_return:
+	addq $32, %rsp
+	ret
 .globl sys_file_open_read
 sys_file_open_read:
 	movq $2, %rax

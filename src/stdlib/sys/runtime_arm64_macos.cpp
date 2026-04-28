@@ -29,6 +29,27 @@ _sys_exit:
 	mov x16, #1
 	svc #0x80
 	ret
+.globl _sys_sleep
+.p2align 2
+_sys_sleep:
+	stp x29, x30, [sp, #-48]!
+	mov x29, sp
+	sxtw x2, w0
+	str x2, [sp, #16]
+	str xzr, [sp, #24]
+	str xzr, [sp, #32]
+	str xzr, [sp, #40]
+	add x0, sp, #16
+	add x1, sp, #32
+	bl _nanosleep
+	cbz w0, L_sys_sleep_done
+	ldr x0, [sp, #32]
+	b L_sys_sleep_return
+L_sys_sleep_done:
+	mov x0, #0
+L_sys_sleep_return:
+	ldp x29, x30, [sp], #48
+	ret
 .globl _sys_file_open_read
 .p2align 2
 _sys_file_open_read:
