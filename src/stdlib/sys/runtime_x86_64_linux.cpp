@@ -54,6 +54,22 @@ sys_sleep:
 .Lsys_sleep_return:
 	addq $32, %rsp
 	ret
+.globl sys_unix_seconds
+sys_unix_seconds:
+	subq $16, %rsp
+	movq $228, %rax
+	movq $0, %rdi
+	movq %rsp, %rsi
+	syscall
+	testq %rax, %rax
+	jne .Lsys_unix_seconds_error
+	movq 0(%rsp), %rax
+	jmp .Lsys_unix_seconds_return
+.Lsys_unix_seconds_error:
+	movq $-1, %rax
+.Lsys_unix_seconds_return:
+	addq $16, %rsp
+	ret
 .globl sys_file_open_read
 sys_file_open_read:
 	movq $2, %rax

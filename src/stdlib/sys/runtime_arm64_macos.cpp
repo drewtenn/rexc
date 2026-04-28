@@ -50,6 +50,15 @@ L_sys_sleep_done:
 L_sys_sleep_return:
 	ldp x29, x30, [sp], #48
 	ret
+.globl _sys_unix_seconds
+.p2align 2
+_sys_unix_seconds:
+	stp x29, x30, [sp, #-16]!
+	mov x29, sp
+	mov x0, #0
+	bl _time
+	ldp x29, x30, [sp], #16
+	ret
 .globl _sys_file_open_read
 .p2align 2
 _sys_file_open_read:

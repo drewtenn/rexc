@@ -81,6 +81,27 @@ sys_sleep:
 	popl %ebx
 	leave
 	ret
+.globl sys_unix_seconds
+sys_unix_seconds:
+	pushl %ebp
+	movl %esp, %ebp
+	pushl %ebx
+	subl $8, %esp
+	movl $265, %eax
+	movl $0, %ebx
+	leal 0(%esp), %ecx
+	int $0x80
+	testl %eax, %eax
+	jne .Lsys_unix_seconds_error
+	movl 0(%esp), %eax
+	jmp .Lsys_unix_seconds_return
+.Lsys_unix_seconds_error:
+	movl $-1, %eax
+.Lsys_unix_seconds_return:
+	addl $8, %esp
+	popl %ebx
+	leave
+	ret
 .globl sys_file_open_read
 sys_file_open_read:
 	pushl %ebp

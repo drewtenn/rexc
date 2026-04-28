@@ -1,5 +1,10 @@
 extern fn sys_sleep(seconds: i32) -> i32;
+extern fn sys_unix_seconds() -> i32;
 
 fn std_time_sleep(seconds: i32) -> i32 {
 	return sys_sleep(seconds);
+}
+
+fn std_time_unix_seconds() -> i32 {
+	return sys_unix_seconds();
 }

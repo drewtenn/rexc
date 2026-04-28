@@ -155,6 +155,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	auto path_join = rexc::stdlib::find_stdlib_function("path_join");
 	auto std_time_sleep_path =
 		rexc::stdlib::find_stdlib_function("std::time::sleep");
+	auto std_time_unix_seconds_path =
+		rexc::stdlib::find_stdlib_function("std::time::unix_seconds");
 
 	REQUIRE(print != nullptr);
 	REQUIRE(println != nullptr);
@@ -224,6 +226,7 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(file_write_str != nullptr);
 	REQUIRE(path_join != nullptr);
 	REQUIRE(std_time_sleep_path != nullptr);
+	REQUIRE(std_time_unix_seconds_path != nullptr);
 	REQUIRE_EQ(print->layer, rexc::stdlib::Layer::Std);
 	REQUIRE_EQ(print->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(print->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
@@ -416,6 +419,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(std_time_sleep_path->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_time_sleep_path->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(std_time_sleep_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_time_unix_seconds_path->parameters.size(), std::size_t(0));
+	REQUIRE_EQ(std_time_unix_seconds_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 }
 
 TEST_CASE(stdlib_default_prelude_contains_only_user_facing_names)
@@ -493,6 +498,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "sys_read:"));
 	REQUIRE(contains(i386, "sys_exit:"));
 	REQUIRE(contains(i386, "sys_sleep:"));
+	REQUIRE(contains(i386, "sys_unix_seconds:"));
 	REQUIRE(contains(i386, "sys_args_len:"));
 	REQUIRE(contains(i386, "sys_arg:"));
 	REQUIRE(contains(i386, "sys_env_len:"));
@@ -501,6 +507,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "call sys_read"));
 	REQUIRE(contains(i386, "call sys_exit"));
 	REQUIRE(contains(i386, "call sys_sleep"));
+	REQUIRE(contains(i386, "call sys_unix_seconds"));
 	REQUIRE(!contains(i386, "sys_read_line:"));
 	REQUIRE(contains(i386, "int $0x80"));
 
@@ -511,6 +518,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386_drunix, "sys_read:"));
 	REQUIRE(contains(i386_drunix, "sys_exit:"));
 	REQUIRE(contains(i386_drunix, "sys_sleep:"));
+	REQUIRE(contains(i386_drunix, "sys_unix_seconds:"));
 	REQUIRE(contains(i386_drunix, "sys_file_open_read:"));
 	REQUIRE(contains(i386_drunix, "sys_file_create_write:"));
 	REQUIRE(contains(i386_drunix, "sys_file_close:"));
@@ -519,6 +527,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386_drunix, "sys_env_len:"));
 	REQUIRE(contains(i386_drunix, "sys_env_at:"));
 	REQUIRE(contains(i386_drunix, "movl $162, %eax"));
+	REQUIRE(contains(i386_drunix, "movl $265, %eax"));
 	REQUIRE(contains(i386_drunix, ".globl __rexc_argc"));
 	REQUIRE(contains(i386_drunix, ".globl __rexc_argv"));
 	REQUIRE(contains(i386_drunix, ".globl __rexc_envp"));
@@ -565,6 +574,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "sys_read:"));
 	REQUIRE(contains(x86_64, "sys_exit:"));
 	REQUIRE(contains(x86_64, "sys_sleep:"));
+	REQUIRE(contains(x86_64, "sys_unix_seconds:"));
 	REQUIRE(contains(x86_64, "sys_args_len:"));
 	REQUIRE(contains(x86_64, "sys_arg:"));
 	REQUIRE(contains(x86_64, "sys_env_len:"));
@@ -573,6 +583,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "call sys_read"));
 	REQUIRE(contains(x86_64, "call sys_exit"));
 	REQUIRE(contains(x86_64, "call sys_sleep"));
+	REQUIRE(contains(x86_64, "call sys_unix_seconds"));
 	REQUIRE(!contains(x86_64, "sys_read_line:"));
 	REQUIRE(contains(x86_64, "syscall"));
 	REQUIRE(!contains(x86_64, "movq %rdi, %rdi"));
@@ -613,6 +624,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "_sys_read:"));
 	REQUIRE(contains(arm64, "_sys_exit:"));
 	REQUIRE(contains(arm64, "_sys_sleep:"));
+	REQUIRE(contains(arm64, "_sys_unix_seconds:"));
 	REQUIRE(!contains(arm64, ".globl _sleep\n_sleep:"));
 	REQUIRE(contains(arm64, "_sys_args_len:"));
 	REQUIRE(contains(arm64, "_sys_arg:"));
@@ -622,11 +634,13 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "bl _sys_read"));
 	REQUIRE(contains(arm64, "bl _sys_exit"));
 	REQUIRE(contains(arm64, "bl _sys_sleep"));
+	REQUIRE(contains(arm64, "bl _sys_unix_seconds"));
 	REQUIRE(!contains(arm64, "_sys_read_line:"));
 	REQUIRE(!contains(arm64, ".globl _write\n_write:"));
 	REQUIRE(contains(arm64, "bl _write"));
 	REQUIRE(contains(arm64, "bl _read"));
 	REQUIRE(contains(arm64, "bl _nanosleep"));
+	REQUIRE(contains(arm64, "bl _time"));
 	REQUIRE(!contains(arm64, "\tbl _exit\n"));
 }
 
