@@ -97,6 +97,12 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	auto result_is_err = rexc::stdlib::find_stdlib_function("result_is_err");
 	auto error_out_of_memory = rexc::stdlib::find_stdlib_function("error_out_of_memory");
 	auto alloc_bytes = rexc::stdlib::find_stdlib_function("alloc_bytes");
+	auto std_alloc_remaining_path =
+		rexc::stdlib::find_stdlib_function("std::alloc::remaining");
+	auto std_alloc_reset_path =
+		rexc::stdlib::find_stdlib_function("std::alloc::reset");
+	auto std_alloc_bytes_path =
+		rexc::stdlib::find_stdlib_function("std::alloc::bytes");
 	auto alloc_used = rexc::stdlib::find_stdlib_function("alloc_used");
 	auto alloc_can_allocate = rexc::stdlib::find_stdlib_function("alloc_can_allocate");
 	auto alloc_str_copy = rexc::stdlib::find_stdlib_function("alloc_str_copy");
@@ -178,6 +184,9 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(result_is_err != nullptr);
 	REQUIRE(error_out_of_memory != nullptr);
 	REQUIRE(alloc_bytes != nullptr);
+	REQUIRE(std_alloc_remaining_path != nullptr);
+	REQUIRE(std_alloc_reset_path != nullptr);
+	REQUIRE(std_alloc_bytes_path != nullptr);
 	REQUIRE(alloc_used != nullptr);
 	REQUIRE(alloc_can_allocate != nullptr);
 	REQUIRE(alloc_str_copy != nullptr);
@@ -302,6 +311,10 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(alloc_bytes->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(alloc_bytes->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(alloc_bytes->return_type, rexc::pointer_to(rexc::PrimitiveType{rexc::PrimitiveKind::UnsignedInteger, 8}));
+	REQUIRE_EQ(std_alloc_remaining_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_alloc_reset_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_alloc_bytes_path->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_alloc_bytes_path->return_type, rexc::pointer_to(rexc::PrimitiveType{rexc::PrimitiveKind::UnsignedInteger, 8}));
 	REQUIRE_EQ(alloc_str_copy->layer, rexc::stdlib::Layer::Alloc);
 	REQUIRE_EQ(alloc_str_copy->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(alloc_str_copy->parameters[0], (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));

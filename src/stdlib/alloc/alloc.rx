@@ -38,6 +38,18 @@ fn alloc_bytes(len: i32) -> *u8 {
 	return ALLOC_ARENA + start;
 }
 
+fn std_alloc_remaining() -> i32 {
+	return alloc_remaining();
+}
+
+fn std_alloc_reset() -> i32 {
+	return alloc_reset();
+}
+
+fn std_alloc_bytes(len: i32) -> *u8 {
+	return alloc_bytes(len);
+}
+
 fn alloc_str_copy(value: str) -> str {
 	let len: i32 = strlen(value) + 1;
 	let dest: *u8 = alloc_bytes(len);
