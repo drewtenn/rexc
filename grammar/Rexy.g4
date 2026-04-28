@@ -59,7 +59,12 @@ parameter
 
 type
 	: '*' type
+	| handleType
 	| primitiveType
+	;
+
+handleType
+	: IDENT ('<' type '>')?
 	;
 
 primitiveType

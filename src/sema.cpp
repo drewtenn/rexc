@@ -662,7 +662,7 @@ private:
 			// The new binding is inserted after checking the initializer so
 			// `let x: i32 = x;` remains an unknown-name error.
 			auto initializer_type = check_expr(locals, *let.initializer, let_type);
-			if (initializer_type && *initializer_type != let_type) {
+			if (initializer_type && !types_compatible(let_type, *initializer_type)) {
 				diagnostics_.error(let.location, "initializer type mismatch: expected '" +
 				                   format_type(let_type) + "' but got '" +
 				                   format_type(*initializer_type) + "'");
@@ -686,7 +686,7 @@ private:
 					diagnostics_.error(assign.location,
 					                   "cannot assign to immutable static '" + assign.name + "'");
 				auto value_type = check_expr(locals, *assign.value, global->type);
-				if (value_type && *value_type != global->type) {
+				if (value_type && !types_compatible(global->type, *value_type)) {
 					diagnostics_.error(assign.location, "assignment type mismatch: expected '" +
 					                   format_type(global->type) + "' but got '" +
 					                   format_type(*value_type) + "'");
@@ -697,7 +697,7 @@ private:
 				diagnostics_.error(assign.location,
 				                   "cannot assign to immutable local '" + assign.name + "'");
 			auto value_type = check_expr(locals, *assign.value, it->second.type);
-			if (value_type && *value_type != it->second.type) {
+			if (value_type && !types_compatible(it->second.type, *value_type)) {
 				diagnostics_.error(assign.location, "assignment type mismatch: expected '" +
 				                   format_type(it->second.type) + "' but got '" +
 				                   format_type(*value_type) + "'");
@@ -722,7 +722,7 @@ private:
 			}
 
 			auto value_type = check_expr(locals, *assign.value, *target_pointee);
-			if (value_type && *value_type != *target_pointee) {
+			if (value_type && !types_compatible(*target_pointee, *value_type)) {
 				diagnostics_.error(assign.location, "assignment type mismatch: expected '" +
 				                   format_type(*target_pointee) + "' but got '" +
 				                   format_type(*value_type) + "'");
@@ -829,7 +829,7 @@ private:
 
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
 		auto value_type = check_expr(locals, *ret.value, function_return_type);
-		if (value_type && *value_type != function_return_type) {
+		if (value_type && !types_compatible(function_return_type, *value_type)) {
 			diagnostics_.error(ret.location, "return type mismatch: expected '" +
 			                   format_type(function_return_type) + "' but got '" +
 			                   format_type(*value_type) + "'");
@@ -956,7 +956,8 @@ private:
 					if (i < expected_count)
 						parameter_type = function->parameter_types[i];
 					auto argument_type = check_expr(locals, *call.arguments[i], parameter_type);
-					if (parameter_type && argument_type && *argument_type != *parameter_type) {
+					if (parameter_type && argument_type &&
+					    !types_compatible(*parameter_type, *argument_type)) {
 						diagnostics_.error(call.arguments[i]->location,
 						                   "argument type mismatch: expected '" +
 						                   format_type(*parameter_type) + "' but got '" +
@@ -1136,6 +1137,17 @@ private:
 	{
 		if (source == target && source.kind != PrimitiveKind::Str)
 			return true;
+		if (source.kind == PrimitiveKind::Str && target.kind == PrimitiveKind::OwnedStr)
+			return true;
+		if (source.kind == PrimitiveKind::OwnedStr && target.kind == PrimitiveKind::Str)
+			return true;
+		if ((is_pointer(source) && is_handle(target)) || (is_handle(source) && is_pointer(target)))
+			return true;
+		if (is_vector(source) && is_slice(target)) {
+			auto source_payload = handle_payload_type(source);
+			auto target_payload = handle_payload_type(target);
+			return source_payload && target_payload && *source_payload == *target_payload;
+		}
 		if (source == pointer_to(u8_type()) && target.kind == PrimitiveKind::Str)
 			return true;
 		if (is_pointer(source) && is_pointer(target))
@@ -1152,6 +1164,13 @@ private:
 		if (source.kind == PrimitiveKind::Char && target == char_scalar_type)
 			return true;
 		return false;
+	}
+
+	bool types_compatible(PrimitiveType expected, PrimitiveType actual) const
+	{
+		if (expected == actual)
+			return true;
+		return expected.kind == PrimitiveKind::Str && actual.kind == PrimitiveKind::OwnedStr;
 	}
 
 	std::optional<PrimitiveType> check_logical_not_expr(

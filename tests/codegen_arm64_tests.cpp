@@ -305,12 +305,14 @@ TEST_CASE(codegen_arm64_macos_emits_u8_pointer_to_str_cast_as_noop)
 TEST_CASE(codegen_arm64_macos_emits_alloc_helper_calls)
 {
 	auto assembly = compile_to_arm64_assembly_with_all_stdlib_symbols(
-		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let joined: str = alloc_str_concat(copied, \"!\"); let number: str = alloc_i32_to_str(-42); let truth: str = alloc_bool_to_str(true); let letter: str = alloc_char_to_str('z'); if str_eq(joined, \"hello!\") && str_eq(number, \"-42\") && str_eq(truth, \"true\") && str_eq(letter, \"z\") { return alloc_remaining(); } return 0; }\n");
+		"fn main() -> i32 { alloc_reset(); let p: *u8 = alloc_bytes(8); memset_u8(p, 65 as u8, 8); let copied: str = alloc_str_copy(\"hello\"); let owned: owned_str = owned_str_clone(copied); let joined: owned_str = owned_str_concat(owned, \"!\"); let vec: vec<i32> = vec_i32_new(2); vec_i32_push(vec, 7); let slice: slice<i32> = slice_i32_from(vec as *i32 + 2, vec_i32_len(vec)); let result: Result<i32> = result_i32_ok(slice_i32_get_or(slice, 0, -1)); let number: str = alloc_i32_to_str(result_i32_value_or(result, -42)); let truth: str = alloc_bool_to_str(result_i32_is_ok(result)); let letter: str = alloc_char_to_str('z'); if str_eq(joined, \"hello!\") && str_eq(number, \"7\") && str_eq(truth, \"true\") && str_eq(letter, \"z\") { return alloc_remaining(); } return 0; }\n");
 
 	REQUIRE(assembly.find("bl _alloc_reset") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_bytes") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_str_copy") != std::string::npos);
-	REQUIRE(assembly.find("bl _alloc_str_concat") != std::string::npos);
+	REQUIRE(assembly.find("bl _owned_str_concat") != std::string::npos);
+	REQUIRE(assembly.find("bl _slice_i32_from") != std::string::npos);
+	REQUIRE(assembly.find("bl _result_i32_ok") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_i32_to_str") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_bool_to_str") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_char_to_str") != std::string::npos);

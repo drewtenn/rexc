@@ -37,6 +37,27 @@ TEST_CASE(types_parse_and_format_pointer_types)
 	REQUIRE(rexc::is_i386_codegen_supported(*rexc::parse_primitive_type("*i64")));
 }
 
+TEST_CASE(types_parse_and_format_handle_types)
+{
+	auto owned = rexc::parse_primitive_type("owned_str");
+	auto slice = rexc::parse_primitive_type("slice<i32>");
+	auto vec = rexc::parse_primitive_type("vec<i32>");
+	auto result = rexc::parse_primitive_type("Result<i32>");
+
+	REQUIRE(owned.has_value());
+	REQUIRE(slice.has_value());
+	REQUIRE(vec.has_value());
+	REQUIRE(result.has_value());
+	REQUIRE_EQ(rexc::format_type(*owned), std::string("owned_str"));
+	REQUIRE_EQ(rexc::format_type(*slice), std::string("slice<i32>"));
+	REQUIRE_EQ(rexc::format_type(*vec), std::string("vec<i32>"));
+	REQUIRE_EQ(rexc::format_type(*result), std::string("Result<i32>"));
+	REQUIRE(rexc::is_i386_codegen_supported(*owned));
+	REQUIRE(rexc::is_i386_codegen_supported(*slice));
+	REQUIRE(rexc::is_i386_codegen_supported(*vec));
+	REQUIRE(rexc::is_i386_codegen_supported(*result));
+}
+
 TEST_CASE(types_report_integer_properties)
 {
 	auto i16 = *rexc::parse_primitive_type("i16");

@@ -1,6 +1,7 @@
 #include "rexc/codegen.hpp"
 #include "rexc/stdlib.hpp"
 #include "rexc/target.hpp"
+#include "rexc/types.hpp"
 #include "test_support.hpp"
 
 #include <fstream>
@@ -93,8 +94,17 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	auto slice_u8_len = rexc::stdlib::find_stdlib_function("slice_u8_len");
 	auto slice_u8_is_empty = rexc::stdlib::find_stdlib_function("slice_u8_is_empty");
 	auto slice_u8_get_or = rexc::stdlib::find_stdlib_function("slice_u8_get_or");
+	auto slice_i32_from = rexc::stdlib::find_stdlib_function("slice_i32_from");
+	auto slice_i32_len = rexc::stdlib::find_stdlib_function("slice_i32_len");
+	auto slice_i32_get_or = rexc::stdlib::find_stdlib_function("slice_i32_get_or");
 	auto result_is_ok = rexc::stdlib::find_stdlib_function("result_is_ok");
 	auto result_is_err = rexc::stdlib::find_stdlib_function("result_is_err");
+	auto result_i32_ok = rexc::stdlib::find_stdlib_function("result_i32_ok");
+	auto result_i32_err = rexc::stdlib::find_stdlib_function("result_i32_err");
+	auto result_i32_is_ok = rexc::stdlib::find_stdlib_function("result_i32_is_ok");
+	auto result_i32_is_err = rexc::stdlib::find_stdlib_function("result_i32_is_err");
+	auto result_i32_value_or = rexc::stdlib::find_stdlib_function("result_i32_value_or");
+	auto result_i32_error = rexc::stdlib::find_stdlib_function("result_i32_error");
 	auto error_out_of_memory = rexc::stdlib::find_stdlib_function("error_out_of_memory");
 	auto alloc_bytes = rexc::stdlib::find_stdlib_function("alloc_bytes");
 	auto std_alloc_remaining_path =
@@ -188,8 +198,17 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(slice_u8_len != nullptr);
 	REQUIRE(slice_u8_is_empty != nullptr);
 	REQUIRE(slice_u8_get_or != nullptr);
+	REQUIRE(slice_i32_from != nullptr);
+	REQUIRE(slice_i32_len != nullptr);
+	REQUIRE(slice_i32_get_or != nullptr);
 	REQUIRE(result_is_ok != nullptr);
 	REQUIRE(result_is_err != nullptr);
+	REQUIRE(result_i32_ok != nullptr);
+	REQUIRE(result_i32_err != nullptr);
+	REQUIRE(result_i32_is_ok != nullptr);
+	REQUIRE(result_i32_is_err != nullptr);
+	REQUIRE(result_i32_value_or != nullptr);
+	REQUIRE(result_i32_error != nullptr);
 	REQUIRE(error_out_of_memory != nullptr);
 	REQUIRE(alloc_bytes != nullptr);
 	REQUIRE(std_alloc_remaining_path != nullptr);
@@ -316,8 +335,35 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(slice_u8_is_empty->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
 	REQUIRE_EQ(slice_u8_get_or->parameters.size(), std::size_t(4));
 	REQUIRE_EQ(slice_u8_get_or->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::UnsignedInteger, 8}));
+	auto owned_str_type = rexc::parse_primitive_type("owned_str");
+	auto slice_i32_type = rexc::parse_primitive_type("slice<i32>");
+	auto vec_i32_type = rexc::parse_primitive_type("vec<i32>");
+	auto result_i32_type = rexc::parse_primitive_type("Result<i32>");
+	REQUIRE(owned_str_type.has_value());
+	REQUIRE(slice_i32_type.has_value());
+	REQUIRE(vec_i32_type.has_value());
+	REQUIRE(result_i32_type.has_value());
+	REQUIRE_EQ(slice_i32_from->parameters.size(), std::size_t(2));
+	REQUIRE_EQ(slice_i32_from->parameters[0], rexc::pointer_to(rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(slice_i32_from->return_type, *slice_i32_type);
+	REQUIRE_EQ(slice_i32_len->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(slice_i32_len->parameters[0], *slice_i32_type);
+	REQUIRE_EQ(slice_i32_len->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(slice_i32_get_or->parameters.size(), std::size_t(3));
+	REQUIRE_EQ(slice_i32_get_or->parameters[0], *slice_i32_type);
+	REQUIRE_EQ(slice_i32_get_or->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(result_is_ok->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
 	REQUIRE_EQ(result_is_err->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
+	REQUIRE_EQ(result_i32_ok->return_type, *result_i32_type);
+	REQUIRE_EQ(result_i32_err->return_type, *result_i32_type);
+	REQUIRE_EQ(result_i32_is_ok->parameters[0], *result_i32_type);
+	REQUIRE_EQ(result_i32_is_ok->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
+	REQUIRE_EQ(result_i32_is_err->parameters[0], *result_i32_type);
+	REQUIRE_EQ(result_i32_is_err->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
+	REQUIRE_EQ(result_i32_value_or->parameters[0], *result_i32_type);
+	REQUIRE_EQ(result_i32_value_or->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(result_i32_error->parameters[0], *result_i32_type);
+	REQUIRE_EQ(result_i32_error->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(error_out_of_memory->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(alloc_bytes->layer, rexc::stdlib::Layer::Alloc);
 	REQUIRE_EQ(alloc_bytes->parameters.size(), std::size_t(1));
@@ -354,9 +400,9 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(alloc_used->layer, rexc::stdlib::Layer::Alloc);
 	REQUIRE_EQ(alloc_used->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(alloc_can_allocate->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Bool}));
-	REQUIRE_EQ(owned_str_clone->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(owned_str_clone->return_type, *owned_str_type);
 	REQUIRE_EQ(box_i32_new->return_type, rexc::pointer_to(rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
-	REQUIRE_EQ(vec_i32_new->return_type, rexc::pointer_to(rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(vec_i32_new->return_type, *vec_i32_type);
 	REQUIRE_EQ(vec_i32_push->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(alloc_reset->layer, rexc::stdlib::Layer::Alloc);
 	REQUIRE_EQ(alloc_reset->parameters.size(), std::size_t(0));

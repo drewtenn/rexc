@@ -67,20 +67,20 @@ fn alloc_str_concat(lhs: str, rhs: str) -> str {
 	return dest as str;
 }
 
-fn owned_str_clone(value: str) -> str {
-	return alloc_str_copy(value);
+fn owned_str_clone(value: str) -> owned_str {
+	return alloc_str_copy(value) as owned_str;
 }
 
-fn owned_str_len(value: str) -> i32 {
-	return strlen(value);
+fn owned_str_len(value: owned_str) -> i32 {
+	return strlen(value as str);
 }
 
-fn owned_str_is_empty(value: str) -> bool {
-	return str_is_empty(value);
+fn owned_str_is_empty(value: owned_str) -> bool {
+	return str_is_empty(value as str);
 }
 
-fn owned_str_concat(lhs: str, rhs: str) -> str {
-	return alloc_str_concat(lhs, rhs);
+fn owned_str_concat(lhs: str, rhs: str) -> owned_str {
+	return alloc_str_concat(lhs, rhs) as owned_str;
 }
 
 fn box_i32_new(value: i32) -> *i32 {
@@ -98,7 +98,7 @@ fn box_i32_write(box: *i32, value: i32) -> i32 {
 	return value;
 }
 
-fn vec_i32_new(capacity: i32) -> *i32 {
+fn vec_i32_new(capacity: i32) -> vec<i32> {
 	let mut actual_capacity: i32 = capacity;
 	if capacity < 0 {
 		actual_capacity = 0;
@@ -106,35 +106,106 @@ fn vec_i32_new(capacity: i32) -> *i32 {
 	let vec: *i32 = alloc_bytes((actual_capacity + 2) * 4) as *i32;
 	*(vec + 0) = 0;
 	*(vec + 1) = actual_capacity;
-	return vec;
+	return vec as vec<i32>;
 }
 
-fn vec_i32_len(vec: *i32) -> i32 {
-	return vec[0];
+fn vec_i32_len(vec: vec<i32>) -> i32 {
+	let raw: *i32 = vec as *i32;
+	return raw[0];
 }
 
-fn vec_i32_capacity(vec: *i32) -> i32 {
-	return vec[1];
+fn vec_i32_capacity(vec: vec<i32>) -> i32 {
+	let raw: *i32 = vec as *i32;
+	return raw[1];
 }
 
-fn vec_i32_push(vec: *i32, value: i32) -> i32 {
+fn vec_i32_push(vec: vec<i32>, value: i32) -> i32 {
+	let raw: *i32 = vec as *i32;
 	let len: i32 = vec_i32_len(vec);
 	if len >= vec_i32_capacity(vec) {
 		return error_out_of_memory();
 	}
-	*(vec + 2 + len) = value;
-	*(vec + 0) = len + 1;
+	*(raw + 2 + len) = value;
+	*(raw + 0) = len + 1;
 	return len + 1;
 }
 
-fn vec_i32_get_or(vec: *i32, index: i32, fallback: i32) -> i32 {
+fn vec_i32_get_or(vec: vec<i32>, index: i32, fallback: i32) -> i32 {
 	if index < 0 {
 		return fallback;
 	}
 	if index >= vec_i32_len(vec) {
 		return fallback;
 	}
-	return vec[2 + index];
+	let raw: *i32 = vec as *i32;
+	return raw[2 + index];
+}
+
+fn slice_i32_from(data: *i32, len: i32) -> slice<i32> {
+	let mut actual_len: i32 = len;
+	if actual_len < 0 {
+		actual_len = 0;
+	}
+	let vec: vec<i32> = vec_i32_new(actual_len);
+	let mut index: i32 = 0;
+	while index < actual_len {
+		vec_i32_push(vec, data[index]);
+		index++;
+	}
+	return vec as slice<i32>;
+}
+
+fn slice_i32_len(slice: slice<i32>) -> i32 {
+	let raw: *i32 = slice as *i32;
+	return raw[0];
+}
+
+fn slice_i32_get_or(slice: slice<i32>, index: i32, fallback: i32) -> i32 {
+	if index < 0 {
+		return fallback;
+	}
+	if index >= slice_i32_len(slice) {
+		return fallback;
+	}
+	let raw: *i32 = slice as *i32;
+	return raw[2 + index];
+}
+
+fn result_i32_ok(value: i32) -> Result<i32> {
+	let result: *i32 = alloc_bytes(8) as *i32;
+	*(result + 0) = 0;
+	*(result + 1) = value;
+	return result as Result<i32>;
+}
+
+fn result_i32_err(code: i32) -> Result<i32> {
+	let result: *i32 = alloc_bytes(8) as *i32;
+	*(result + 0) = code;
+	*(result + 1) = 0;
+	return result as Result<i32>;
+}
+
+fn result_i32_is_ok(result: Result<i32>) -> bool {
+	let raw: *i32 = result as *i32;
+	return raw[0] >= 0;
+}
+
+fn result_i32_is_err(result: Result<i32>) -> bool {
+	let raw: *i32 = result as *i32;
+	return raw[0] < 0;
+}
+
+fn result_i32_value_or(result: Result<i32>, fallback: i32) -> i32 {
+	let raw: *i32 = result as *i32;
+	if raw[0] >= 0 {
+		return raw[1];
+	}
+	return fallback;
+}
+
+fn result_i32_error(result: Result<i32>) -> i32 {
+	let raw: *i32 = result as *i32;
+	return raw[0];
 }
 
 fn _write_digit_to(dest: *u8, value: i32) -> i32 {
