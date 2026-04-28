@@ -128,6 +128,10 @@ TEST_CASE(stdlib_declares_all_public_functions)
 		rexc::stdlib::find_stdlib_function("std::process::exit");
 	auto args_len = rexc::stdlib::find_stdlib_function("args_len");
 	auto arg_at = rexc::stdlib::find_stdlib_function("arg_at");
+	auto std_process_args_len_path =
+		rexc::stdlib::find_stdlib_function("std::process::args_len");
+	auto std_process_arg_at_path =
+		rexc::stdlib::find_stdlib_function("std::process::arg_at");
 	auto env_get = rexc::stdlib::find_stdlib_function("env_get");
 	auto file_open_read = rexc::stdlib::find_stdlib_function("file_open_read");
 	auto file_write_str = rexc::stdlib::find_stdlib_function("file_write_str");
@@ -185,6 +189,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(std_process_exit_path != nullptr);
 	REQUIRE(args_len != nullptr);
 	REQUIRE(arg_at != nullptr);
+	REQUIRE(std_process_args_len_path != nullptr);
+	REQUIRE(std_process_arg_at_path != nullptr);
 	REQUIRE(env_get != nullptr);
 	REQUIRE(file_open_read != nullptr);
 	REQUIRE(file_write_str != nullptr);
@@ -352,6 +358,9 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(args_len->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(arg_at->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(arg_at->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(std_process_args_len_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_process_arg_at_path->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_process_arg_at_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(env_get->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(env_get->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(file_open_read->parameters.size(), std::size_t(1));

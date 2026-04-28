@@ -26,8 +26,16 @@ fn args_len() -> i32 {
 	return sys_args_len();
 }
 
+fn std_process_args_len() -> i32 {
+	return args_len();
+}
+
 fn arg_at(index: i32) -> str {
 	return sys_arg(index);
+}
+
+fn std_process_arg_at(index: i32) -> str {
+	return arg_at(index);
 }
 
 fn _env_entry_matches(entry: str, name: str) -> bool {
