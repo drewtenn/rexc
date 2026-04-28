@@ -311,6 +311,21 @@ TEST_CASE(parser_accepts_comparisons)
 	REQUIRE_EQ(binary.op, std::string("<="));
 }
 
+TEST_CASE(parser_accepts_remainder_operator)
+{
+	rexc::SourceFile source("test.rx", "fn main() -> i32 { return 7 % 3; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &ret =
+	    static_cast<const rexc::ast::ReturnStmt &>(*result.module().functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Binary);
+	const auto &binary = static_cast<const rexc::ast::BinaryExpr &>(*ret.value);
+	REQUIRE_EQ(binary.op, std::string("%"));
+}
+
 TEST_CASE(parser_accepts_boolean_operators_with_precedence)
 {
 	rexc::SourceFile source(

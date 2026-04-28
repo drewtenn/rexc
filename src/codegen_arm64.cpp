@@ -527,6 +527,10 @@ private:
 		} else if (binary.op == "/") {
 			out_ << "\t" << (is_unsigned_integer(binary.type) ? "udiv" : "sdiv")
 			     << " x0, x1, x0\n";
+		} else if (binary.op == "%") {
+			out_ << "\t" << (is_unsigned_integer(binary.type) ? "udiv" : "sdiv")
+			     << " x9, x1, x0\n";
+			out_ << "\tmsub x0, x9, x0, x1\n";
 		}
 	}
 

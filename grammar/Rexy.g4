@@ -138,7 +138,7 @@ additive
 	;
 
 multiplicative
-	: cast (('*' | '/') cast)*
+	: cast (('*' | '/' | '%') cast)*
 	;
 
 cast

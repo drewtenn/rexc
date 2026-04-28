@@ -248,12 +248,33 @@ TEST_CASE(codegen_emits_signed_division)
 	REQUIRE(assembly.find("\tdivl %ecx") == std::string::npos);
 }
 
+TEST_CASE(codegen_emits_signed_remainder)
+{
+	auto assembly = compile_to_assembly("fn main() -> i32 { return 7 % 2; }\n");
+
+	REQUIRE(assembly.find("cltd") != std::string::npos);
+	REQUIRE(assembly.find("idivl %ecx") != std::string::npos);
+	REQUIRE(assembly.find("movl %edx, %eax") != std::string::npos);
+	REQUIRE(assembly.find("\tdivl %ecx") == std::string::npos);
+}
+
 TEST_CASE(codegen_emits_unsigned_division)
 {
 	auto assembly = compile_to_assembly("fn main() -> u32 { return 4000000000 / 2; }\n");
 
 	REQUIRE(assembly.find("xorl %edx, %edx") != std::string::npos);
 	REQUIRE(assembly.find("divl %ecx") != std::string::npos);
+	REQUIRE(assembly.find("cltd") == std::string::npos);
+	REQUIRE(assembly.find("idivl %ecx") == std::string::npos);
+}
+
+TEST_CASE(codegen_emits_unsigned_remainder)
+{
+	auto assembly = compile_to_assembly("fn main() -> u32 { return 4000000000 % 7; }\n");
+
+	REQUIRE(assembly.find("xorl %edx, %edx") != std::string::npos);
+	REQUIRE(assembly.find("divl %ecx") != std::string::npos);
+	REQUIRE(assembly.find("movl %edx, %eax") != std::string::npos);
 	REQUIRE(assembly.find("cltd") == std::string::npos);
 	REQUIRE(assembly.find("idivl %ecx") == std::string::npos);
 }

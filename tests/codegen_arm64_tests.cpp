@@ -65,6 +65,14 @@ TEST_CASE(codegen_arm64_macos_emits_integer_return)
 	REQUIRE(assembly.find("mov w0, #42") != std::string::npos);
 }
 
+TEST_CASE(codegen_arm64_macos_emits_remainder)
+{
+	auto assembly = compile_to_arm64_assembly("fn main() -> i32 { return 7 % 3; }\n");
+
+	REQUIRE(assembly.find("sdiv x9, x1, x0") != std::string::npos);
+	REQUIRE(assembly.find("msub x0, x9, x0, x1") != std::string::npos);
+}
+
 TEST_CASE(codegen_arm64_macos_emits_call_and_local)
 {
 	auto assembly = compile_to_arm64_assembly(

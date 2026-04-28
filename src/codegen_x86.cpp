@@ -684,6 +684,19 @@ private:
 				out_ << "\t" << signed_divide_instruction() << " "
 				     << scratch_register() << "\n";
 			}
+		} else if (binary.op == "%") {
+			if (is_unsigned_integer(binary.type)) {
+				out_ << "\t" << zero_remainder_instruction() << " "
+				     << remainder_register() << ", " << remainder_register() << "\n";
+				out_ << "\t" << unsigned_divide_instruction() << " "
+				     << scratch_register() << "\n";
+			} else {
+				out_ << "\t" << sign_extend_dividend_instruction() << "\n";
+				out_ << "\t" << signed_divide_instruction() << " "
+				     << scratch_register() << "\n";
+			}
+			out_ << "\t" << move_instruction() << " " << remainder_register() << ", "
+			     << accumulator_register() << "\n";
 		}
 	}
 
