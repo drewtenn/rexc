@@ -97,7 +97,7 @@ struct CallExpr final : Expr {
 };
 
 struct Stmt {
-	enum class Kind { Let, Assign, IndirectAssign, Expr, Return, If, While, For, Break, Continue };
+	enum class Kind { Let, Assign, IndirectAssign, Expr, Return, If, Match, While, For, Break, Continue };
 
 	Stmt(Kind kind, SourceLocation location);
 	virtual ~Stmt() = default;
@@ -151,6 +151,30 @@ struct IfStmt final : Stmt {
 	std::unique_ptr<Expr> condition;
 	std::vector<std::unique_ptr<Stmt>> then_body;
 	std::vector<std::unique_ptr<Stmt>> else_body;
+};
+
+struct MatchPattern {
+	enum class Kind { Default, Integer, Bool, Char };
+
+	Kind kind = Kind::Default;
+	std::string literal;
+	bool bool_value = false;
+	char32_t char_value = U'\0';
+	bool is_negative = false;
+	SourceLocation location;
+};
+
+struct MatchArm {
+	std::vector<MatchPattern> patterns;
+	std::vector<std::unique_ptr<Stmt>> body;
+};
+
+struct MatchStmt final : Stmt {
+	MatchStmt(SourceLocation location, std::unique_ptr<Expr> value,
+	          std::vector<MatchArm> arms);
+
+	std::unique_ptr<Expr> value;
+	std::vector<MatchArm> arms;
 };
 
 struct WhileStmt final : Stmt {

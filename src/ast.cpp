@@ -131,6 +131,13 @@ IfStmt::IfStmt(SourceLocation location, std::unique_ptr<Expr> condition,
 {
 }
 
+MatchStmt::MatchStmt(SourceLocation location, std::unique_ptr<Expr> value,
+                     std::vector<MatchArm> arms)
+	: Stmt(Kind::Match, std::move(location)), value(std::move(value)),
+	  arms(std::move(arms))
+{
+}
+
 WhileStmt::WhileStmt(SourceLocation location, std::unique_ptr<Expr> condition,
                      std::vector<std::unique_ptr<Stmt>> body)
 	: Stmt(Kind::While, std::move(location)), condition(std::move(condition)),

@@ -100,6 +100,11 @@ IfStatement::IfStatement(std::unique_ptr<Value> condition,
 {
 }
 
+MatchStatement::MatchStatement(std::unique_ptr<Value> value, std::vector<MatchArm> arms)
+	: Statement(Kind::Match), value(std::move(value)), arms(std::move(arms))
+{
+}
+
 WhileStatement::WhileStatement(std::unique_ptr<Value> condition,
                                std::vector<std::unique_ptr<Statement>> body)
 	: Statement(Kind::While), condition(std::move(condition)), body(std::move(body))

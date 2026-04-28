@@ -88,6 +88,7 @@ statement
 	| callStatement
 	| returnStatement
 	| ifStatement
+	| matchStatement
 	| whileStatement
 	| forStatement
 	| breakStatement
@@ -120,6 +121,21 @@ returnStatement
 
 ifStatement
 	: 'if' expression block ('else' (block | ifStatement))?
+	;
+
+matchStatement
+	: 'match' expression '{' matchArm* '}'
+	;
+
+matchArm
+	: matchPattern ('|' matchPattern)* '=>' block ','?
+	;
+
+matchPattern
+	: '_'
+	| '-'? INTEGER
+	| BOOL
+	| CHAR
 	;
 
 whileStatement

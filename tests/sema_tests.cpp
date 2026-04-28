@@ -1275,6 +1275,40 @@ TEST_CASE(sema_rejects_increment_of_immutable_local)
 	        std::string::npos);
 }
 
+TEST_CASE(sema_accepts_match_statement_with_integer_patterns)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut value: i32 = 0; match value { 1 => { value = 10; } 2 => { value = 20; } _ => { value = 30; } } return value; }\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_match_arm_with_multiple_patterns)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut value: i32 = 0; match value { 1 | 2 => { value = 10; } _ => { value = 30; } } return value; }\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_match_pattern_type_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut value: i32 = 0; match value { true => { value = 1; } _ => { value = 2; } } return value; }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("match pattern type mismatch") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_rejects_for_initializer_local_after_loop)
 {
 	rexc::Diagnostics diagnostics;

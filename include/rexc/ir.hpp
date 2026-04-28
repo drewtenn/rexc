@@ -89,7 +89,7 @@ struct CallValue final : Value {
 };
 
 struct Statement {
-	enum class Kind { Let, Assign, IndirectAssign, Expr, Return, If, While, For, Break, Continue };
+	enum class Kind { Let, Assign, IndirectAssign, Expr, Return, If, Match, While, For, Break, Continue };
 
 	explicit Statement(Kind kind);
 	virtual ~Statement() = default;
@@ -138,6 +138,29 @@ struct IfStatement final : Statement {
 	std::unique_ptr<Value> condition;
 	std::vector<std::unique_ptr<Statement>> then_body;
 	std::vector<std::unique_ptr<Statement>> else_body;
+};
+
+struct MatchPattern {
+	enum class Kind { Default, Integer, Bool, Char };
+
+	Kind kind = Kind::Default;
+	Type type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
+	std::string literal;
+	bool bool_value = false;
+	char32_t char_value = U'\0';
+	bool is_negative = false;
+};
+
+struct MatchArm {
+	std::vector<MatchPattern> patterns;
+	std::vector<std::unique_ptr<Statement>> body;
+};
+
+struct MatchStatement final : Statement {
+	MatchStatement(std::unique_ptr<Value> value, std::vector<MatchArm> arms);
+
+	std::unique_ptr<Value> value;
+	std::vector<MatchArm> arms;
 };
 
 struct WhileStatement final : Statement {

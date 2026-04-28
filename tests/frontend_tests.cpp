@@ -556,6 +556,32 @@ TEST_CASE(parser_accepts_increment_in_for_header)
 	REQUIRE_EQ(result.module().functions[0].body[1]->kind, rexc::ast::Stmt::Kind::For);
 }
 
+TEST_CASE(parser_accepts_match_statement_with_literal_and_default_arms)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut value: i32 = 0; match value { 1 => { value = 10; } 2 => { value = 20; } _ => { value = 30; } } return value; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(parser_accepts_match_arm_with_multiple_patterns)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut value: i32 = 0; match value { 1 | 2 => { value = 10; } _ => { value = 30; } } return value; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(parser_accepts_parenthesized_for_loop_header)
 {
 	rexc::SourceFile source(

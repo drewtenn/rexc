@@ -686,6 +686,27 @@ TEST_CASE(codegen_i386_emits_prefix_and_postfix_increment_decrement)
 	REQUIRE(assembly.find("subl $1, %eax") != std::string::npos);
 }
 
+TEST_CASE(codegen_i386_emits_match_statement)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i32 { let mut value: i32 = 2; match value { 1 => { value = 10; } 2 => { value = 20; } _ => { value = 30; } } return value; }\n");
+
+	REQUIRE(assembly.find(".L_match_arm_") != std::string::npos);
+	REQUIRE(assembly.find(".L_match_end_") != std::string::npos);
+	REQUIRE(assembly.find("cmpl $1,") != std::string::npos);
+	REQUIRE(assembly.find("cmpl $2,") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_match_arm_with_multiple_patterns)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i32 { let mut value: i32 = 2; match value { 1 | 2 => { value = 10; } _ => { value = 30; } } return value; }\n");
+
+	REQUIRE(assembly.find(".L_match_arm_") != std::string::npos);
+	REQUIRE(assembly.find("cmpl $1,") != std::string::npos);
+	REQUIRE(assembly.find("cmpl $2,") != std::string::npos);
+}
+
 TEST_CASE(codegen_i386_sizes_static_i32_buffers_by_element_width)
 {
 	auto assembly = compile_to_assembly(

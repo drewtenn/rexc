@@ -748,6 +748,34 @@ private:
 			return;
 		}
 
+		if (statement.kind == ast::Stmt::Kind::Match) {
+			const auto &match_stmt = static_cast<const ast::MatchStmt &>(statement);
+			auto value_type = check_expr(locals, *match_stmt.value);
+			bool saw_default = false;
+			for (std::size_t i = 0; i < match_stmt.arms.size(); ++i) {
+				const auto &arm = match_stmt.arms[i];
+				for (const auto &pattern : arm.patterns) {
+					if (saw_default)
+						diagnostics_.error(pattern.location,
+						                   "match default arm must be last");
+					if (pattern.kind == ast::MatchPattern::Kind::Default) {
+						if (arm.patterns.size() != 1)
+							diagnostics_.error(pattern.location,
+							                   "match default pattern must be alone");
+						saw_default = true;
+					} else if (value_type) {
+						check_match_pattern(pattern, *value_type);
+					}
+				}
+
+				auto arm_locals = locals;
+				for (const auto &arm_statement : arm.body)
+					analyze_statement(function_return_type, arm_locals, *arm_statement,
+					                  loop_depth);
+			}
+			return;
+		}
+
 		if (statement.kind == ast::Stmt::Kind::While) {
 			const auto &while_stmt = static_cast<const ast::WhileStmt &>(statement);
 			auto condition_type = check_expr(locals, *while_stmt.condition, bool_type());
@@ -805,6 +833,30 @@ private:
 			diagnostics_.error(ret.location, "return type mismatch: expected '" +
 			                   format_type(function_return_type) + "' but got '" +
 			                   format_type(*value_type) + "'");
+		}
+	}
+
+	void check_match_pattern(const ast::MatchPattern &pattern, PrimitiveType value_type)
+	{
+		switch (pattern.kind) {
+		case ast::MatchPattern::Kind::Default:
+			return;
+		case ast::MatchPattern::Kind::Integer:
+			if (!is_integer(value_type)) {
+				diagnostics_.error(pattern.location, "match pattern type mismatch");
+				return;
+			}
+			check_integer_literal(pattern.location, value_type, pattern.literal,
+			                      pattern.is_negative);
+			return;
+		case ast::MatchPattern::Kind::Bool:
+			if (value_type != bool_type())
+				diagnostics_.error(pattern.location, "match pattern type mismatch");
+			return;
+		case ast::MatchPattern::Kind::Char:
+			if (value_type.kind != PrimitiveKind::Char)
+				diagnostics_.error(pattern.location, "match pattern type mismatch");
+			return;
 		}
 	}
 

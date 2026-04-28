@@ -396,6 +396,44 @@ private:
 		return lhs_type;
 	}
 
+	ir::MatchPattern lower_match_pattern(const ast::MatchPattern &pattern,
+	                                     ir::Type value_type) const
+	{
+		ir::MatchPattern lowered;
+		lowered.type = value_type;
+		switch (pattern.kind) {
+		case ast::MatchPattern::Kind::Default:
+			lowered.kind = ir::MatchPattern::Kind::Default;
+			break;
+		case ast::MatchPattern::Kind::Integer:
+			lowered.kind = ir::MatchPattern::Kind::Integer;
+			lowered.literal = pattern.literal;
+			lowered.is_negative = pattern.is_negative;
+			break;
+		case ast::MatchPattern::Kind::Bool:
+			lowered.kind = ir::MatchPattern::Kind::Bool;
+			lowered.bool_value = pattern.bool_value;
+			break;
+		case ast::MatchPattern::Kind::Char:
+			lowered.kind = ir::MatchPattern::Kind::Char;
+			lowered.char_value = pattern.char_value;
+			break;
+		}
+		return lowered;
+	}
+
+	ir::MatchArm lower_match_arm(const ast::MatchArm &arm, ir::Type value_type,
+	                             ir::Type function_return_type, const Locals &locals)
+	{
+		std::vector<ir::MatchPattern> patterns;
+		for (const auto &pattern : arm.patterns)
+			patterns.push_back(lower_match_pattern(pattern, value_type));
+		return ir::MatchArm{
+		    std::move(patterns),
+		    lower_statements(arm.body, function_return_type, locals),
+		};
+	}
+
 	std::vector<std::unique_ptr<ir::Statement>> lower_statements(
 		const std::vector<std::unique_ptr<ast::Stmt>> &statements,
 		ir::Type function_return_type, Locals locals)
@@ -449,6 +487,17 @@ private:
 				std::move(condition),
 				lower_statements(if_stmt.then_body, function_return_type, locals),
 				lower_statements(if_stmt.else_body, function_return_type, locals));
+		}
+
+		if (statement.kind == ast::Stmt::Kind::Match) {
+			const auto &match_stmt = static_cast<const ast::MatchStmt &>(statement);
+			auto value = lower_expr(*match_stmt.value, locals);
+			ir::Type value_type = value->type;
+			std::vector<ir::MatchArm> arms;
+			for (const auto &arm : match_stmt.arms)
+				arms.push_back(lower_match_arm(arm, value_type, function_return_type,
+				                               locals));
+			return std::make_unique<ir::MatchStatement>(std::move(value), std::move(arms));
 		}
 
 		if (statement.kind == ast::Stmt::Kind::While) {

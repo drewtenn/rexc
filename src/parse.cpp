@@ -338,6 +338,8 @@ private:
 			return build_return_statement(ret);
 		if (auto *if_statement = context->ifStatement())
 			return build_if_statement(if_statement);
+		if (auto *match_statement = context->matchStatement())
+			return build_match_statement(match_statement);
 		if (auto *while_statement = context->whileStatement())
 			return build_while_statement(while_statement);
 		if (auto *for_statement = context->forStatement())
@@ -417,6 +419,56 @@ private:
 		return std::make_unique<ast::IfStmt>(
 		    location(context), build_expression(context->expression()), build_block(blocks[0]),
 		    std::move(else_body));
+	}
+
+	std::unique_ptr<ast::Stmt> build_match_statement(
+	    RexyParser::MatchStatementContext *context)
+	{
+		std::vector<ast::MatchArm> arms;
+		for (auto *arm : context->matchArm())
+			arms.push_back(build_match_arm(arm));
+		return std::make_unique<ast::MatchStmt>(
+		    location(context), build_expression(context->expression()), std::move(arms));
+	}
+
+	ast::MatchArm build_match_arm(RexyParser::MatchArmContext *context)
+	{
+		std::vector<ast::MatchPattern> patterns;
+		for (auto *pattern : context->matchPattern())
+			patterns.push_back(build_match_pattern(pattern));
+		return ast::MatchArm{
+		    std::move(patterns),
+		    build_block(context->block()),
+		};
+	}
+
+	ast::MatchPattern build_match_pattern(RexyParser::MatchPatternContext *context)
+	{
+		ast::MatchPattern pattern;
+		pattern.location = location(context);
+		if (auto *integer = context->INTEGER()) {
+			pattern.kind = ast::MatchPattern::Kind::Integer;
+			pattern.literal = integer->getText();
+			pattern.is_negative =
+			    !context->children.empty() && context->children.front()->getText() == "-";
+			return pattern;
+		}
+		if (auto *boolean = context->BOOL()) {
+			pattern.kind = ast::MatchPattern::Kind::Bool;
+			pattern.bool_value = boolean->getText() == "true";
+			pattern.literal = boolean->getText();
+			return pattern;
+		}
+		if (auto *character = context->CHAR()) {
+			auto decoded = decode_quoted_literal(character->getText());
+			pattern.kind = ast::MatchPattern::Kind::Char;
+			pattern.char_value = decoded.empty()
+			                         ? U'\0'
+			                         : static_cast<unsigned char>(decoded.front());
+			pattern.literal = character->getText();
+			return pattern;
+		}
+		return pattern;
 	}
 
 	std::unique_ptr<ast::Stmt> build_while_statement(

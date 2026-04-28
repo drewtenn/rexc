@@ -197,6 +197,27 @@ TEST_CASE(codegen_arm64_macos_emits_prefix_and_postfix_increment_decrement)
 	REQUIRE(assembly.find("sub x0, x0, #1") != std::string::npos);
 }
 
+TEST_CASE(codegen_arm64_macos_emits_match_statement)
+{
+	auto assembly = compile_to_arm64_assembly(
+	    "fn main() -> i32 { let mut value: i32 = 2; match value { 1 => { value = 10; } 2 => { value = 20; } _ => { value = 30; } } return value; }\n");
+
+	REQUIRE(assembly.find("L_match_arm_") != std::string::npos);
+	REQUIRE(assembly.find("L_match_end_") != std::string::npos);
+	REQUIRE(assembly.find("cmp x0, #1") != std::string::npos);
+	REQUIRE(assembly.find("cmp x0, #2") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_match_arm_with_multiple_patterns)
+{
+	auto assembly = compile_to_arm64_assembly(
+	    "fn main() -> i32 { let mut value: i32 = 2; match value { 1 | 2 => { value = 10; } _ => { value = 30; } } return value; }\n");
+
+	REQUIRE(assembly.find("L_match_arm_") != std::string::npos);
+	REQUIRE(assembly.find("cmp x0, #1") != std::string::npos);
+	REQUIRE(assembly.find("cmp x0, #2") != std::string::npos);
+}
+
 TEST_CASE(codegen_arm64_macos_emits_call_statement)
 {
 	auto assembly = compile_to_arm64_assembly(

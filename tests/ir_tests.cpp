@@ -559,6 +559,48 @@ TEST_CASE(lowering_lowers_increment_decrement_as_unary_expr_statements)
 	REQUIRE_EQ(unary.op, std::string("pre++"));
 }
 
+TEST_CASE(lowering_lowers_match_statement)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut value: i32 = 0; match value { 1 => { value = 10; } _ => { value = 20; } } return value; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	REQUIRE_EQ(module.functions[0].body[1]->kind, rexc::ir::Statement::Kind::Match);
+	const auto &match = static_cast<const rexc::ir::MatchStatement &>(*module.functions[0].body[1]);
+	REQUIRE_EQ(rexc::format_type(match.value->type), std::string("i32"));
+	REQUIRE_EQ(match.arms.size(), std::size_t(2));
+	REQUIRE_EQ(match.arms[0].patterns.size(), std::size_t(1));
+	REQUIRE_EQ(match.arms[0].patterns[0].kind, rexc::ir::MatchPattern::Kind::Integer);
+	REQUIRE_EQ(match.arms[1].patterns.size(), std::size_t(1));
+	REQUIRE_EQ(match.arms[1].patterns[0].kind, rexc::ir::MatchPattern::Kind::Default);
+}
+
+TEST_CASE(lowering_preserves_multiple_match_patterns_per_arm)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut value: i32 = 0; match value { 1 | 2 => { value = 10; } _ => { value = 20; } } return value; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	const auto &match = static_cast<const rexc::ir::MatchStatement &>(*module.functions[0].body[1]);
+	REQUIRE_EQ(match.arms[0].patterns.size(), std::size_t(2));
+	REQUIRE_EQ(match.arms[0].patterns[0].literal, std::string("1"));
+	REQUIRE_EQ(match.arms[0].patterns[1].literal, std::string("2"));
+}
+
 TEST_CASE(lowering_lowers_break_and_continue_statements)
 {
 	rexc::SourceFile source(

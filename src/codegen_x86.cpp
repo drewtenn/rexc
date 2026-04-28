@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <sstream>
 #include <string>
@@ -27,6 +28,7 @@ using SlotMap = std::unordered_map<std::string, int>;
 struct Frame {
 	SlotMap parameter_slots;
 	std::unordered_map<const ir::LetStatement *, int> let_slots;
+	std::unordered_map<const ir::MatchStatement *, int> match_slots;
 	int local_bytes = 0;
 };
 
@@ -57,6 +59,13 @@ int count_local_statement(const ir::Statement &statement)
 	if (statement.kind == ir::Statement::Kind::If) {
 		const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 		return count_locals(if_statement.then_body) + count_locals(if_statement.else_body);
+	}
+	if (statement.kind == ir::Statement::Kind::Match) {
+		const auto &match_statement = static_cast<const ir::MatchStatement &>(statement);
+		int count = 1;
+		for (const auto &arm : match_statement.arms)
+			count += count_locals(arm.body);
+		return count;
 	}
 	return 0;
 }
@@ -263,6 +272,14 @@ private:
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			assign_i386_local_slots(if_statement.then_body, frame, local_index);
 			assign_i386_local_slots(if_statement.else_body, frame, local_index);
+			return;
+		}
+		if (statement.kind == ir::Statement::Kind::Match) {
+			const auto &match_statement = static_cast<const ir::MatchStatement &>(statement);
+			++local_index;
+			frame.match_slots[&match_statement] = -4 * local_index;
+			for (const auto &arm : match_statement.arms)
+				assign_i386_local_slots(arm.body, frame, local_index);
 		}
 	}
 
@@ -298,6 +315,14 @@ private:
 			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
 			assign_x86_64_local_slots(if_statement.then_body, frame, slot_index);
 			assign_x86_64_local_slots(if_statement.else_body, frame, slot_index);
+			return;
+		}
+		if (statement.kind == ir::Statement::Kind::Match) {
+			const auto &match_statement = static_cast<const ir::MatchStatement &>(statement);
+			++slot_index;
+			frame.match_slots[&match_statement] = -8 * slot_index;
+			for (const auto &arm : match_statement.arms)
+				assign_x86_64_local_slots(arm.body, frame, slot_index);
 		}
 	}
 
@@ -364,6 +389,16 @@ private:
 				ok = validate_statement(*branch_statement) && ok;
 			for (const auto &branch_statement : if_statement.else_body)
 				ok = validate_statement(*branch_statement) && ok;
+			return ok;
+		}
+
+		if (statement.kind == ir::Statement::Kind::Match) {
+			const auto &match_statement = static_cast<const ir::MatchStatement &>(statement);
+			bool ok = validate_value(*match_statement.value);
+			for (const auto &arm : match_statement.arms) {
+				for (const auto &arm_statement : arm.body)
+					ok = validate_statement(*arm_statement) && ok;
+			}
 			return ok;
 		}
 
@@ -486,6 +521,12 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Match) {
+			emit_match_statement(static_cast<const ir::MatchStatement &>(statement), frame,
+			                     done_label, slots);
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::While) {
 			emit_while_statement(static_cast<const ir::WhileStatement &>(statement), frame,
 			                     done_label, slots);
@@ -533,6 +574,46 @@ private:
 		for (const auto &statement : if_statement.else_body)
 			emit_statement(*statement, frame, done_label, else_slots);
 
+		out_ << end_label << ":\n";
+	}
+
+	void emit_match_statement(const ir::MatchStatement &match_statement, const Frame &frame,
+	                          const std::string &done_label, const SlotMap &slots)
+	{
+		std::string end_label = make_label(".L_match_end_");
+		std::vector<std::string> arm_labels;
+		arm_labels.reserve(match_statement.arms.size());
+		for (std::size_t i = 0; i < match_statement.arms.size(); ++i)
+			arm_labels.push_back(make_label(".L_match_arm_"));
+
+		int match_slot = frame.match_slots.at(&match_statement);
+		emit_value(*match_statement.value, frame, slots);
+		out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
+		     << match_slot << "(" << frame_pointer_register() << ")\n";
+
+		std::optional<std::size_t> default_arm;
+		for (std::size_t i = 0; i < match_statement.arms.size(); ++i) {
+			const auto &arm = match_statement.arms[i];
+			for (const auto &pattern : arm.patterns) {
+				if (pattern.kind == ir::MatchPattern::Kind::Default) {
+					default_arm = i;
+					continue;
+				}
+				out_ << "\t" << compare_instruction() << " $"
+				     << match_pattern_literal(pattern) << ", " << match_slot
+				     << "(" << frame_pointer_register() << ")\n";
+				out_ << "\tje " << arm_labels[i] << "\n";
+			}
+		}
+
+		out_ << "\tjmp " << (default_arm ? arm_labels[*default_arm] : end_label) << "\n";
+		for (std::size_t i = 0; i < match_statement.arms.size(); ++i) {
+			out_ << arm_labels[i] << ":\n";
+			SlotMap arm_slots = slots;
+			for (const auto &statement : match_statement.arms[i].body)
+				emit_statement(*statement, frame, done_label, arm_slots);
+			out_ << "\tjmp " << end_label << "\n";
+		}
 		out_ << end_label << ":\n";
 	}
 
@@ -991,6 +1072,16 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::Match) {
+			const auto &match_statement = static_cast<const ir::MatchStatement &>(statement);
+			collect_string_labels(*match_statement.value);
+			for (const auto &arm : match_statement.arms) {
+				for (const auto &arm_statement : arm.body)
+					collect_string_labels(*arm_statement);
+			}
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::While) {
 			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
 			collect_string_labels(*while_statement.condition);
@@ -1159,6 +1250,22 @@ private:
 		return "0";
 	}
 
+	std::string match_pattern_literal(const ir::MatchPattern &pattern) const
+	{
+		switch (pattern.kind) {
+		case ir::MatchPattern::Kind::Integer:
+			return pattern.is_negative ? "-" + canonical_decimal_literal(pattern.literal)
+			                           : canonical_decimal_literal(pattern.literal);
+		case ir::MatchPattern::Kind::Bool:
+			return pattern.bool_value ? "1" : "0";
+		case ir::MatchPattern::Kind::Char:
+			return std::to_string(static_cast<unsigned int>(pattern.char_value));
+		case ir::MatchPattern::Kind::Default:
+			return "0";
+		}
+		return "0";
+	}
+
 	void emit_static_scalar_section(const ir::Module &module)
 	{
 		if (module.static_scalars.empty())
@@ -1238,6 +1345,16 @@ private:
 				emit_string_literals(*branch_statement);
 			for (const auto &branch_statement : if_statement.else_body)
 				emit_string_literals(*branch_statement);
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::Match) {
+			const auto &match_statement = static_cast<const ir::MatchStatement &>(statement);
+			emit_string_literals(*match_statement.value);
+			for (const auto &arm : match_statement.arms) {
+				for (const auto &arm_statement : arm.body)
+					emit_string_literals(*arm_statement);
+			}
 			return;
 		}
 
