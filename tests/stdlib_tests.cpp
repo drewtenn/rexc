@@ -123,6 +123,7 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	auto abort = rexc::stdlib::find_stdlib_function("abort");
 	auto std_io_println = rexc::stdlib::find_stdlib_function("std_io_println");
 	auto std_io_println_path = rexc::stdlib::find_stdlib_function("std::io::println");
+	auto std_io_write_path = rexc::stdlib::find_stdlib_function("std::io::write");
 	auto std_process_exit = rexc::stdlib::find_stdlib_function("std_process_exit");
 	auto std_process_exit_path =
 		rexc::stdlib::find_stdlib_function("std::process::exit");
@@ -140,6 +141,14 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	auto std_env_get_path =
 		rexc::stdlib::find_stdlib_function("std::env::get");
 	auto file_open_read = rexc::stdlib::find_stdlib_function("file_open_read");
+	auto file_read = rexc::stdlib::find_stdlib_function("file_read");
+	auto file_close = rexc::stdlib::find_stdlib_function("file_close");
+	auto std_fs_open_read_path =
+		rexc::stdlib::find_stdlib_function("std::fs::open_read");
+	auto std_fs_read_path =
+		rexc::stdlib::find_stdlib_function("std::fs::read");
+	auto std_fs_close_path =
+		rexc::stdlib::find_stdlib_function("std::fs::close");
 	auto file_write_str = rexc::stdlib::find_stdlib_function("file_write_str");
 	auto path_join = rexc::stdlib::find_stdlib_function("path_join");
 
@@ -191,6 +200,7 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(abort != nullptr);
 	REQUIRE(std_io_println != nullptr);
 	REQUIRE(std_io_println_path != nullptr);
+	REQUIRE(std_io_write_path != nullptr);
 	REQUIRE(std_process_exit != nullptr);
 	REQUIRE(std_process_exit_path != nullptr);
 	REQUIRE(args_len != nullptr);
@@ -202,6 +212,11 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(std_env_at_path != nullptr);
 	REQUIRE(std_env_get_path != nullptr);
 	REQUIRE(file_open_read != nullptr);
+	REQUIRE(file_read != nullptr);
+	REQUIRE(file_close != nullptr);
+	REQUIRE(std_fs_open_read_path != nullptr);
+	REQUIRE(std_fs_read_path != nullptr);
+	REQUIRE(std_fs_close_path != nullptr);
 	REQUIRE(file_write_str != nullptr);
 	REQUIRE(path_join != nullptr);
 	REQUIRE_EQ(print->layer, rexc::stdlib::Layer::Std);
@@ -362,6 +377,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(abort->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(std_io_println->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_io_println_path->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_io_write_path->parameters.size(), std::size_t(3));
+	REQUIRE_EQ(std_io_write_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(std_process_exit->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_process_exit_path->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(args_len->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
@@ -378,6 +395,17 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(std_env_get_path->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_env_get_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(file_open_read->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(file_open_read->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(file_read->parameters.size(), std::size_t(3));
+	REQUIRE_EQ(file_read->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(file_close->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(file_close->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_fs_open_read_path->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_fs_open_read_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_fs_read_path->parameters.size(), std::size_t(3));
+	REQUIRE_EQ(std_fs_read_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_fs_close_path->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_fs_close_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(file_write_str->parameters.size(), std::size_t(2));
 	REQUIRE_EQ(path_join->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 }
@@ -578,6 +606,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "bl _sys_read"));
 	REQUIRE(contains(arm64, "bl _sys_exit"));
 	REQUIRE(!contains(arm64, "_sys_read_line:"));
+	REQUIRE(!contains(arm64, ".globl _write\n_write:"));
 	REQUIRE(contains(arm64, "bl _write"));
 	REQUIRE(contains(arm64, "bl _read"));
 	REQUIRE(!contains(arm64, "\tbl _exit\n"));

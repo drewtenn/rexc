@@ -355,6 +355,8 @@ private:
 		std::vector<std::unique_ptr<ast::Stmt>> else_body;
 		if (blocks.size() > 1)
 			else_body = build_block(blocks[1]);
+		else if (auto *else_if = context->ifStatement())
+			else_body.push_back(build_if_statement(else_if));
 
 		return std::make_unique<ast::IfStmt>(
 		    location(context), build_expression(context->expression()), build_block(blocks[0]),

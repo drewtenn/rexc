@@ -29,3 +29,11 @@ fn std_fs_open_read(path: str) -> i32 {
 fn std_fs_create_write(path: str) -> i32 {
 	return file_create_write(path);
 }
+
+fn std_fs_read(fd: i32, buffer: *u8, len: i32) -> i32 {
+	return file_read(fd, buffer, len);
+}
+
+fn std_fs_close(fd: i32) -> i32 {
+	return file_close(fd);
+}

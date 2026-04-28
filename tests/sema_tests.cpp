@@ -1157,6 +1157,16 @@ TEST_CASE(sema_accepts_if_else_with_bool_condition)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_else_if_with_bool_condition)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { if 1 < 2 { return 1; } else if 2 < 3 { return 2; } else { return 0; } }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_rejects_non_bool_if_condition)
 {
 	rexc::Diagnostics diagnostics;

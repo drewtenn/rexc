@@ -102,7 +102,7 @@ returnStatement
 	;
 
 ifStatement
-	: 'if' expression block ('else' block)?
+	: 'if' expression block ('else' (block | ifStatement))?
 	;
 
 whileStatement

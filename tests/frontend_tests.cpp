@@ -435,6 +435,23 @@ TEST_CASE(parser_accepts_if_else_statements)
 	REQUIRE_EQ(if_stmt.else_body.size(), std::size_t(1));
 }
 
+TEST_CASE(parser_accepts_else_if_statements)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { if 1 < 2 { return 1; } else if 2 < 3 { return 2; } else { return 0; } }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &stmt = *result.module().functions[0].body[0];
+	REQUIRE_EQ(stmt.kind, rexc::ast::Stmt::Kind::If);
+	const auto &if_stmt = static_cast<const rexc::ast::IfStmt &>(stmt);
+	REQUIRE_EQ(if_stmt.else_body.size(), std::size_t(1));
+	REQUIRE_EQ(if_stmt.else_body[0]->kind, rexc::ast::Stmt::Kind::If);
+}
+
 TEST_CASE(parser_accepts_mutable_locals_assignment_and_while)
 {
 	rexc::SourceFile source(
