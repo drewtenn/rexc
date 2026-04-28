@@ -625,4 +625,151 @@ bool unsigned_integer_literal_fits(PrimitiveType type, std::uint64_t value)
 	}
 }
 
+bool unify_generic_pattern(PrimitiveType pattern, PrimitiveType actual,
+                           const std::unordered_set<std::string> &generic_names,
+                           std::unordered_map<std::string, PrimitiveType> &bindings)
+{
+	// FE-103: type variables are modelled as UserStruct sentinels named
+	// after the generic parameter (matching FE-102's check_type behaviour).
+	if (pattern.kind == PrimitiveKind::UserStruct &&
+	    generic_names.count(pattern.name) > 0) {
+		auto existing = bindings.find(pattern.name);
+		if (existing != bindings.end())
+			return existing->second == actual;
+		bindings[pattern.name] = actual;
+		return true;
+	}
+
+	if (pattern.kind != actual.kind)
+		return false;
+
+	switch (pattern.kind) {
+	case PrimitiveKind::Pointer:
+	case PrimitiveKind::Slice:
+	case PrimitiveKind::Vector:
+	case PrimitiveKind::Option:
+		if (!pattern.pointee || !actual.pointee)
+			return pattern.pointee == actual.pointee;
+		return unify_generic_pattern(*pattern.pointee, *actual.pointee,
+		                             generic_names, bindings);
+	case PrimitiveKind::Result: {
+		if (pattern.elements && actual.elements) {
+			if (pattern.elements->size() != actual.elements->size())
+				return false;
+			for (std::size_t i = 0; i < pattern.elements->size(); ++i) {
+				if (!unify_generic_pattern((*pattern.elements)[i],
+				                           (*actual.elements)[i],
+				                           generic_names, bindings))
+					return false;
+			}
+			return true;
+		}
+		if (pattern.pointee && actual.pointee)
+			return unify_generic_pattern(*pattern.pointee, *actual.pointee,
+			                             generic_names, bindings);
+		return pattern.pointee == actual.pointee &&
+		       pattern.elements == actual.elements;
+	}
+	case PrimitiveKind::Tuple: {
+		if (!pattern.elements || !actual.elements)
+			return pattern.elements == actual.elements;
+		if (pattern.elements->size() != actual.elements->size())
+			return false;
+		for (std::size_t i = 0; i < pattern.elements->size(); ++i) {
+			if (!unify_generic_pattern((*pattern.elements)[i],
+			                           (*actual.elements)[i],
+			                           generic_names, bindings))
+				return false;
+		}
+		return true;
+	}
+	case PrimitiveKind::UserStruct:
+	case PrimitiveKind::UserEnum:
+		return pattern.name == actual.name;
+	default:
+		return pattern == actual;
+	}
+}
+
+PrimitiveType substitute_generics(
+    PrimitiveType type,
+    const std::unordered_map<std::string, PrimitiveType> &bindings)
+{
+	if (type.kind == PrimitiveKind::UserStruct) {
+		auto it = bindings.find(type.name);
+		if (it != bindings.end())
+			return it->second;
+		return type;
+	}
+
+	auto rebuild_pointee = [&](PrimitiveType t) {
+		if (t.pointee)
+			t.pointee = std::make_shared<const PrimitiveType>(
+			    substitute_generics(*t.pointee, bindings));
+		return t;
+	};
+
+	switch (type.kind) {
+	case PrimitiveKind::Pointer:
+	case PrimitiveKind::Slice:
+	case PrimitiveKind::Vector:
+	case PrimitiveKind::Option:
+		return rebuild_pointee(type);
+	case PrimitiveKind::Result: {
+		PrimitiveType result = type;
+		if (result.elements) {
+			std::vector<PrimitiveType> elements;
+			elements.reserve(result.elements->size());
+			for (const auto &e : *result.elements)
+				elements.push_back(substitute_generics(e, bindings));
+			result.elements =
+			    std::make_shared<const std::vector<PrimitiveType>>(std::move(elements));
+		} else if (result.pointee) {
+			result.pointee = std::make_shared<const PrimitiveType>(
+			    substitute_generics(*result.pointee, bindings));
+		}
+		return result;
+	}
+	case PrimitiveKind::Tuple: {
+		PrimitiveType result = type;
+		if (result.elements) {
+			std::vector<PrimitiveType> elements;
+			elements.reserve(result.elements->size());
+			for (const auto &e : *result.elements)
+				elements.push_back(substitute_generics(e, bindings));
+			result.elements =
+			    std::make_shared<const std::vector<PrimitiveType>>(std::move(elements));
+		}
+		return result;
+	}
+	default:
+		return type;
+	}
+}
+
+std::string mangle_generic_suffix(
+    const std::vector<std::string> &parameter_order,
+    const std::unordered_map<std::string, PrimitiveType> &bindings)
+{
+	std::string suffix;
+	for (const auto &name : parameter_order) {
+		suffix += "__";
+		auto it = bindings.find(name);
+		std::string formatted = it != bindings.end() ? format_type(it->second) : name;
+		// Replace characters illegal in symbol names with underscores so
+		// `*T` -> `pT`, `(i32, bool)` -> `tup_i32_bool`-ish forms link.
+		for (char ch : formatted) {
+			if (ch == '*')
+				suffix += 'p';
+			else if (ch == '(' || ch == ')')
+				; // skip
+			else if (ch == ',' || ch == ' ' || ch == '<' || ch == '>')
+				suffix += '_';
+			else
+				suffix += ch;
+		}
+	}
+	return suffix;
+}
+
 } // namespace rexc

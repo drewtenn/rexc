@@ -6,6 +6,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace rexc {
@@ -147,5 +149,25 @@ TupleLayout layout_tuple_elements(const std::vector<PrimitiveType> &elements);
 bool is_i386_codegen_supported(PrimitiveType type);
 bool integer_literal_fits(PrimitiveType type, std::int64_t value);
 bool unsigned_integer_literal_fits(PrimitiveType type, std::uint64_t value);
+
+// FE-103: unify a generic-parameterized PATTERN against a concrete ACTUAL
+// type, recording bindings as it walks. `generic_names` is the set of
+// names treated as type variables (e.g. {"T", "U"}). Returns true on
+// successful unification.
+bool unify_generic_pattern(PrimitiveType pattern, PrimitiveType actual,
+                           const std::unordered_set<std::string> &generic_names,
+                           std::unordered_map<std::string, PrimitiveType> &bindings);
+
+// FE-103: substitute generic parameter occurrences in `type` using
+// `bindings`. Names not in `bindings` are left unchanged.
+PrimitiveType substitute_generics(
+    PrimitiveType type,
+    const std::unordered_map<std::string, PrimitiveType> &bindings);
+
+// FE-103: mangle an instantiation suffix from a binding map, e.g.
+// {T -> i32, U -> bool} -> "__i32_bool". Order follows `parameter_order`.
+std::string mangle_generic_suffix(
+    const std::vector<std::string> &parameter_order,
+    const std::unordered_map<std::string, PrimitiveType> &bindings);
 
 } // namespace rexc

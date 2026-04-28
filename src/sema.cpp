@@ -1401,6 +1401,50 @@ private:
 					                   std::to_string(expected_count) + " arguments but got " +
 					                   std::to_string(call.arguments.size()));
 				}
+
+				// FE-103: generic functions need type-arg inference; we skip
+				// strict types_compatible matching here and instead unify
+				// the parameter pattern against each actual arg's type.
+				if (!function->generic_parameters.empty()) {
+					std::unordered_set<std::string> generic_names(
+					    function->generic_parameters.begin(),
+					    function->generic_parameters.end());
+					std::unordered_map<std::string, PrimitiveType> bindings;
+					bool inference_ok = true;
+					for (std::size_t i = 0; i < call.arguments.size(); ++i) {
+						auto argument_type =
+						    check_expr(locals, *call.arguments[i]);
+						if (!argument_type || i >= expected_count) {
+							inference_ok = false;
+							continue;
+						}
+						if (!unify_generic_pattern(
+						        function->parameter_types[i], *argument_type,
+						        generic_names, bindings)) {
+							diagnostics_.error(
+							    call.arguments[i]->location,
+							    "cannot infer generic type for parameter " +
+							        std::to_string(i) + ": pattern '" +
+							        format_type(function->parameter_types[i]) +
+							        "' does not match argument type '" +
+							        format_type(*argument_type) + "'");
+							inference_ok = false;
+						}
+					}
+					for (const auto &name : function->generic_parameters) {
+						if (bindings.find(name) == bindings.end()) {
+							diagnostics_.error(
+							    call.location,
+							    "cannot infer generic type parameter '" + name +
+							        "' for call to '" + call.callee + "'");
+							inference_ok = false;
+						}
+					}
+					if (!inference_ok)
+						return std::nullopt;
+					return substitute_generics(function->return_type, bindings);
+				}
+
 				for (std::size_t i = 0; i < call.arguments.size(); ++i) {
 					std::optional<PrimitiveType> parameter_type;
 					if (i < expected_count)

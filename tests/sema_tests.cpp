@@ -1858,6 +1858,38 @@ TEST_CASE(sema_rejects_unknown_type_name_outside_generic_scope)
 	REQUIRE(diagnostics.format().find("unknown type 'T'") != std::string::npos);
 }
 
+// FE-103 (Phase 2): generic call-site inference + diagnostics.
+
+TEST_CASE(sema_accepts_generic_call_with_inferred_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn id<T>(x: T) -> T { return x; }\n"
+	    "fn main() -> i32 {\n"
+	    "  let v: i32 = id(42);\n"
+	    "  return v;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_diagnoses_inconsistent_generic_binding_at_call_site)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn pair_eq<T>(a: T, b: T) -> bool { return true; }\n"
+	    "fn main() -> i32 {\n"
+	    "  if pair_eq(7, true) { return 0; }\n"
+	    "  return 1;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	// Diagnostic must point at the call site, not the template body.
+	REQUIRE(formatted.find("cannot infer generic type") != std::string::npos);
+}
+
 // FE-005 (Phase 1): enum registration, constructor checking, and tags.
 //
 // These tests keep enum semantics at the type-checking boundary. Lowering and

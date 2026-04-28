@@ -639,3 +639,84 @@ TEST_CASE(lowering_lowers_call_statement)
 	REQUIRE_EQ(call.callee, std::string("println"));
 	REQUIRE_EQ(call.arguments.size(), std::size_t(1));
 }
+
+// FE-103 (Phase 2): generic functions monomorphize at call sites with
+// per-instantiation mangled symbols.
+
+TEST_CASE(lowering_monomorphizes_generic_identity_per_instantiation)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn id<T>(x: T) -> T { return x; }\n"
+	    "fn main() -> i32 {\n"
+	    "  let a: i32 = id(7);\n"
+	    "  let b: bool = id(true);\n"
+	    "  if b { return a; }\n"
+	    "  return 0;\n"
+	    "}\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	// main + two monomorphs (id__i32 and id__bool); the generic template
+	// itself is NOT emitted because it has unresolved type variables.
+	REQUIRE_EQ(module.functions.size(), std::size_t(3));
+	bool found_i32 = false;
+	bool found_bool = false;
+	for (const auto &f : module.functions) {
+		if (f.name == "id__i32") found_i32 = true;
+		if (f.name == "id__bool") found_bool = true;
+	}
+	REQUIRE(found_i32);
+	REQUIRE(found_bool);
+}
+
+TEST_CASE(lowering_routes_generic_call_to_mangled_symbol)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn id<T>(x: T) -> T { return x; }\n"
+	    "fn main() -> i32 { return id(42); }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	// Find main and inspect its return statement.
+	const rexc::ir::Function *main_fn = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "main") main_fn = &f;
+	REQUIRE(main_fn != nullptr);
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*main_fn->body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ir::Value::Kind::Call);
+	const auto &call = static_cast<const rexc::ir::CallValue &>(*ret.value);
+	REQUIRE_EQ(call.callee, std::string("id__i32"));
+}
+
+TEST_CASE(lowering_monomorphizes_pointer_pattern_correctly)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "unsafe fn read<T>(p: *T) -> T { return *p; }\n"
+	    "fn main() -> i32 {\n"
+	    "  let mut x: i32 = 7;\n"
+	    "  let p: *i32 = &x;\n"
+	    "  unsafe { return read(p); }\n"
+	    "}\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	bool found = false;
+	for (const auto &f : module.functions)
+		if (f.name == "read__i32") found = true;
+	REQUIRE(found);
+}

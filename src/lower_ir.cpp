@@ -76,6 +76,12 @@ struct FunctionInfo {
 	ir::Type return_type = i32_type();
 	std::vector<ir::Type> parameter_types;
 	std::string symbol_name;
+	// FE-103: when set, this function is a generic template — its
+	// FunctionInfo holds the *pattern* return/parameter types (with type
+	// variables present), and lowering goes via monomorphization rather
+	// than a direct call lookup.
+	std::vector<std::string> generic_parameters;
+	const ast::Function *ast_function = nullptr;
 };
 
 struct GlobalInfo {
@@ -112,14 +118,37 @@ public:
 			lowered.static_buffers.push_back(lower_static_buffer(buffer));
 		for (const auto &scalar : module_.static_scalars)
 			lowered.static_scalars.push_back(lower_static_scalar(scalar));
-		for (const auto &function : module_.functions)
+		for (const auto &function : module_.functions) {
+			// FE-103: generic templates are emitted on demand by call sites
+			// rather than as standalone functions. Each unique instantiation
+			// gets its own mangled symbol via lower_monomorph().
+			if (!function.generic_parameters.empty())
+				continue;
 			lowered.functions.push_back(lower_function(function));
+		}
+		// FE-103: drain the monomorph queue. Lowering an instantiation may
+		// discover more generic calls, so loop until fixpoint.
+		while (!monomorph_queue_.empty()) {
+			auto pending = std::move(monomorph_queue_.back());
+			monomorph_queue_.pop_back();
+			lowered.functions.push_back(lower_monomorph(pending));
+		}
 		return lowered;
 	}
 
 private:
 	using Locals = std::unordered_map<std::string, ir::Type>;
 	using ImportScope = std::unordered_map<std::string, ImportInfo>;
+
+	// FE-103: a deferred generic-function instantiation queued by a call
+	// site. The Lowerer drains a queue of these after the main lowering
+	// pass, emitting one mangled ir::Function per (template, bindings) pair.
+	struct PendingMonomorph {
+		const ast::Function *ast_function = nullptr;
+		std::string mangled_name;
+		std::vector<std::string> module_path;
+		std::unordered_map<std::string, ir::Type> bindings;
+	};
 
 	struct StructFieldLayout {
 		std::string name;
@@ -288,6 +317,11 @@ private:
 
 	ir::Type lower_type_name(const std::string &name)
 	{
+		// FE-103: while monomorphizing a generic body, type-variable names
+		// resolve to the bound concrete type set up by lower_monomorph().
+		if (auto it = current_type_substitutions_.find(name);
+		    it != current_type_substitutions_.end())
+			return it->second;
 		auto primitive_type = parse_primitive_type(name);
 		if (primitive_type)
 			return *primitive_type;
@@ -388,13 +422,25 @@ private:
 
 		for (const auto &function : module_.functions) {
 			FunctionInfo info;
+			// FE-103: register the function's generic parameters as
+			// "type-variable substitutions to themselves" so lower_type
+			// resolves their occurrences in the *pattern* type without
+			// erroring. Bindings to concrete types happen in lower_monomorph.
+			if (!function.generic_parameters.empty()) {
+				current_type_substitutions_.clear();
+				for (const auto &name : function.generic_parameters)
+					current_type_substitutions_[name] = user_struct_type(name);
+			}
 			info.return_type = lower_type(function.return_type);
 			for (const auto &parameter : function.parameters)
 				info.parameter_types.push_back(lower_type(parameter.type));
 			info.symbol_name = symbol_item_path(function.module_path, function.name);
+			info.generic_parameters = function.generic_parameters;
+			info.ast_function = &function;
 			functions_[canonical_item_path(function.module_path, function.name)] =
 				std::move(info);
 			note_module_path(function.module_path);
+			current_type_substitutions_.clear();
 		}
 	}
 
@@ -561,6 +607,40 @@ private:
 					return lower_enum_literal(call_expr, *variant, locals);
 				throw std::runtime_error("unknown function in IR lowering: " +
 				                         call_expr.callee);
+			}
+
+			// FE-103: a call to a generic template lowers via monomorphization.
+			// We lower each arg first so the unifier sees concrete types,
+			// then mangle a fresh symbol per (template, bindings) pair and
+			// queue the instantiation if not yet emitted.
+			if (!function->generic_parameters.empty()) {
+				std::vector<std::unique_ptr<ir::Value>> lowered_args;
+				lowered_args.reserve(call_expr.arguments.size());
+				for (const auto &arg : call_expr.arguments)
+					lowered_args.push_back(lower_expr(*arg, locals));
+				std::unordered_map<std::string, ir::Type> bindings;
+				if (!infer_call_bindings(*function, lowered_args, bindings))
+					throw std::runtime_error(
+					    "failed to infer generic types for call to '" +
+					    call_expr.callee + "' in IR lowering");
+				std::string mangled =
+				    function->symbol_name +
+				    mangle_generic_suffix(function->generic_parameters, bindings);
+				if (monomorph_done_.insert(mangled).second && function->ast_function) {
+					PendingMonomorph pending;
+					pending.ast_function = function->ast_function;
+					pending.mangled_name = mangled;
+					pending.module_path = function->ast_function->module_path;
+					pending.bindings = bindings;
+					monomorph_queue_.push_back(std::move(pending));
+				}
+				ir::Type instantiated_return =
+				    substitute_generics(function->return_type, bindings);
+				auto call = std::make_unique<ir::CallValue>(
+				    mangled, instantiated_return);
+				for (auto &arg : lowered_args)
+					call->arguments.push_back(std::move(arg));
+				return call;
 			}
 
 			auto call = std::make_unique<ir::CallValue>(function->symbol_name,
@@ -1145,6 +1225,57 @@ private:
 		return lowered;
 	}
 
+	// FE-103: instantiate one generic-function monomorph with bound types.
+	// `pending` carries the AST template plus a substitution map keyed by
+	// type-parameter name; current_type_substitutions_ is set for the
+	// duration so lower_type resolves type variables.
+	ir::Function lower_monomorph(const PendingMonomorph &pending)
+	{
+		auto saved_substitutions = current_type_substitutions_;
+		current_type_substitutions_ = pending.bindings;
+		current_module_path_ = &pending.module_path;
+		ir::Function lowered;
+		lowered.is_extern = pending.ast_function->is_extern;
+		lowered.name = pending.mangled_name;
+		lowered.return_type = lower_type(pending.ast_function->return_type);
+
+		Locals locals;
+		for (const auto &parameter : pending.ast_function->parameters) {
+			ir::Type parameter_type = lower_type(parameter.type);
+			lowered.parameters.push_back({parameter.name, parameter_type});
+			locals[parameter.name] = parameter_type;
+		}
+
+		lowered.body =
+		    lower_statements(pending.ast_function->body, lowered.return_type, locals);
+
+		current_module_path_ = nullptr;
+		current_type_substitutions_ = std::move(saved_substitutions);
+		return lowered;
+	}
+
+	// FE-103: re-run unification at the call site to derive the type
+	// bindings (sema already validated this; we trust). Returns true on
+	// success and fills `bindings`.
+	bool infer_call_bindings(const FunctionInfo &info,
+	                         const std::vector<std::unique_ptr<ir::Value>> &args,
+	                         std::unordered_map<std::string, ir::Type> &bindings)
+	{
+		if (info.parameter_types.size() != args.size())
+			return false;
+		std::unordered_set<std::string> generic_names(
+		    info.generic_parameters.begin(), info.generic_parameters.end());
+		for (std::size_t i = 0; i < args.size(); ++i) {
+			if (!unify_generic_pattern(info.parameter_types[i], args[i]->type,
+			                           generic_names, bindings))
+				return false;
+		}
+		for (const auto &name : info.generic_parameters)
+			if (bindings.find(name) == bindings.end())
+				return false;
+		return true;
+	}
+
 	ir::StaticBuffer lower_static_buffer(const ast::StaticBuffer &buffer)
 	{
 		ir::StaticBuffer lowered;
@@ -1203,6 +1334,11 @@ private:
 	const std::vector<std::string> *current_module_path_ = nullptr;
 	std::vector<std::unique_ptr<ir::Statement>> *pending_pre_statements_ = nullptr;
 	std::size_t try_temp_counter_ = 0;
+	// FE-103: type-variable substitutions active while lowering a generic
+	// monomorph (e.g. {"T" -> i32}). lower_type_name consults this first.
+	std::unordered_map<std::string, ir::Type> current_type_substitutions_;
+	std::vector<PendingMonomorph> monomorph_queue_;
+	std::unordered_set<std::string> monomorph_done_;
 };
 
 } // namespace
