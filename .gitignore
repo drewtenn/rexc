@@ -39,6 +39,8 @@ generated/
 
 # Editor and tool state
 .cache/
+.claude/
+docs/superpowers/
 .idea/
 .vscode/
 *.swp
