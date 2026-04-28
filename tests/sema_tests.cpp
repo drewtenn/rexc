@@ -1185,6 +1185,26 @@ TEST_CASE(sema_accepts_assignment_to_mutable_local_in_while_loop)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_for_loop_and_scopes_initializer_to_loop)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let mut total: i32 = 0; for let mut i: i32 = 0; i < 3; i = i + 1 { total = total + i; } return total; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_for_initializer_local_after_loop)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { for let mut i: i32 = 0; i < 3; i = i + 1 { } return i; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown name 'i'") != std::string::npos);
+}
+
 TEST_CASE(sema_rejects_assignment_to_immutable_local)
 {
 	rexc::Diagnostics diagnostics;

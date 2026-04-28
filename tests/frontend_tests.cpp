@@ -493,6 +493,19 @@ TEST_CASE(parser_accepts_mutable_locals_assignment_and_while)
 	REQUIRE_EQ(assign.value->kind, rexc::ast::Expr::Kind::Binary);
 }
 
+TEST_CASE(parser_accepts_for_loop)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut total: i32 = 0; for let mut i: i32 = 0; i < 3; i = i + 1 { total = total + i; } return total; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(parser_accepts_break_and_continue_statements)
 {
 	rexc::SourceFile source(

@@ -465,6 +465,19 @@ TEST_CASE(codegen_x86_64_emits_assignment_and_while_loop)
 	REQUIRE_EQ(count_occurrences(assembly, "subq $16, %rsp"), 1);
 }
 
+TEST_CASE(codegen_i386_emits_for_loop_continue_to_increment)
+{
+	auto assembly = compile_to_assembly(
+	    "fn main() -> i32 { let mut total: i32 = 0; for let mut i: i32 = 0; i < 3; i = i + 1 { if i == 1 { continue; } total = total + i; } return total; }\n");
+
+	REQUIRE(assembly.find(".L_for_condition_") != std::string::npos);
+	REQUIRE(assembly.find(".L_for_increment_") != std::string::npos);
+	REQUIRE(assembly.find(".L_for_end_") != std::string::npos);
+	REQUIRE(assembly.find("je .L_for_end_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_for_increment_") != std::string::npos);
+	REQUIRE(assembly.find("jmp .L_for_condition_") != std::string::npos);
+}
+
 TEST_CASE(codegen_i386_emits_break_and_continue_jumps)
 {
 	auto assembly = compile_to_assembly(
