@@ -519,6 +519,33 @@ private:
 		lowered.name = symbol_item_path(buffer.module_path, buffer.name);
 		lowered.element_type = lower_type(buffer.element_type);
 		lowered.length = static_cast<std::size_t>(std::stoull(buffer.length_literal));
+		for (const auto &initializer : buffer.initializers)
+			lowered.initializers.push_back(lower_static_initializer(initializer));
+		return lowered;
+	}
+
+	ir::StaticBuffer::Initializer lower_static_initializer(
+		const ast::StaticBuffer::Initializer &initializer)
+	{
+		ir::StaticBuffer::Initializer lowered;
+		switch (initializer.kind) {
+		case ast::StaticBuffer::Initializer::Kind::Integer:
+			lowered.kind = ir::StaticBuffer::Initializer::Kind::Integer;
+			break;
+		case ast::StaticBuffer::Initializer::Kind::Bool:
+			lowered.kind = ir::StaticBuffer::Initializer::Kind::Bool;
+			break;
+		case ast::StaticBuffer::Initializer::Kind::Char:
+			lowered.kind = ir::StaticBuffer::Initializer::Kind::Char;
+			break;
+		case ast::StaticBuffer::Initializer::Kind::String:
+			lowered.kind = ir::StaticBuffer::Initializer::Kind::String;
+			break;
+		}
+		lowered.literal = initializer.literal;
+		lowered.bool_value = initializer.bool_value;
+		lowered.char_value = initializer.char_value;
+		lowered.is_negative = initializer.is_negative;
 		return lowered;
 	}
 

@@ -243,12 +243,17 @@ private:
 			note_module_path(buffer.module_path);
 
 			PrimitiveType element_type = check_type(buffer.element_type);
-			if (!buffer.is_mutable)
+			if (!buffer.is_mutable && buffer.initializers.empty())
 				diagnostics_.error(buffer.location, "static buffer must be mutable");
 
 			auto length = parse_decimal_magnitude(buffer.length_literal);
 			if (!length || *length == 0)
 				diagnostics_.error(buffer.location, "static buffer length must be greater than zero");
+			if (length && buffer.initializers.size() > *length) {
+				diagnostics_.error(buffer.location,
+				                   "static array has more initializers than its length");
+			}
+			check_static_array_initializers(buffer, element_type);
 
 			PrimitiveType global_type =
 			    element_type == u8_type() ? PrimitiveType{PrimitiveKind::Str}
@@ -287,6 +292,46 @@ private:
 
 			globals_[key] = GlobalInfo{type, scalar.is_mutable, scalar.module_path,
 			                           scalar.visibility};
+		}
+	}
+
+	void check_static_array_initializers(const ast::StaticBuffer &buffer,
+	                                     PrimitiveType element_type)
+	{
+		for (const auto &initializer : buffer.initializers) {
+			switch (initializer.kind) {
+			case ast::StaticBuffer::Initializer::Kind::Integer:
+				if (!is_integer(element_type)) {
+					diagnostics_.error(initializer.location,
+					                   "static array initializer type mismatch: expected '" +
+					                       format_type(element_type) + "' but got 'i32'");
+					continue;
+				}
+				check_integer_literal(initializer.location, element_type,
+				                      initializer.literal, initializer.is_negative);
+				break;
+			case ast::StaticBuffer::Initializer::Kind::Bool:
+				if (element_type != bool_type()) {
+					diagnostics_.error(initializer.location,
+					                   "static array initializer type mismatch: expected '" +
+					                       format_type(element_type) + "' but got 'bool'");
+				}
+				break;
+			case ast::StaticBuffer::Initializer::Kind::Char:
+				if (element_type.kind != PrimitiveKind::Char) {
+					diagnostics_.error(initializer.location,
+					                   "static array initializer type mismatch: expected '" +
+					                       format_type(element_type) + "' but got 'char'");
+				}
+				break;
+			case ast::StaticBuffer::Initializer::Kind::String:
+				if (element_type.kind != PrimitiveKind::Str) {
+					diagnostics_.error(initializer.location,
+					                   "static array initializer type mismatch: expected '" +
+					                       format_type(element_type) + "' but got 'str'");
+				}
+				break;
+			}
 		}
 	}
 
@@ -885,6 +930,9 @@ private:
 	{
 		if (unary.op == "!")
 			return check_logical_not_expr(locals, unary);
+		if (unary.op == "pre++" || unary.op == "post++" ||
+		    unary.op == "pre--" || unary.op == "post--")
+			return check_increment_expr(locals, unary);
 		if (unary.op == "&")
 			return check_address_of_expr(locals, unary);
 		if (unary.op == "*")
@@ -914,6 +962,45 @@ private:
 			return operand_type;
 		}
 		return operand_type;
+	}
+
+	std::optional<PrimitiveType> check_increment_expr(
+		const std::unordered_map<std::string, LocalInfo> &locals,
+		const ast::UnaryExpr &unary)
+	{
+		if (unary.operand->kind != ast::Expr::Kind::Name) {
+			diagnostics_.error(unary.location, "increment requires mutable integer name");
+			check_expr(locals, *unary.operand);
+			return std::nullopt;
+		}
+
+		const auto &name = static_cast<const ast::NameExpr &>(*unary.operand);
+		auto it = locals.find(name.name);
+		if (it != locals.end()) {
+			if (!it->second.is_mutable) {
+				diagnostics_.error(unary.location,
+				                   "cannot increment immutable local '" + name.name + "'");
+			}
+			if (!is_integer(it->second.type)) {
+				diagnostics_.error(unary.location,
+				                   "increment requires integer operand");
+			}
+			return it->second.type;
+		}
+
+		auto global = resolve_global(name.name, name.location);
+		if (global == nullptr) {
+			diagnostics_.error(name.location, "unknown name '" + name.name + "'");
+			return std::nullopt;
+		}
+		if (!global->is_mutable) {
+			diagnostics_.error(unary.location,
+			                   "cannot increment immutable static '" + name.name + "'");
+		}
+		if (!is_integer(global->type)) {
+			diagnostics_.error(unary.location, "increment requires integer operand");
+		}
+		return global->type;
 	}
 
 	std::optional<PrimitiveType> check_logical_binary_expr(

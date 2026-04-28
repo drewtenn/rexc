@@ -504,6 +504,11 @@ private:
 			emit_address_of(*unary.operand, slots);
 			return;
 		}
+		if (unary.op == "pre++" || unary.op == "post++" ||
+		    unary.op == "pre--" || unary.op == "post--") {
+			emit_increment(unary, slots);
+			return;
+		}
 
 		emit_value(*unary.operand, frame, slots);
 		if (unary.op == "-")
@@ -514,6 +519,35 @@ private:
 		} else if (unary.op == "*") {
 			emit_indirect_load(unary.type);
 		}
+	}
+
+	void emit_increment(const ir::UnaryValue &unary, const SlotMap &slots)
+	{
+		bool increment = unary.op == "pre++" || unary.op == "post++";
+		bool postfix = unary.op == "post++" || unary.op == "post--";
+		const auto &operand = *unary.operand;
+
+		if (operand.kind == ir::Value::Kind::Local) {
+			const auto &local = static_cast<const ir::LocalValue &>(operand);
+			int slot = slots.at(local.name);
+			out_ << "\tldr x0, [x29, #" << slot << "]\n";
+			if (postfix)
+				emit_push_accumulator();
+			out_ << "\t" << (increment ? "add" : "sub") << " x0, x0, #1\n";
+			out_ << "\tstr x0, [x29, #" << slot << "]\n";
+			if (postfix)
+				emit_pop_to("x0");
+			return;
+		}
+
+		const auto &global = static_cast<const ir::GlobalValue &>(operand);
+		emit_static_scalar_load(global.name);
+		if (postfix)
+			emit_push_accumulator();
+		out_ << "\t" << (increment ? "add" : "sub") << " x0, x0, #1\n";
+		emit_static_scalar_store(global.name);
+		if (postfix)
+			emit_pop_to("x0");
 	}
 
 	void emit_address_of(const ir::Value &operand, const SlotMap &slots)
@@ -746,9 +780,11 @@ private:
 
 	void emit_string_section(const ir::Module &module)
 	{
-		if (string_labels_.empty())
+		if (string_labels_.empty() && !has_static_string_initializers(module))
 			return;
 		out_ << ".cstring\n";
+		for (const auto &buffer : module.static_buffers)
+			emit_static_initializer_string_literals(buffer);
 		for (const auto &function : module.functions) {
 			for (const auto &statement : function.body)
 				emit_string_literals(*statement);
@@ -758,9 +794,76 @@ private:
 	void emit_static_buffer_section(const ir::Module &module)
 	{
 		for (const auto &buffer : module.static_buffers) {
+			if (!buffer.initializers.empty()) {
+				emit_static_array(buffer);
+				continue;
+			}
 			out_ << ".zerofill __DATA,__bss," << static_buffer_label(buffer.name) << ","
 			     << static_buffer_size_bytes(buffer) << ",4\n";
 		}
+	}
+
+	bool has_static_string_initializers(const ir::Module &module) const
+	{
+		for (const auto &buffer : module.static_buffers) {
+			for (const auto &initializer : buffer.initializers) {
+				if (initializer.kind == ir::StaticBuffer::Initializer::Kind::String)
+					return true;
+			}
+		}
+		return false;
+	}
+
+	void emit_static_initializer_string_literals(const ir::StaticBuffer &buffer)
+	{
+		for (std::size_t i = 0; i < buffer.initializers.size(); ++i) {
+			const auto &initializer = buffer.initializers[i];
+			if (initializer.kind != ir::StaticBuffer::Initializer::Kind::String)
+				continue;
+			out_ << static_initializer_string_label(buffer.name, i) << ":\n";
+			out_ << "\t.asciz \"" << escape_asciz_payload(initializer.literal) << "\"\n";
+		}
+	}
+
+	void emit_static_array(const ir::StaticBuffer &buffer)
+	{
+		out_ << ".data\n";
+		out_ << static_buffer_label(buffer.name) << ":\n";
+		for (std::size_t i = 0; i < buffer.initializers.size(); ++i)
+			emit_static_array_initializer(buffer, i, buffer.initializers[i]);
+		std::size_t initialized_bytes =
+			buffer.initializers.size() *
+			static_cast<std::size_t>(std::max(1, memory_bits(buffer.element_type) / 8));
+		std::size_t total_bytes = static_buffer_size_bytes(buffer);
+		if (initialized_bytes < total_bytes)
+			out_ << "\t.space " << (total_bytes - initialized_bytes) << "\n";
+	}
+
+	void emit_static_array_initializer(const ir::StaticBuffer &buffer, std::size_t index,
+	                                   const ir::StaticBuffer::Initializer &initializer)
+	{
+		if (initializer.kind == ir::StaticBuffer::Initializer::Kind::String) {
+			out_ << "\t.quad " << static_initializer_string_label(buffer.name, index) << "\n";
+			return;
+		}
+		out_ << "\t" << scalar_directive(buffer.element_type) << " "
+		     << static_initializer_literal(initializer) << "\n";
+	}
+
+	std::string static_initializer_literal(
+		const ir::StaticBuffer::Initializer &initializer) const
+	{
+		switch (initializer.kind) {
+		case ir::StaticBuffer::Initializer::Kind::Integer:
+			return initializer.is_negative ? "-" + initializer.literal : initializer.literal;
+		case ir::StaticBuffer::Initializer::Kind::Bool:
+			return initializer.bool_value ? "1" : "0";
+		case ir::StaticBuffer::Initializer::Kind::Char:
+			return std::to_string(static_cast<unsigned int>(initializer.char_value));
+		case ir::StaticBuffer::Initializer::Kind::String:
+			break;
+		}
+		return "0";
 	}
 
 	void emit_static_scalar_section(const ir::Module &module)
@@ -782,6 +885,12 @@ private:
 	std::string static_scalar_label(const std::string &name) const
 	{
 		return "Lstatic_" + name;
+	}
+
+	std::string static_initializer_string_label(const std::string &name,
+	                                            std::size_t index) const
+	{
+		return "Lstaticstr_" + name + "_" + std::to_string(index);
 	}
 
 	void emit_static_scalar_load(const std::string &name)
@@ -913,6 +1022,20 @@ private:
 		if (is_integer(type))
 			return type.bits;
 		return 64;
+	}
+
+	const char *scalar_directive(ir::Type type) const
+	{
+		switch (memory_bits(type)) {
+		case 8:
+			return ".byte";
+		case 16:
+			return ".short";
+		case 32:
+			return ".long";
+		default:
+			return ".quad";
+		}
 	}
 
 	int pointee_size_bytes(ir::Type pointer_type) const

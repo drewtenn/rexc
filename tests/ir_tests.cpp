@@ -78,6 +78,30 @@ TEST_CASE(lowering_preserves_static_byte_buffers)
 	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("str"));
 }
 
+TEST_CASE(lowering_preserves_initialized_static_arrays)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "static MONTHS: [str; 3] = [\"Jan\", \"Feb\", \"Mar\"];\n"
+	    "fn main() -> str { return MONTHS[1]; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	REQUIRE_EQ(module.static_buffers.size(), std::size_t(1));
+	REQUIRE_EQ(module.static_buffers[0].name, std::string("MONTHS"));
+	REQUIRE_EQ(rexc::format_type(module.static_buffers[0].element_type), std::string("str"));
+	REQUIRE_EQ(module.static_buffers[0].length, std::size_t(3));
+	REQUIRE_EQ(module.static_buffers[0].initializers.size(), std::size_t(3));
+	REQUIRE_EQ(module.static_buffers[0].initializers[1].literal, std::string("Feb"));
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[0]);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("str"));
+}
+
 TEST_CASE(lowering_preserves_static_i32_scalars)
 {
 	rexc::SourceFile source(
@@ -513,6 +537,26 @@ TEST_CASE(lowering_lowers_assignment_and_while_statement)
 	const auto &assign = static_cast<const rexc::ir::AssignStatement &>(*while_stmt.body[0]);
 	REQUIRE_EQ(assign.name, std::string("x"));
 	REQUIRE_EQ(rexc::format_type(assign.value->type), std::string("i32"));
+}
+
+TEST_CASE(lowering_lowers_increment_decrement_as_unary_expr_statements)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut i: i32 = 0; ++i; i++; --i; i--; return i; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	REQUIRE_EQ(module.functions[0].body[1]->kind, rexc::ir::Statement::Kind::Expr);
+	const auto &expr = static_cast<const rexc::ir::ExprStatement &>(*module.functions[0].body[1]);
+	REQUIRE_EQ(expr.value->kind, rexc::ir::Value::Kind::Unary);
+	const auto &unary = static_cast<const rexc::ir::UnaryValue &>(*expr.value);
+	REQUIRE_EQ(unary.op, std::string("pre++"));
 }
 
 TEST_CASE(lowering_lowers_break_and_continue_statements)

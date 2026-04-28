@@ -165,6 +165,38 @@ TEST_CASE(codegen_arm64_macos_emits_static_byte_buffer)
 	REQUIRE(assembly.find("add x0, x0, Lstatic_USER_BUFFER@PAGEOFF") != std::string::npos);
 }
 
+TEST_CASE(codegen_arm64_macos_emits_initialized_static_i32_array)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"static DAYS: [i32; 3] = [31, 28, 31];\n"
+		"fn main() -> i32 { return DAYS[1]; }\n");
+
+	REQUIRE(assembly.find("Lstatic_DAYS:") != std::string::npos);
+	REQUIRE(assembly.find(".long 31") != std::string::npos);
+	REQUIRE(assembly.find(".long 28") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_initialized_static_str_array)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"static MONTHS: [str; 2] = [\"Jan\", \"Feb\"];\n"
+		"fn main() -> str { return MONTHS[1]; }\n");
+
+	REQUIRE(assembly.find("Lstatic_MONTHS:") != std::string::npos);
+	REQUIRE(assembly.find("Lstaticstr_MONTHS_0:") != std::string::npos);
+	REQUIRE(assembly.find(".asciz \"Jan\"") != std::string::npos);
+	REQUIRE(assembly.find(".quad Lstaticstr_MONTHS_0") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_prefix_and_postfix_increment_decrement)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn main() -> i32 { let mut i: i32 = 0; ++i; i++; --i; i--; return i; }\n");
+
+	REQUIRE(assembly.find("add x0, x0, #1") != std::string::npos);
+	REQUIRE(assembly.find("sub x0, x0, #1") != std::string::npos);
+}
+
 TEST_CASE(codegen_arm64_macos_emits_call_statement)
 {
 	auto assembly = compile_to_arm64_assembly(

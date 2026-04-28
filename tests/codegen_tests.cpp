@@ -653,6 +653,39 @@ TEST_CASE(codegen_i386_emits_static_i32_scalar_load_and_store)
 	REQUIRE(assembly.find("movl %eax, .Lstatic_USER_COUNTER") != std::string::npos);
 }
 
+TEST_CASE(codegen_i386_emits_initialized_static_i32_array)
+{
+	auto assembly = compile_to_assembly(
+		"static DAYS: [i32; 3] = [31, 28, 31];\n"
+		"fn main() -> i32 { return DAYS[1]; }\n");
+
+	REQUIRE(assembly.find(".Lstatic_DAYS:") != std::string::npos);
+	REQUIRE(assembly.find(".long 31") != std::string::npos);
+	REQUIRE(assembly.find(".long 28") != std::string::npos);
+	REQUIRE(assembly.find(".long 31") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_initialized_static_str_array)
+{
+	auto assembly = compile_to_assembly(
+		"static MONTHS: [str; 2] = [\"Jan\", \"Feb\"];\n"
+		"fn main() -> str { return MONTHS[1]; }\n");
+
+	REQUIRE(assembly.find(".Lstatic_MONTHS:") != std::string::npos);
+	REQUIRE(assembly.find(".Lstaticstr_MONTHS_0:") != std::string::npos);
+	REQUIRE(assembly.find(".asciz \"Jan\"") != std::string::npos);
+	REQUIRE(assembly.find(".long .Lstaticstr_MONTHS_0") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_prefix_and_postfix_increment_decrement)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { let mut i: i32 = 0; ++i; i++; --i; i--; return i; }\n");
+
+	REQUIRE(assembly.find("addl $1, %eax") != std::string::npos);
+	REQUIRE(assembly.find("subl $1, %eax") != std::string::npos);
+}
+
 TEST_CASE(codegen_i386_sizes_static_i32_buffers_by_element_width)
 {
 	auto assembly = compile_to_assembly(

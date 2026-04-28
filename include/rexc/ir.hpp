@@ -182,9 +182,20 @@ struct Function {
 };
 
 struct StaticBuffer {
+	struct Initializer {
+		enum class Kind { Integer, Bool, Char, String };
+
+		Kind kind = Kind::Integer;
+		std::string literal;
+		bool bool_value = false;
+		char32_t char_value = U'\0';
+		bool is_negative = false;
+	};
+
 	std::string name;
 	Type element_type = PrimitiveType{PrimitiveKind::UnsignedInteger, 8};
 	std::size_t length = 0;
+	std::vector<Initializer> initializers;
 };
 
 struct StaticScalar {

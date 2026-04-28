@@ -23,11 +23,22 @@ useDeclaration
 	;
 
 staticBuffer
-	: 'pub'? 'static' 'mut'? IDENT ':' '[' primitiveType ';' INTEGER ']' ';'
+	: 'pub'? 'static' 'mut'? IDENT ':' '[' primitiveType ';' INTEGER ']' ('=' staticArrayInitializer)? ';'
 	;
 
 staticScalar
 	: 'pub'? 'static' 'mut'? IDENT ':' primitiveType '=' INTEGER ';'
+	;
+
+staticArrayInitializer
+	: '[' (staticArrayElement (',' staticArrayElement)* ','?)? ']'
+	;
+
+staticArrayElement
+	: '-'? INTEGER
+	| BOOL
+	| CHAR
+	| STRING
 	;
 
 externFunction
@@ -73,6 +84,7 @@ statement
 	: letStatement
 	| assignStatement
 	| indirectAssignStatement
+	| incDecStatement
 	| callStatement
 	| returnStatement
 	| ifStatement
@@ -92,6 +104,10 @@ assignStatement
 
 indirectAssignStatement
 	: '*' expression '=' expression ';'
+	;
+
+incDecStatement
+	: incrementExpression ';'
 	;
 
 callStatement
@@ -123,6 +139,12 @@ forInitializer
 forIncrement
 	: IDENT '=' expression
 	| '*' expression '=' expression
+	| incrementExpression
+	;
+
+incrementExpression
+	: ('++' | '--') IDENT
+	| IDENT ('++' | '--')
 	;
 
 breakStatement
@@ -162,7 +184,8 @@ cast
 	;
 
 unary
-	: '-' unary
+	: ('++' | '--') IDENT
+	| '-' unary
 	| '!' unary
 	| '&' unary
 	| '*' unary
@@ -170,7 +193,7 @@ unary
 	;
 
 postfix
-	: primary ('[' expression ']')*
+	: primary ('[' expression ']')* ('++' | '--')?
 	;
 
 primary

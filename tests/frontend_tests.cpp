@@ -221,6 +221,27 @@ TEST_CASE(parser_accepts_static_mut_byte_buffer)
 	REQUIRE_EQ(buffer.length_literal, std::string("1024"));
 }
 
+TEST_CASE(parser_accepts_initialized_static_array)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "static MONTHS: [str; 3] = [\"Jan\", \"Feb\", \"Mar\"];\n"
+	    "fn main() -> str { return MONTHS[1]; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE_EQ(result.module().static_buffers.size(), std::size_t(1));
+	const auto &buffer = result.module().static_buffers[0];
+	REQUIRE(!buffer.is_mutable);
+	REQUIRE_EQ(buffer.name, std::string("MONTHS"));
+	REQUIRE_EQ(buffer.element_type.name, std::string("str"));
+	REQUIRE_EQ(buffer.length_literal, std::string("3"));
+	REQUIRE_EQ(buffer.initializers.size(), std::size_t(3));
+	REQUIRE_EQ(buffer.initializers[0].literal, std::string("Jan"));
+}
+
 TEST_CASE(parser_accepts_static_mut_i32_scalar)
 {
 	rexc::SourceFile source(
@@ -504,6 +525,35 @@ TEST_CASE(parser_accepts_for_loop)
 
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(parser_accepts_prefix_and_postfix_increment_decrement)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut i: i32 = 0; ++i; i++; --i; i--; return i; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(6));
+	REQUIRE_EQ(body[1]->kind, rexc::ast::Stmt::Kind::Expr);
+	REQUIRE_EQ(body[2]->kind, rexc::ast::Stmt::Kind::Expr);
+}
+
+TEST_CASE(parser_accepts_increment_in_for_header)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let mut total: i32 = 0; for let mut i: i32 = 0; i < 3; i++ { total = total + i; } return total; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE_EQ(result.module().functions[0].body[1]->kind, rexc::ast::Stmt::Kind::For);
 }
 
 TEST_CASE(parser_accepts_parenthesized_for_loop_header)

@@ -186,9 +186,54 @@ private:
 		buffer.element_type = ast::TypeName{context->primitiveType()->getText(),
 		                                    location(context->primitiveType())};
 		buffer.length_literal = context->INTEGER()->getText();
+		if (auto *initializer = context->staticArrayInitializer())
+			buffer.initializers = build_static_array_initializer(initializer);
 		buffer.location = location(context);
 		buffer.module_path = module_path;
 		return buffer;
+	}
+
+	std::vector<ast::StaticBuffer::Initializer> build_static_array_initializer(
+	    RexyParser::StaticArrayInitializerContext *context)
+	{
+		std::vector<ast::StaticBuffer::Initializer> initializers;
+		for (auto *element : context->staticArrayElement())
+			initializers.push_back(build_static_array_element(element));
+		return initializers;
+	}
+
+	ast::StaticBuffer::Initializer build_static_array_element(
+	    RexyParser::StaticArrayElementContext *context)
+	{
+		ast::StaticBuffer::Initializer initializer;
+		initializer.location = location(context);
+		if (auto *integer = context->INTEGER()) {
+			initializer.kind = ast::StaticBuffer::Initializer::Kind::Integer;
+			initializer.literal = integer->getText();
+			initializer.is_negative =
+			    !context->children.empty() && context->children.front()->getText() == "-";
+			return initializer;
+		}
+		if (auto *boolean = context->BOOL()) {
+			initializer.kind = ast::StaticBuffer::Initializer::Kind::Bool;
+			initializer.bool_value = boolean->getText() == "true";
+			initializer.literal = boolean->getText();
+			return initializer;
+		}
+		if (auto *character = context->CHAR()) {
+			auto decoded = decode_quoted_literal(character->getText());
+			initializer.kind = ast::StaticBuffer::Initializer::Kind::Char;
+			initializer.char_value = decoded.empty()
+			                             ? U'\0'
+			                             : static_cast<unsigned char>(decoded.front());
+			initializer.literal = character->getText();
+			return initializer;
+		}
+
+		auto *string = context->STRING();
+		initializer.kind = ast::StaticBuffer::Initializer::Kind::String;
+		initializer.literal = decode_quoted_literal(string->getText());
+		return initializer;
 	}
 
 	ast::StaticScalar build_static_scalar(RexyParser::StaticScalarContext *context,
@@ -285,6 +330,8 @@ private:
 			return build_assign_statement(assign);
 		if (auto *indirect_assign = context->indirectAssignStatement())
 			return build_indirect_assign_statement(indirect_assign);
+		if (auto *inc_dec = context->incDecStatement())
+			return build_inc_dec_statement(inc_dec);
 		if (auto *call_statement = context->callStatement())
 			return build_call_statement(call_statement);
 		if (auto *ret = context->returnStatement())
@@ -336,6 +383,13 @@ private:
 		return std::make_unique<ast::IndirectAssignStmt>(
 		    location(context), build_expression(context->expression(0)),
 		    build_expression(context->expression(1)));
+	}
+
+	std::unique_ptr<ast::Stmt> build_inc_dec_statement(
+	    RexyParser::IncDecStatementContext *context)
+	{
+		return std::make_unique<ast::ExprStmt>(
+		    location(context), build_increment_expression(context->incrementExpression()));
 	}
 
 	std::unique_ptr<ast::Stmt> build_call_statement(RexyParser::CallStatementContext *context)
@@ -394,6 +448,10 @@ private:
 		if (auto *name = context->IDENT()) {
 			return std::make_unique<ast::AssignStmt>(
 			    location(name), name->getText(), build_expression(context->expression(0)));
+		}
+		if (auto *increment = context->incrementExpression()) {
+			return std::make_unique<ast::ExprStmt>(
+			    location(increment), build_increment_expression(increment));
 		}
 
 		return std::make_unique<ast::IndirectAssignStmt>(
@@ -482,6 +540,13 @@ private:
 		if (auto *postfix = context->postfix())
 			return build_postfix(postfix);
 
+		if (auto *name = context->IDENT()) {
+			std::string op = context->children.front()->getText() == "++" ? "pre++" : "pre--";
+			return std::make_unique<ast::UnaryExpr>(
+			    location(context), std::move(op),
+			    std::make_unique<ast::NameExpr>(location(name), name->getText()));
+		}
+
 		auto *operator_node =
 		    dynamic_cast<antlr4::tree::TerminalNode *>(context->children.front());
 		return std::make_unique<ast::UnaryExpr>(
@@ -499,7 +564,29 @@ private:
 			value = std::make_unique<ast::UnaryExpr>(
 			    location(index), "*", std::move(address));
 		}
+		if (!context->children.empty()) {
+			std::string suffix = context->children.back()->getText();
+			if (suffix == "++" || suffix == "--") {
+				value = std::make_unique<ast::UnaryExpr>(
+				    location(context), suffix == "++" ? "post++" : "post--",
+				    std::move(value));
+			}
+		}
 		return value;
+	}
+
+	std::unique_ptr<ast::Expr> build_increment_expression(
+	    RexyParser::IncrementExpressionContext *context)
+	{
+		auto *name = context->IDENT();
+		bool prefix = context->children.front()->getText() == "++" ||
+		              context->children.front()->getText() == "--";
+		std::string token = prefix ? context->children.front()->getText()
+		                           : context->children.back()->getText();
+		std::string op = std::string(prefix ? "pre" : "post") + token;
+		return std::make_unique<ast::UnaryExpr>(
+		    location(context), std::move(op),
+		    std::make_unique<ast::NameExpr>(location(name), name->getText()));
 	}
 
 	std::unique_ptr<ast::Expr> build_primary(RexyParser::PrimaryContext *context)

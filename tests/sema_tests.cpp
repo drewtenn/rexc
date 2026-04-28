@@ -430,6 +430,31 @@ TEST_CASE(sema_accepts_static_mut_byte_buffer_as_str_storage)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_initialized_static_string_array)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"static MONTHS: [str; 3] = [\"Jan\", \"Feb\", \"Mar\"];\n"
+		"fn main() -> str { return MONTHS[1]; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_initialized_static_array_type_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"static VALUES: [i32; 2] = [1, \"bad\"];\n"
+		"fn main() -> i32 { return VALUES[0]; }\n",
+		diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("static array initializer type mismatch") !=
+	        std::string::npos);
+}
+
 TEST_CASE(sema_accepts_static_mut_i32_scalar)
 {
 	rexc::Diagnostics diagnostics;
@@ -1216,6 +1241,38 @@ TEST_CASE(sema_accepts_for_loop_and_scopes_initializer_to_loop)
 	    diagnostics);
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_prefix_and_postfix_increment_decrement)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { let mut i: i32 = 0; ++i; i++; --i; i--; return i; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_increment_in_for_header)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"fn main() -> i32 { let mut total: i32 = 0; for let mut i: i32 = 0; i < 3; i++ { total = total + i; } return total; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_increment_of_immutable_local)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn main() -> i32 { let i: i32 = 0; i++; return i; }\n", diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("cannot increment immutable local 'i'") !=
+	        std::string::npos);
 }
 
 TEST_CASE(sema_rejects_for_initializer_local_after_loop)

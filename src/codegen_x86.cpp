@@ -689,6 +689,11 @@ private:
 			emit_address_of(*unary.operand, slots);
 			return;
 		}
+		if (unary.op == "pre++" || unary.op == "post++" ||
+		    unary.op == "pre--" || unary.op == "post--") {
+			emit_increment(unary, slots);
+			return;
+		}
 
 		emit_value(*unary.operand, frame, slots);
 		if (unary.op == "-") {
@@ -709,6 +714,39 @@ private:
 		out_ << "\t" << load_effective_address_instruction() << " "
 		     << slots.at(local.name) << "(" << frame_pointer_register() << "), "
 		     << accumulator_register() << "\n";
+	}
+
+	void emit_increment(const ir::UnaryValue &unary, const SlotMap &slots)
+	{
+		bool increment = unary.op == "pre++" || unary.op == "post++";
+		bool postfix = unary.op == "post++" || unary.op == "post--";
+		const auto &operand = *unary.operand;
+
+		if (operand.kind == ir::Value::Kind::Local) {
+			const auto &local = static_cast<const ir::LocalValue &>(operand);
+			int slot = slots.at(local.name);
+			out_ << "\t" << move_instruction() << " " << slot << "("
+			     << frame_pointer_register() << "), " << accumulator_register() << "\n";
+			if (postfix)
+				emit_push_accumulator();
+			out_ << "\t" << (increment ? add_instruction() : subtract_instruction())
+			     << " $1, " << accumulator_register() << "\n";
+			out_ << "\t" << move_instruction() << " " << accumulator_register() << ", "
+			     << slot << "(" << frame_pointer_register() << ")\n";
+			if (postfix)
+				emit_pop_accumulator();
+			return;
+		}
+
+		const auto &global = static_cast<const ir::GlobalValue &>(operand);
+		emit_static_scalar_load(global.name);
+		if (postfix)
+			emit_push_accumulator();
+		out_ << "\t" << (increment ? add_instruction() : subtract_instruction())
+		     << " $1, " << accumulator_register() << "\n";
+		emit_static_scalar_store(global.name);
+		if (postfix)
+			emit_pop_accumulator();
 	}
 
 	void emit_indirect_assign(const ir::IndirectAssignStatement &assign,
@@ -1022,10 +1060,12 @@ private:
 
 	void emit_string_section(const ir::Module &module)
 	{
-		if (string_labels_.empty())
+		if (string_labels_.empty() && !has_static_string_initializers(module))
 			return;
 
 		out_ << ".section .rodata\n";
+		for (const auto &buffer : module.static_buffers)
+			emit_static_initializer_string_literals(buffer);
 		for (const auto &function : module.functions) {
 			for (const auto &statement : function.body)
 				emit_string_literals(*statement);
@@ -1036,11 +1076,87 @@ private:
 	{
 		if (module.static_buffers.empty())
 			return;
-		out_ << ".section .bss\n";
+		bool emitted_bss = false;
+		bool emitted_data = false;
 		for (const auto &buffer : module.static_buffers) {
+			if (!buffer.initializers.empty()) {
+				if (!emitted_data) {
+					out_ << ".section .data\n";
+					emitted_data = true;
+				}
+				emit_static_array(buffer);
+				continue;
+			}
+			if (!emitted_bss) {
+				out_ << ".section .bss\n";
+				emitted_bss = true;
+			}
 			out_ << static_buffer_label(buffer.name) << ":\n";
 			out_ << "\t.zero " << static_buffer_size_bytes(buffer) << "\n";
 		}
+	}
+
+	bool has_static_string_initializers(const ir::Module &module) const
+	{
+		for (const auto &buffer : module.static_buffers) {
+			for (const auto &initializer : buffer.initializers) {
+				if (initializer.kind == ir::StaticBuffer::Initializer::Kind::String)
+					return true;
+			}
+		}
+		return false;
+	}
+
+	void emit_static_initializer_string_literals(const ir::StaticBuffer &buffer)
+	{
+		for (std::size_t i = 0; i < buffer.initializers.size(); ++i) {
+			const auto &initializer = buffer.initializers[i];
+			if (initializer.kind != ir::StaticBuffer::Initializer::Kind::String)
+				continue;
+			out_ << static_initializer_string_label(buffer.name, i) << ":\n";
+			out_ << "\t.asciz \"" << escape_asciz_payload(initializer.literal) << "\"\n";
+		}
+	}
+
+	void emit_static_array(const ir::StaticBuffer &buffer)
+	{
+		out_ << static_buffer_label(buffer.name) << ":\n";
+		for (std::size_t i = 0; i < buffer.initializers.size(); ++i)
+			emit_static_array_initializer(buffer, i, buffer.initializers[i]);
+		std::size_t initialized_bytes =
+			buffer.initializers.size() *
+			static_cast<std::size_t>(memory_bits(buffer.element_type) / 8);
+		std::size_t total_bytes = static_buffer_size_bytes(buffer);
+		if (initialized_bytes < total_bytes)
+			out_ << "\t.zero " << (total_bytes - initialized_bytes) << "\n";
+	}
+
+	void emit_static_array_initializer(const ir::StaticBuffer &buffer, std::size_t index,
+	                                   const ir::StaticBuffer::Initializer &initializer)
+	{
+		if (initializer.kind == ir::StaticBuffer::Initializer::Kind::String) {
+			out_ << "\t" << pointer_directive() << " "
+			     << static_initializer_string_label(buffer.name, index) << "\n";
+			return;
+		}
+		out_ << "\t" << scalar_directive(buffer.element_type) << " "
+		     << static_initializer_literal(initializer) << "\n";
+	}
+
+	std::string static_initializer_literal(
+		const ir::StaticBuffer::Initializer &initializer) const
+	{
+		switch (initializer.kind) {
+		case ir::StaticBuffer::Initializer::Kind::Integer:
+			return initializer.is_negative ? "-" + initializer.literal : initializer.literal;
+		case ir::StaticBuffer::Initializer::Kind::Bool:
+			return initializer.bool_value ? "1" : "0";
+		case ir::StaticBuffer::Initializer::Kind::Char:
+			return std::to_string(static_cast<unsigned int>(initializer.char_value));
+		case ir::StaticBuffer::Initializer::Kind::String:
+			break;
+		}
+		return "0";
 	}
 
 	void emit_static_scalar_section(const ir::Module &module)
@@ -1062,6 +1178,12 @@ private:
 	std::string static_scalar_label(const std::string &name) const
 	{
 		return ".Lstatic_" + name;
+	}
+
+	std::string static_initializer_string_label(const std::string &name,
+	                                            std::size_t index) const
+	{
+		return ".Lstaticstr_" + name + "_" + std::to_string(index);
 	}
 
 	void emit_static_scalar_load(const std::string &name)
@@ -1378,6 +1500,25 @@ private:
 		default:
 			return "%ecx";
 		}
+	}
+
+	const char *scalar_directive(ir::Type type) const
+	{
+		switch (memory_bits(type)) {
+		case 8:
+			return ".byte";
+		case 16:
+			return ".short";
+		case 64:
+			return ".quad";
+		default:
+			return ".long";
+		}
+	}
+
+	const char *pointer_directive() const
+	{
+		return target_ == CodegenTarget::X86_64 ? ".quad" : ".long";
 	}
 
 	int memory_bits(ir::Type type) const

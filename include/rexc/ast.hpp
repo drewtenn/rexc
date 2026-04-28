@@ -192,11 +192,23 @@ struct Function {
 };
 
 struct StaticBuffer {
+	struct Initializer {
+		enum class Kind { Integer, Bool, Char, String };
+
+		Kind kind = Kind::Integer;
+		std::string literal;
+		bool bool_value = false;
+		char32_t char_value = U'\0';
+		bool is_negative = false;
+		SourceLocation location;
+	};
+
 	bool is_mutable = false;
 	Visibility visibility = Visibility::Private;
 	std::string name;
 	TypeName element_type;
 	std::string length_literal;
+	std::vector<Initializer> initializers;
 	SourceLocation location;
 	std::vector<std::string> module_path;
 };
