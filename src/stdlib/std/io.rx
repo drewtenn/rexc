@@ -25,6 +25,14 @@ fn std_io_write(fd: i32, buffer: *u8, len: i32) -> i32 {
 	return sys_write(fd, buffer as str, len);
 }
 
+fn write_str(fd: i32, value: str) -> i32 {
+	return sys_write(fd, value, strlen(value));
+}
+
+fn std_io_write_str(fd: i32, value: str) -> i32 {
+	return write_str(fd, value);
+}
+
 fn read_line() -> str {
 	let mut index: i32 = 0;
 	while index < 1023 {

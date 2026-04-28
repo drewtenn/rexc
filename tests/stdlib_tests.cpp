@@ -132,6 +132,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	auto std_io_println = rexc::stdlib::find_stdlib_function("std_io_println");
 	auto std_io_println_path = rexc::stdlib::find_stdlib_function("std::io::println");
 	auto std_io_write_path = rexc::stdlib::find_stdlib_function("std::io::write");
+	auto std_io_write_str_path =
+		rexc::stdlib::find_stdlib_function("std::io::write_str");
 	auto std_process_exit = rexc::stdlib::find_stdlib_function("std_process_exit");
 	auto std_process_exit_path =
 		rexc::stdlib::find_stdlib_function("std::process::exit");
@@ -218,6 +220,7 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(std_io_println != nullptr);
 	REQUIRE(std_io_println_path != nullptr);
 	REQUIRE(std_io_write_path != nullptr);
+	REQUIRE(std_io_write_str_path != nullptr);
 	REQUIRE(std_process_exit != nullptr);
 	REQUIRE(std_process_exit_path != nullptr);
 	REQUIRE(args_len != nullptr);
@@ -403,6 +406,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(std_io_println_path->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_io_write_path->parameters.size(), std::size_t(3));
 	REQUIRE_EQ(std_io_write_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_io_write_str_path->parameters.size(), std::size_t(2));
+	REQUIRE_EQ(std_io_write_str_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(std_process_exit->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_process_exit_path->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(args_len->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
