@@ -112,6 +112,7 @@ whileStatement
 
 forStatement
 	: 'for' forInitializer expression ';' forIncrement block
+	| 'for' '(' forInitializer expression ';' forIncrement ')' block
 	;
 
 forInitializer
