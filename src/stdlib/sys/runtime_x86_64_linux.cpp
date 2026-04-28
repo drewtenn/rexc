@@ -89,6 +89,11 @@ sys_file_close:
 	movq $3, %rax
 	syscall
 	ret
+.globl sys_kill
+sys_kill:
+	movq $62, %rax
+	syscall
+	ret
 .globl sys_args_len
 sys_args_len:
 	movq __rexc_argc(%rip), %rax

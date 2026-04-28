@@ -87,6 +87,14 @@ _sys_file_close:
 	bl _close
 	ldp x29, x30, [sp], #16
 	ret
+.globl _sys_kill
+.p2align 2
+_sys_kill:
+	stp x29, x30, [sp, #-16]!
+	mov x29, sp
+	bl _kill
+	ldp x29, x30, [sp], #16
+	ret
 .globl _sys_args_len
 .p2align 2
 _sys_args_len:

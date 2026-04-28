@@ -137,6 +137,18 @@ sys_file_close:
 	popl %ebx
 	leave
 	ret
+.globl sys_kill
+sys_kill:
+	pushl %ebp
+	movl %esp, %ebp
+	pushl %ebx
+	movl $37, %eax
+	movl 8(%ebp), %ebx
+	movl 12(%ebp), %ecx
+	int $0x80
+	popl %ebx
+	leave
+	ret
 .globl sys_args_len
 sys_args_len:
 	movl __rexc_argc, %eax
