@@ -97,7 +97,7 @@ struct CallExpr final : Expr {
 };
 
 struct Stmt {
-	enum class Kind { Let, Assign, IndirectAssign, Expr, Return, If, While, Break, Continue };
+	enum class Kind { Let, Assign, IndirectAssign, Expr, Return, If, While, For, Break, Continue };
 
 	Stmt(Kind kind, SourceLocation location);
 	virtual ~Stmt() = default;
@@ -158,6 +158,17 @@ struct WhileStmt final : Stmt {
 	          std::vector<std::unique_ptr<Stmt>> body);
 
 	std::unique_ptr<Expr> condition;
+	std::vector<std::unique_ptr<Stmt>> body;
+};
+
+struct ForStmt final : Stmt {
+	ForStmt(SourceLocation location, std::unique_ptr<Stmt> initializer,
+	        std::unique_ptr<Expr> condition, std::unique_ptr<Stmt> increment,
+	        std::vector<std::unique_ptr<Stmt>> body);
+
+	std::unique_ptr<Stmt> initializer;
+	std::unique_ptr<Expr> condition;
+	std::unique_ptr<Stmt> increment;
 	std::vector<std::unique_ptr<Stmt>> body;
 };
 

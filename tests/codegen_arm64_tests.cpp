@@ -117,6 +117,19 @@ TEST_CASE(codegen_arm64_macos_emits_while_break_continue)
 	REQUIRE(assembly.find("b L_while_start_") != std::string::npos);
 }
 
+TEST_CASE(codegen_arm64_macos_emits_for_loop_continue_to_increment)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn main() -> i32 { let mut total: i32 = 0; for let mut i: i32 = 0; i < 3; i = i + 1 { if i == 1 { continue; } total = total + i; } return total; }\n");
+
+	REQUIRE(assembly.find("L_for_condition_") != std::string::npos);
+	REQUIRE(assembly.find("L_for_increment_") != std::string::npos);
+	REQUIRE(assembly.find("L_for_end_") != std::string::npos);
+	REQUIRE(assembly.find("cbz w0, L_for_end_") != std::string::npos);
+	REQUIRE(assembly.find("b L_for_increment_") != std::string::npos);
+	REQUIRE(assembly.find("b L_for_condition_") != std::string::npos);
+}
+
 TEST_CASE(codegen_arm64_macos_emits_casts)
 {
 	auto assembly = compile_to_arm64_assembly("fn main() -> u8 { let x: u32 = 300; return x as u8; }\n");

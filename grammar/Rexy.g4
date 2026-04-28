@@ -77,6 +77,7 @@ statement
 	| returnStatement
 	| ifStatement
 	| whileStatement
+	| forStatement
 	| breakStatement
 	| continueStatement
 	;
@@ -107,6 +108,20 @@ ifStatement
 
 whileStatement
 	: 'while' expression block
+	;
+
+forStatement
+	: 'for' forInitializer expression ';' forIncrement block
+	;
+
+forInitializer
+	: letStatement
+	| assignStatement
+	;
+
+forIncrement
+	: IDENT '=' expression
+	| '*' expression '=' expression
 	;
 
 breakStatement

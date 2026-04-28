@@ -30,22 +30,35 @@ struct Frame {
 	int local_bytes = 0;
 };
 
+int count_local_statement(const ir::Statement &statement);
+
 int count_locals(const std::vector<std::unique_ptr<ir::Statement>> &statements)
 {
 	int count = 0;
-	for (const auto &statement : statements) {
-		if (statement->kind == ir::Statement::Kind::Let) {
-			++count;
-		} else if (statement->kind == ir::Statement::Kind::While) {
-			const auto &while_statement = static_cast<const ir::WhileStatement &>(*statement);
-			count += count_locals(while_statement.body);
-		} else if (statement->kind == ir::Statement::Kind::If) {
-			const auto &if_statement = static_cast<const ir::IfStatement &>(*statement);
-			count += count_locals(if_statement.then_body);
-			count += count_locals(if_statement.else_body);
-		}
-	}
+	for (const auto &statement : statements)
+		count += count_local_statement(*statement);
 	return count;
+}
+
+int count_local_statement(const ir::Statement &statement)
+{
+	if (statement.kind == ir::Statement::Kind::Let)
+		return 1;
+	if (statement.kind == ir::Statement::Kind::While) {
+		const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
+		return count_locals(while_statement.body);
+	}
+	if (statement.kind == ir::Statement::Kind::For) {
+		const auto &for_statement = static_cast<const ir::ForStatement &>(statement);
+		return count_local_statement(*for_statement.initializer) +
+		       count_locals(for_statement.body) +
+		       count_local_statement(*for_statement.increment);
+	}
+	if (statement.kind == ir::Statement::Kind::If) {
+		const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
+		return count_locals(if_statement.then_body) + count_locals(if_statement.else_body);
+	}
+	return 0;
 }
 
 int count_locals(const ir::Function &function)
@@ -217,26 +230,66 @@ private:
 		return frame;
 	}
 
+	void assign_i386_local_slot(const ir::Statement &statement, Frame &frame,
+	                            int &local_index)
+	{
+		if (statement.kind == ir::Statement::Kind::Let) {
+			const auto &let = static_cast<const ir::LetStatement &>(statement);
+			++local_index;
+			frame.let_slots[&let] = -4 * local_index;
+			return;
+		}
+		if (statement.kind == ir::Statement::Kind::While) {
+			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
+			assign_i386_local_slots(while_statement.body, frame, local_index);
+			return;
+		}
+		if (statement.kind == ir::Statement::Kind::For) {
+			const auto &for_statement = static_cast<const ir::ForStatement &>(statement);
+			assign_i386_local_slot(*for_statement.initializer, frame, local_index);
+			assign_i386_local_slots(for_statement.body, frame, local_index);
+			assign_i386_local_slot(*for_statement.increment, frame, local_index);
+			return;
+		}
+		if (statement.kind == ir::Statement::Kind::If) {
+			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
+			assign_i386_local_slots(if_statement.then_body, frame, local_index);
+			assign_i386_local_slots(if_statement.else_body, frame, local_index);
+		}
+	}
+
 	void assign_i386_local_slots(const std::vector<std::unique_ptr<ir::Statement>> &statements,
 	                             Frame &frame, int &local_index)
 	{
-		for (const auto &statement : statements) {
-			if (statement->kind == ir::Statement::Kind::Let) {
-				const auto &let = static_cast<const ir::LetStatement &>(*statement);
-				++local_index;
-				frame.let_slots[&let] = -4 * local_index;
-				continue;
-			}
-			if (statement->kind == ir::Statement::Kind::While) {
-				const auto &while_statement = static_cast<const ir::WhileStatement &>(*statement);
-				assign_i386_local_slots(while_statement.body, frame, local_index);
-				continue;
-			}
-			if (statement->kind == ir::Statement::Kind::If) {
-				const auto &if_statement = static_cast<const ir::IfStatement &>(*statement);
-				assign_i386_local_slots(if_statement.then_body, frame, local_index);
-				assign_i386_local_slots(if_statement.else_body, frame, local_index);
-			}
+		for (const auto &statement : statements)
+			assign_i386_local_slot(*statement, frame, local_index);
+	}
+
+	void assign_x86_64_local_slot(const ir::Statement &statement, Frame &frame,
+	                              int &slot_index)
+	{
+		if (statement.kind == ir::Statement::Kind::Let) {
+			const auto &let = static_cast<const ir::LetStatement &>(statement);
+			++slot_index;
+			frame.let_slots[&let] = -8 * slot_index;
+			return;
+		}
+		if (statement.kind == ir::Statement::Kind::While) {
+			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
+			assign_x86_64_local_slots(while_statement.body, frame, slot_index);
+			return;
+		}
+		if (statement.kind == ir::Statement::Kind::For) {
+			const auto &for_statement = static_cast<const ir::ForStatement &>(statement);
+			assign_x86_64_local_slot(*for_statement.initializer, frame, slot_index);
+			assign_x86_64_local_slots(for_statement.body, frame, slot_index);
+			assign_x86_64_local_slot(*for_statement.increment, frame, slot_index);
+			return;
+		}
+		if (statement.kind == ir::Statement::Kind::If) {
+			const auto &if_statement = static_cast<const ir::IfStatement &>(statement);
+			assign_x86_64_local_slots(if_statement.then_body, frame, slot_index);
+			assign_x86_64_local_slots(if_statement.else_body, frame, slot_index);
 		}
 	}
 
@@ -244,24 +297,8 @@ private:
 		const std::vector<std::unique_ptr<ir::Statement>> &statements, Frame &frame,
 		int &slot_index)
 	{
-		for (const auto &statement : statements) {
-			if (statement->kind == ir::Statement::Kind::Let) {
-				const auto &let = static_cast<const ir::LetStatement &>(*statement);
-				++slot_index;
-				frame.let_slots[&let] = -8 * slot_index;
-				continue;
-			}
-			if (statement->kind == ir::Statement::Kind::While) {
-				const auto &while_statement = static_cast<const ir::WhileStatement &>(*statement);
-				assign_x86_64_local_slots(while_statement.body, frame, slot_index);
-				continue;
-			}
-			if (statement->kind == ir::Statement::Kind::If) {
-				const auto &if_statement = static_cast<const ir::IfStatement &>(*statement);
-				assign_x86_64_local_slots(if_statement.then_body, frame, slot_index);
-				assign_x86_64_local_slots(if_statement.else_body, frame, slot_index);
-			}
-		}
+		for (const auto &statement : statements)
+			assign_x86_64_local_slot(*statement, frame, slot_index);
 	}
 
 	bool validate_module(const ir::Module &module)
@@ -326,6 +363,16 @@ private:
 			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
 			bool ok = validate_value(*while_statement.condition);
 			for (const auto &body_statement : while_statement.body)
+				ok = validate_statement(*body_statement) && ok;
+			return ok;
+		}
+
+		if (statement.kind == ir::Statement::Kind::For) {
+			const auto &for_statement = static_cast<const ir::ForStatement &>(statement);
+			bool ok = validate_statement(*for_statement.initializer);
+			ok = validate_value(*for_statement.condition) && ok;
+			ok = validate_statement(*for_statement.increment) && ok;
+			for (const auto &body_statement : for_statement.body)
 				ok = validate_statement(*body_statement) && ok;
 			return ok;
 		}
@@ -437,6 +484,12 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::For) {
+			emit_for_statement(static_cast<const ir::ForStatement &>(statement), frame,
+			                   done_label, slots);
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::Break) {
 			out_ << "\tjmp " << loop_end_labels_.back() << "\n";
 			return;
@@ -494,6 +547,35 @@ private:
 		loop_end_labels_.pop_back();
 		loop_start_labels_.pop_back();
 		out_ << "\tjmp " << start_label << "\n";
+		out_ << end_label << ":\n";
+	}
+
+	void emit_for_statement(const ir::ForStatement &for_statement, const Frame &frame,
+	                        const std::string &done_label, const SlotMap &slots)
+	{
+		std::string condition_label = make_label(".L_for_condition_");
+		std::string increment_label = make_label(".L_for_increment_");
+		std::string end_label = make_label(".L_for_end_");
+
+		SlotMap loop_slots = slots;
+		emit_statement(*for_statement.initializer, frame, done_label, loop_slots);
+
+		out_ << condition_label << ":\n";
+		emit_value(*for_statement.condition, frame, loop_slots);
+		out_ << "\tcmpb $0, %al\n";
+		out_ << "\tje " << end_label << "\n";
+
+		loop_start_labels_.push_back(increment_label);
+		loop_end_labels_.push_back(end_label);
+		SlotMap body_slots = loop_slots;
+		for (const auto &statement : for_statement.body)
+			emit_statement(*statement, frame, done_label, body_slots);
+		loop_end_labels_.pop_back();
+		loop_start_labels_.pop_back();
+
+		out_ << increment_label << ":\n";
+		emit_statement(*for_statement.increment, frame, done_label, loop_slots);
+		out_ << "\tjmp " << condition_label << "\n";
 		out_ << end_label << ":\n";
 	}
 
@@ -871,6 +953,16 @@ private:
 			return;
 		}
 
+		if (statement.kind == ir::Statement::Kind::For) {
+			const auto &for_statement = static_cast<const ir::ForStatement &>(statement);
+			collect_string_labels(*for_statement.initializer);
+			collect_string_labels(*for_statement.condition);
+			collect_string_labels(*for_statement.increment);
+			for (const auto &body_statement : for_statement.body)
+				collect_string_labels(*body_statement);
+			return;
+		}
+
 		if (statement.kind == ir::Statement::Kind::Break ||
 		    statement.kind == ir::Statement::Kind::Continue)
 			return;
@@ -1023,6 +1115,16 @@ private:
 			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
 			emit_string_literals(*while_statement.condition);
 			for (const auto &body_statement : while_statement.body)
+				emit_string_literals(*body_statement);
+			return;
+		}
+
+		if (statement.kind == ir::Statement::Kind::For) {
+			const auto &for_statement = static_cast<const ir::ForStatement &>(statement);
+			emit_string_literals(*for_statement.initializer);
+			emit_string_literals(*for_statement.condition);
+			emit_string_literals(*for_statement.increment);
+			for (const auto &body_statement : for_statement.body)
 				emit_string_literals(*body_statement);
 			return;
 		}

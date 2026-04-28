@@ -454,6 +454,19 @@ private:
 				lower_statements(while_stmt.body, function_return_type, locals));
 		}
 
+		if (statement.kind == ast::Stmt::Kind::For) {
+			const auto &for_stmt = static_cast<const ast::ForStmt &>(statement);
+			auto for_locals = locals;
+			auto initializer =
+				lower_statement(*for_stmt.initializer, function_return_type, for_locals);
+			auto condition = lower_expr(*for_stmt.condition, for_locals, bool_type());
+			auto increment =
+				lower_statement(*for_stmt.increment, function_return_type, for_locals);
+			return std::make_unique<ir::ForStatement>(
+				std::move(initializer), std::move(condition), std::move(increment),
+				lower_statements(for_stmt.body, function_return_type, for_locals));
+		}
+
 		if (statement.kind == ast::Stmt::Kind::Break)
 			return std::make_unique<ir::BreakStatement>();
 

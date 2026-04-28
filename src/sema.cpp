@@ -717,6 +717,26 @@ private:
 			return;
 		}
 
+		if (statement.kind == ast::Stmt::Kind::For) {
+			const auto &for_stmt = static_cast<const ast::ForStmt &>(statement);
+			auto for_locals = locals;
+			analyze_statement(function_return_type, for_locals, *for_stmt.initializer,
+			                  loop_depth);
+
+			auto condition_type = check_expr(for_locals, *for_stmt.condition, bool_type());
+			if (condition_type && *condition_type != bool_type())
+				diagnostics_.error(for_stmt.condition->location, "for condition must be bool");
+
+			auto body_locals = for_locals;
+			for (const auto &body_statement : for_stmt.body)
+				analyze_statement(function_return_type, body_locals, *body_statement,
+				                  loop_depth + 1);
+
+			analyze_statement(function_return_type, for_locals, *for_stmt.increment,
+			                  loop_depth);
+			return;
+		}
+
 		if (statement.kind == ast::Stmt::Kind::Break) {
 			if (loop_depth == 0)
 				diagnostics_.error(statement.location, "break statement outside loop");

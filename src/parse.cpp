@@ -293,6 +293,8 @@ private:
 			return build_if_statement(if_statement);
 		if (auto *while_statement = context->whileStatement())
 			return build_while_statement(while_statement);
+		if (auto *for_statement = context->forStatement())
+			return build_for_statement(for_statement);
 		if (auto *break_statement = context->breakStatement())
 			return std::make_unique<ast::BreakStmt>(location(break_statement));
 		if (auto *continue_statement = context->continueStatement())
@@ -369,6 +371,34 @@ private:
 		return std::make_unique<ast::WhileStmt>(
 		    location(context), build_expression(context->expression()),
 		    build_block(context->block()));
+	}
+
+	std::unique_ptr<ast::Stmt> build_for_statement(RexyParser::ForStatementContext *context)
+	{
+		return std::make_unique<ast::ForStmt>(
+		    location(context), build_for_initializer(context->forInitializer()),
+		    build_expression(context->expression()),
+		    build_for_increment(context->forIncrement()), build_block(context->block()));
+	}
+
+	std::unique_ptr<ast::Stmt> build_for_initializer(
+	    RexyParser::ForInitializerContext *context)
+	{
+		if (auto *let = context->letStatement())
+			return build_let_statement(let);
+		return build_assign_statement(context->assignStatement());
+	}
+
+	std::unique_ptr<ast::Stmt> build_for_increment(RexyParser::ForIncrementContext *context)
+	{
+		if (auto *name = context->IDENT()) {
+			return std::make_unique<ast::AssignStmt>(
+			    location(name), name->getText(), build_expression(context->expression(0)));
+		}
+
+		return std::make_unique<ast::IndirectAssignStmt>(
+		    location(context), build_expression(context->expression(0)),
+		    build_expression(context->expression(1)));
 	}
 
 	std::unique_ptr<ast::Expr> build_expression(RexyParser::ExpressionContext *context)

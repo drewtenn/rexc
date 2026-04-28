@@ -138,6 +138,15 @@ WhileStmt::WhileStmt(SourceLocation location, std::unique_ptr<Expr> condition,
 {
 }
 
+ForStmt::ForStmt(SourceLocation location, std::unique_ptr<Stmt> initializer,
+                 std::unique_ptr<Expr> condition, std::unique_ptr<Stmt> increment,
+                 std::vector<std::unique_ptr<Stmt>> body)
+	: Stmt(Kind::For, std::move(location)), initializer(std::move(initializer)),
+	  condition(std::move(condition)), increment(std::move(increment)),
+	  body(std::move(body))
+{
+}
+
 BreakStmt::BreakStmt(SourceLocation location)
 	: Stmt(Kind::Break, std::move(location))
 {

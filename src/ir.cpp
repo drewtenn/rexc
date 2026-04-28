@@ -106,6 +106,16 @@ WhileStatement::WhileStatement(std::unique_ptr<Value> condition,
 {
 }
 
+ForStatement::ForStatement(std::unique_ptr<Statement> initializer,
+                           std::unique_ptr<Value> condition,
+                           std::unique_ptr<Statement> increment,
+                           std::vector<std::unique_ptr<Statement>> body)
+	: Statement(Kind::For), initializer(std::move(initializer)),
+	  condition(std::move(condition)), increment(std::move(increment)),
+	  body(std::move(body))
+{
+}
+
 BreakStatement::BreakStatement()
 	: Statement(Kind::Break)
 {
