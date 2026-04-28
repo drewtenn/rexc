@@ -163,6 +163,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 		rexc::stdlib::find_stdlib_function("std::fs::read");
 	auto std_fs_close_path =
 		rexc::stdlib::find_stdlib_function("std::fs::close");
+	auto std_fs_getdents_path =
+		rexc::stdlib::find_stdlib_function("std::fs::getdents");
 	auto file_write_str = rexc::stdlib::find_stdlib_function("file_write_str");
 	auto path_join = rexc::stdlib::find_stdlib_function("path_join");
 	auto std_time_sleep_path =
@@ -241,6 +243,7 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(std_fs_open_read_path != nullptr);
 	REQUIRE(std_fs_read_path != nullptr);
 	REQUIRE(std_fs_close_path != nullptr);
+	REQUIRE(std_fs_getdents_path != nullptr);
 	REQUIRE(file_write_str != nullptr);
 	REQUIRE(path_join != nullptr);
 	REQUIRE(std_time_sleep_path != nullptr);
@@ -442,6 +445,8 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(std_fs_read_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(std_fs_close_path->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(std_fs_close_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_fs_getdents_path->parameters.size(), std::size_t(3));
+	REQUIRE_EQ(std_fs_getdents_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
 	REQUIRE_EQ(file_write_str->parameters.size(), std::size_t(2));
 	REQUIRE_EQ(path_join->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(std_time_sleep_path->parameters.size(), std::size_t(1));
@@ -554,6 +559,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386_drunix, "sys_file_open_read:"));
 	REQUIRE(contains(i386_drunix, "sys_file_create_write:"));
 	REQUIRE(contains(i386_drunix, "sys_file_close:"));
+	REQUIRE(contains(i386_drunix, "sys_getdents:"));
 	REQUIRE(contains(i386_drunix, "sys_args_len:"));
 	REQUIRE(contains(i386_drunix, "sys_arg:"));
 	REQUIRE(contains(i386_drunix, "sys_env_len:"));
@@ -616,6 +622,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "sys_env_len:"));
 	REQUIRE(contains(x86_64, "sys_env_at:"));
 	REQUIRE(contains(x86_64, "sys_kill:"));
+	REQUIRE(contains(x86_64, "sys_getdents:"));
 	REQUIRE(contains(x86_64, "sys_execve:"));
 	REQUIRE(contains(x86_64, "sys_trap_ud2:"));
 	REQUIRE(contains(x86_64, "sys_trap_gpfault:"));
@@ -671,6 +678,7 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "_sys_env_len:"));
 	REQUIRE(contains(arm64, "_sys_env_at:"));
 	REQUIRE(contains(arm64, "_sys_kill:"));
+	REQUIRE(contains(arm64, "_sys_getdents:"));
 	REQUIRE(contains(arm64, "_sys_execve:"));
 	REQUIRE(contains(arm64, "_sys_trap_ud2:"));
 	REQUIRE(contains(arm64, "_sys_trap_gpfault:"));

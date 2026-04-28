@@ -137,6 +137,19 @@ sys_file_close:
 	popl %ebx
 	leave
 	ret
+.globl sys_getdents
+sys_getdents:
+	pushl %ebp
+	movl %esp, %ebp
+	pushl %ebx
+	movl $4008, %eax
+	movl 8(%ebp), %ebx
+	movl 12(%ebp), %ecx
+	movl 16(%ebp), %edx
+	int $0x80
+	popl %ebx
+	leave
+	ret
 .globl sys_kill
 sys_kill:
 	pushl %ebp

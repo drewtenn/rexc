@@ -87,6 +87,11 @@ _sys_file_close:
 	bl _close
 	ldp x29, x30, [sp], #16
 	ret
+.globl _sys_getdents
+.p2align 2
+_sys_getdents:
+	mov x0, #-1
+	ret
 .globl _sys_kill
 .p2align 2
 _sys_kill:

@@ -1,6 +1,7 @@
 extern fn sys_file_open_read(path: str) -> i32;
 extern fn sys_file_create_write(path: str) -> i32;
 extern fn sys_file_close(fd: i32) -> i32;
+extern fn sys_getdents(path: str, buffer: *u8, len: i32) -> i32;
 
 fn file_open_read(path: str) -> i32 {
 	return sys_file_open_read(path);
@@ -36,4 +37,12 @@ fn std_fs_read(fd: i32, buffer: *u8, len: i32) -> i32 {
 
 fn std_fs_close(fd: i32) -> i32 {
 	return file_close(fd);
+}
+
+fn getdents(path: str, buffer: *u8, len: i32) -> i32 {
+	return sys_getdents(path, buffer, len);
+}
+
+fn std_fs_getdents(path: str, buffer: *u8, len: i32) -> i32 {
+	return getdents(path, buffer, len);
 }
