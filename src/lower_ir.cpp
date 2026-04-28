@@ -140,10 +140,15 @@ private:
 
 	void build_static_table()
 	{
-		for (const auto &buffer : module_.static_buffers)
+		for (const auto &buffer : module_.static_buffers) {
+			ir::Type element_type = lower_type(buffer.element_type);
+			ir::Type global_type =
+			    element_type == u8_type() ? PrimitiveType{PrimitiveKind::Str}
+			                              : pointer_to(element_type);
 			globals_[canonical_item_path(buffer.module_path, buffer.name)] =
-				GlobalInfo{PrimitiveType{PrimitiveKind::Str},
+				GlobalInfo{global_type,
 				           symbol_item_path(buffer.module_path, buffer.name)};
+		}
 		for (const auto &scalar : module_.static_scalars)
 			globals_[canonical_item_path(scalar.module_path, scalar.name)] =
 				GlobalInfo{lower_type(scalar.type),

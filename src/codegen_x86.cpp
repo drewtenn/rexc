@@ -145,6 +145,7 @@ public:
 		if (diagnostics_.items().size() != starting_diagnostics)
 			return CodegenResult(false, "");
 
+		collect_static_buffer_names(module);
 		collect_string_labels(module);
 		emit_string_section(module);
 		emit_static_scalar_section(module);
@@ -161,6 +162,13 @@ public:
 	}
 
 private:
+	void collect_static_buffer_names(const ir::Module &module)
+	{
+		static_buffer_names_.clear();
+		for (const auto &buffer : module.static_buffers)
+			static_buffer_names_.insert(buffer.name);
+	}
+
 	void emit_function(const ir::Function &function)
 	{
 		Frame frame = build_frame(function);
@@ -616,7 +624,7 @@ private:
 		}
 		case ir::Value::Kind::Global: {
 			const auto &global = static_cast<const ir::GlobalValue &>(value);
-			if (global.type.kind != PrimitiveKind::Str) {
+			if (static_buffer_names_.find(global.name) == static_buffer_names_.end()) {
 				emit_static_scalar_load(global.name);
 				return;
 			}
@@ -1031,7 +1039,7 @@ private:
 		out_ << ".section .bss\n";
 		for (const auto &buffer : module.static_buffers) {
 			out_ << static_buffer_label(buffer.name) << ":\n";
-			out_ << "\t.zero " << buffer.length << "\n";
+			out_ << "\t.zero " << static_buffer_size_bytes(buffer) << "\n";
 		}
 	}
 
@@ -1182,6 +1190,7 @@ private:
 	std::ostringstream out_;
 	std::string current_function_;
 	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
+	std::unordered_set<std::string> static_buffer_names_;
 	std::unordered_set<std::string> unsupported_diagnostics_;
 	std::vector<std::string> loop_start_labels_;
 	std::vector<std::string> loop_end_labels_;
@@ -1390,6 +1399,11 @@ private:
 		if (!target_type)
 			return 1;
 		return memory_bits(*target_type) / 8;
+	}
+
+	std::size_t static_buffer_size_bytes(const ir::StaticBuffer &buffer) const
+	{
+		return buffer.length * static_cast<std::size_t>(memory_bits(buffer.element_type) / 8);
 	}
 
 	const char *accumulator_register() const

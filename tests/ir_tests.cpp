@@ -102,6 +102,27 @@ TEST_CASE(lowering_preserves_static_i32_scalars)
 	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("i32"));
 }
 
+TEST_CASE(lowering_preserves_static_i32_buffers)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "static mut OFFSETS: [i32; 8];\nfn main() -> *i32 { return OFFSETS + 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	REQUIRE_EQ(module.static_buffers.size(), std::size_t(1));
+	REQUIRE_EQ(module.static_buffers[0].name, std::string("OFFSETS"));
+	REQUIRE_EQ(rexc::format_type(module.static_buffers[0].element_type), std::string("i32"));
+	REQUIRE_EQ(module.static_buffers[0].length, std::size_t(8));
+	const auto &ret = static_cast<const rexc::ir::ReturnStatement &>(*module.functions[0].body[0]);
+	REQUIRE_EQ(rexc::format_type(ret.value->type), std::string("*i32"));
+}
+
 TEST_CASE(lowering_lowers_unary_minus_as_typed_unary_value)
 {
 	rexc::SourceFile source("test.rx", "fn main() -> i32 { return -1; }\n");

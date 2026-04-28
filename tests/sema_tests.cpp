@@ -442,6 +442,18 @@ TEST_CASE(sema_accepts_static_mut_i32_scalar)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+TEST_CASE(sema_accepts_static_mut_i32_buffer_as_pointer_storage)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+		"static mut OFFSETS: [i32; 8];\n"
+		"fn main() -> i32 { *(OFFSETS + 0) = 42; return OFFSETS[0]; }\n",
+		diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 TEST_CASE(sema_rejects_non_integer_string_index)
 {
 	rexc::Diagnostics diagnostics;

@@ -243,10 +243,6 @@ private:
 			note_module_path(buffer.module_path);
 
 			PrimitiveType element_type = check_type(buffer.element_type);
-			if (element_type != u8_type()) {
-				diagnostics_.error(buffer.element_type.location,
-				                   "static buffers currently require u8 elements");
-			}
 			if (!buffer.is_mutable)
 				diagnostics_.error(buffer.location, "static buffer must be mutable");
 
@@ -254,7 +250,10 @@ private:
 			if (!length || *length == 0)
 				diagnostics_.error(buffer.location, "static buffer length must be greater than zero");
 
-			globals_[key] = GlobalInfo{PrimitiveType{PrimitiveKind::Str},
+			PrimitiveType global_type =
+			    element_type == u8_type() ? PrimitiveType{PrimitiveKind::Str}
+			                              : pointer_to(element_type);
+			globals_[key] = GlobalInfo{global_type,
 			                           buffer.is_mutable, buffer.module_path,
 			                           buffer.visibility};
 		}

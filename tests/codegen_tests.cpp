@@ -653,6 +653,17 @@ TEST_CASE(codegen_i386_emits_static_i32_scalar_load_and_store)
 	REQUIRE(assembly.find("movl %eax, .Lstatic_USER_COUNTER") != std::string::npos);
 }
 
+TEST_CASE(codegen_i386_sizes_static_i32_buffers_by_element_width)
+{
+	auto assembly = compile_to_assembly(
+		"static mut OFFSETS: [i32; 4];\n"
+		"fn main() -> i32 { *(OFFSETS + 0) = 7; return OFFSETS[0]; }\n");
+
+	REQUIRE(assembly.find(".Lstatic_OFFSETS:") != std::string::npos);
+	REQUIRE(assembly.find(".zero 16") != std::string::npos);
+	REQUIRE(assembly.find("movl $.Lstatic_OFFSETS, %eax") != std::string::npos);
+}
+
 TEST_CASE(codegen_i386_emits_u8_pointer_to_str_cast_as_noop)
 {
 	auto assembly = compile_to_assembly(

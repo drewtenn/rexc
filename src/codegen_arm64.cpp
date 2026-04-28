@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -132,6 +133,7 @@ public:
 		if (diagnostics_.items().size() != starting_diagnostics)
 			return CodegenResult(false, "");
 
+		collect_static_buffer_names(module);
 		collect_string_labels(module);
 		emit_string_section(module);
 		emit_static_scalar_section(module);
@@ -147,6 +149,13 @@ public:
 	}
 
 private:
+	void collect_static_buffer_names(const ir::Module &module)
+	{
+		static_buffer_names_.clear();
+		for (const auto &buffer : module.static_buffers)
+			static_buffer_names_.insert(buffer.name);
+	}
+
 	void validate_module(const ir::Module &module)
 	{
 		for (const auto &buffer : module.static_buffers)
@@ -410,7 +419,7 @@ private:
 		}
 		case ir::Value::Kind::Global: {
 			const auto &global = static_cast<const ir::GlobalValue &>(value);
-			if (global.type.kind != PrimitiveKind::Str) {
+			if (static_buffer_names_.find(global.name) == static_buffer_names_.end()) {
 				emit_static_scalar_load(global.name);
 				return;
 			}
@@ -750,7 +759,7 @@ private:
 	{
 		for (const auto &buffer : module.static_buffers) {
 			out_ << ".zerofill __DATA,__bss," << static_buffer_label(buffer.name) << ","
-			     << buffer.length << ",4\n";
+			     << static_buffer_size_bytes(buffer) << ",4\n";
 		}
 	}
 
@@ -914,6 +923,12 @@ private:
 		return std::max(1, memory_bits(*target_type) / 8);
 	}
 
+	std::size_t static_buffer_size_bytes(const ir::StaticBuffer &buffer) const
+	{
+		return buffer.length * static_cast<std::size_t>(
+		                           std::max(1, memory_bits(buffer.element_type) / 8));
+	}
+
 	static const std::vector<std::string> &argument_registers()
 	{
 		static const std::vector<std::string> registers{
@@ -924,6 +939,7 @@ private:
 	Diagnostics &diagnostics_;
 	std::ostringstream out_;
 	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
+	std::unordered_set<std::string> static_buffer_names_;
 	std::vector<std::string> loop_start_labels_;
 	std::vector<std::string> loop_end_labels_;
 	int next_label_id_ = 0;
