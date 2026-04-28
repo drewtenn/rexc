@@ -170,4 +170,15 @@ std::string mangle_generic_suffix(
     const std::vector<std::string> &parameter_order,
     const std::unordered_map<std::string, PrimitiveType> &bindings);
 
+// FE-103: split "i32, bool, *u8" -> ["i32", "bool", "*u8"], respecting
+// nested parentheses and angle brackets. Used when the parser stores a
+// generic instantiation like "Box<i32>" as a single TypeName string.
+std::vector<std::string> split_type_arguments(const std::string &text);
+
+// FE-103: if `name` is shaped like "<prefix><...args>" return the args
+// list; otherwise std::nullopt. The args list never contains empty
+// entries (unbalanced or empty inputs map to nullopt).
+std::optional<std::vector<std::string>> consume_generic_type_arguments(
+    const std::string &name, const std::string &prefix);
+
 } // namespace rexc

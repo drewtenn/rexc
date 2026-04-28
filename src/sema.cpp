@@ -102,75 +102,6 @@ std::optional<std::string> slice_helper_type_suffix(PrimitiveType type)
 	return std::nullopt;
 }
 
-std::string trim_type_text(std::string value)
-{
-	auto begin = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
-		return std::isspace(ch) != 0;
-	});
-	auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
-		return std::isspace(ch) != 0;
-	}).base();
-	if (begin >= end)
-		return "";
-	return std::string(begin, end);
-}
-
-std::vector<std::string> split_type_arguments(const std::string &text)
-{
-	std::vector<std::string> parts;
-	int paren_depth = 0;
-	int angle_depth = 0;
-	std::size_t start = 0;
-	for (std::size_t i = 0; i < text.size(); ++i) {
-		char ch = text[i];
-		if (ch == '(')
-			++paren_depth;
-		else if (ch == ')')
-			--paren_depth;
-		else if (ch == '<')
-			++angle_depth;
-		else if (ch == '>')
-			--angle_depth;
-		else if (ch == ',' && paren_depth == 0 && angle_depth == 0) {
-			parts.push_back(trim_type_text(text.substr(start, i - start)));
-			start = i + 1;
-		}
-	}
-	parts.push_back(trim_type_text(text.substr(start)));
-	return parts;
-}
-
-std::optional<std::vector<std::string>> consume_generic_type_arguments(
-    const std::string &name, const std::string &prefix)
-{
-	const std::string open = prefix + "<";
-	if (name.size() <= open.size() || name.rfind(open, 0) != 0 || name.back() != '>')
-		return std::nullopt;
-
-	int depth = 0;
-	for (std::size_t i = prefix.size(); i < name.size(); ++i) {
-		if (name[i] == '<')
-			++depth;
-		else if (name[i] == '>') {
-			--depth;
-			if (depth == 0 && i != name.size() - 1)
-				return std::nullopt;
-			if (depth < 0)
-				return std::nullopt;
-		}
-	}
-	if (depth != 0)
-		return std::nullopt;
-
-	auto inner = name.substr(prefix.size() + 1, name.size() - prefix.size() - 2);
-	auto parts = split_type_arguments(inner);
-	for (const auto &part : parts) {
-		if (part.empty())
-			return std::nullopt;
-	}
-	return parts;
-}
-
 struct FunctionInfo {
 	SourceLocation location;
 	PrimitiveType return_type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
@@ -207,6 +138,8 @@ struct StructInfo {
 	std::size_t total_size = 0;
 	std::size_t alignment = 1;
 	bool is_generic = false;
+	std::vector<std::string> generic_parameters; // FE-103
+	std::string template_name; // FE-103: for monomorphs, the original generic struct name
 	std::optional<PrimitiveType> field_type(const std::string &name) const
 	{
 		for (const auto &field : fields)
@@ -430,6 +363,7 @@ private:
 			}
 			it->second.fields = std::move(fields);
 			it->second.is_generic = !decl.generic_parameters.empty();
+			it->second.generic_parameters = decl.generic_parameters; // FE-103
 			if (!it->second.is_generic)
 				compute_struct_layout(it->second);
 			current_generic_parameters_.clear();
@@ -1467,6 +1401,20 @@ private:
 		case ast::Expr::Kind::StructLiteral: {
 			const auto &literal = static_cast<const ast::StructLiteralExpr &>(expr);
 			PrimitiveType literal_type = check_type(literal.type);
+			// FE-103: a literal `Box { value: 7 }` written without explicit
+			// type args is generic. If the expected type is a monomorph of
+			// the same template (e.g. Box__i32), adopt that here so field
+			// types are concrete during the per-field checks below.
+			if (is_user_struct(literal_type) && expected && is_user_struct(*expected)) {
+				if (auto info = structs_.find(literal_type.name);
+				    info != structs_.end() && info->second.is_generic) {
+					if (auto target = structs_.find(expected->name);
+					    target != structs_.end() &&
+					    target->second.template_name == literal_type.name) {
+						literal_type = *expected;
+					}
+				}
+			}
 			if (!is_user_struct(literal_type)) {
 				for (const auto &field : literal.fields)
 					check_expr(locals, *field.value);
@@ -1960,6 +1908,54 @@ private:
 		return check_type_name(type.name, type.location);
 	}
 
+	// FE-103: monomorphize a generic struct instantiation like `Box<i32>`.
+	// Mangles a unique name, substitutes field types, computes layout,
+	// and registers the result as a non-generic StructInfo so subsequent
+	// uses (literals, field access) work via the existing code paths.
+	// Recursive self-references (struct Tree<T> { left: *Tree<T> }) are
+	// not yet supported and would require pre-registering the mangled
+	// name before substituting fields.
+	PrimitiveType instantiate_generic_struct(
+	    const std::string &base,
+	    const std::vector<std::string> &type_arg_names,
+	    const SourceLocation &loc)
+	{
+		auto template_it = structs_.find(base);
+		if (template_it == structs_.end() || !template_it->second.is_generic) {
+			diagnostics_.error(loc,
+			                   "'" + base + "' is not a generic struct");
+			return i32_type();
+		}
+		const auto &tpl = template_it->second;
+		if (tpl.generic_parameters.size() != type_arg_names.size()) {
+			diagnostics_.error(loc, "generic struct '" + base + "' expects " +
+			                            std::to_string(tpl.generic_parameters.size()) +
+			                            " type arguments but got " +
+			                            std::to_string(type_arg_names.size()));
+			return i32_type();
+		}
+		std::unordered_map<std::string, PrimitiveType> bindings;
+		for (std::size_t i = 0; i < tpl.generic_parameters.size(); ++i)
+			bindings[tpl.generic_parameters[i]] =
+			    check_type_name(type_arg_names[i], loc);
+		std::string mangled =
+		    base + mangle_generic_suffix(tpl.generic_parameters, bindings);
+		if (auto existing = structs_.find(mangled); existing != structs_.end())
+			return struct_type(mangled, existing->second);
+		StructInfo info;
+		info.location = tpl.location;
+		info.module_path = tpl.module_path;
+		info.visibility = tpl.visibility;
+		info.template_name = base;
+		info.is_generic = false;
+		for (const auto &field : tpl.fields)
+			info.fields.emplace_back(field.first,
+			                         substitute_generics(field.second, bindings));
+		compute_struct_layout(info);
+		structs_[mangled] = std::move(info);
+		return struct_type(mangled, structs_.at(mangled));
+	}
+
 	PrimitiveType check_type_name(const std::string &name, const SourceLocation &loc)
 	{
 		if (auto option_args = consume_generic_type_arguments(name, "Option")) {
@@ -2000,6 +1996,17 @@ private:
 		// FE-103 monomorphization, so callers must avoid size queries here.
 		if (current_generic_parameters_.count(name) > 0)
 			return user_struct_type(name);
+		// FE-103: handle a generic struct instantiation like `Box<i32>`
+		// by mangling and registering a monomorphized StructInfo.
+		if (auto open = name.find('<');
+		    open != std::string::npos && !name.empty() && name.back() == '>') {
+			std::string base = name.substr(0, open);
+			auto template_it = structs_.find(base);
+			if (template_it != structs_.end() && template_it->second.is_generic) {
+				if (auto args = consume_generic_type_arguments(name, base))
+					return instantiate_generic_struct(base, *args, loc);
+			}
+		}
 		if (name == "int") {
 			diagnostics_.error(
 			    loc, "unknown type '" + name + "'",

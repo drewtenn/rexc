@@ -747,6 +747,78 @@ PrimitiveType substitute_generics(
 	}
 }
 
+namespace {
+
+std::string trim_type_text_internal(std::string value)
+{
+	auto begin = std::find_if_not(value.begin(), value.end(),
+	                              [](unsigned char ch) { return std::isspace(ch) != 0; });
+	auto end = std::find_if_not(value.rbegin(), value.rend(),
+	                            [](unsigned char ch) { return std::isspace(ch) != 0; })
+	               .base();
+	if (begin >= end)
+		return "";
+	return std::string(begin, end);
+}
+
+} // namespace
+
+std::vector<std::string> split_type_arguments(const std::string &text)
+{
+	std::vector<std::string> parts;
+	int paren_depth = 0;
+	int angle_depth = 0;
+	std::size_t start = 0;
+	for (std::size_t i = 0; i < text.size(); ++i) {
+		char ch = text[i];
+		if (ch == '(')
+			++paren_depth;
+		else if (ch == ')')
+			--paren_depth;
+		else if (ch == '<')
+			++angle_depth;
+		else if (ch == '>')
+			--angle_depth;
+		else if (ch == ',' && paren_depth == 0 && angle_depth == 0) {
+			parts.push_back(trim_type_text_internal(text.substr(start, i - start)));
+			start = i + 1;
+		}
+	}
+	parts.push_back(trim_type_text_internal(text.substr(start)));
+	return parts;
+}
+
+std::optional<std::vector<std::string>> consume_generic_type_arguments(
+    const std::string &name, const std::string &prefix)
+{
+	const std::string open = prefix + "<";
+	if (name.size() <= open.size() || name.rfind(open, 0) != 0 || name.back() != '>')
+		return std::nullopt;
+
+	int depth = 0;
+	for (std::size_t i = prefix.size(); i < name.size(); ++i) {
+		if (name[i] == '<')
+			++depth;
+		else if (name[i] == '>') {
+			--depth;
+			if (depth == 0 && i != name.size() - 1)
+				return std::nullopt;
+			if (depth < 0)
+				return std::nullopt;
+		}
+	}
+	if (depth != 0)
+		return std::nullopt;
+
+	auto inner = name.substr(prefix.size() + 1, name.size() - prefix.size() - 2);
+	auto parts = split_type_arguments(inner);
+	for (const auto &part : parts) {
+		if (part.empty())
+			return std::nullopt;
+	}
+	return parts;
+}
+
 std::string mangle_generic_suffix(
     const std::vector<std::string> &parameter_order,
     const std::unordered_map<std::string, PrimitiveType> &bindings)

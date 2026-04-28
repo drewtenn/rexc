@@ -698,6 +698,39 @@ TEST_CASE(lowering_routes_generic_call_to_mangled_symbol)
 	REQUIRE_EQ(call.callee, std::string("id__i32"));
 }
 
+// FE-103 (Phase 2): generic struct monomorphization at type sites.
+
+TEST_CASE(lowering_monomorphizes_generic_struct_per_type_argument)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Box<T> { value: T }\n"
+	    "fn make_i32(x: i32) -> Box<i32> { return Box { value: x }; }\n"
+	    "fn make_bool(x: bool) -> Box<bool> { return Box { value: x }; }\n"
+	    "fn main() -> i32 {\n"
+	    "  let a: Box<i32> = make_i32(7);\n"
+	    "  let b: Box<bool> = make_bool(true);\n"
+	    "  return a.value;\n"
+	    "}\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	// The generic Box template is NOT emitted; each instantiation is lowered
+	// via its mangled type identity. Function symbols stay as-is (functions
+	// here are not generic).
+	const rexc::ir::Function *make_i32 = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "make_i32") make_i32 = &f;
+	REQUIRE(make_i32 != nullptr);
+	// make_i32's return type uses the mangled struct name.
+	REQUIRE_EQ(make_i32->return_type.kind, rexc::PrimitiveKind::UserStruct);
+	REQUIRE_EQ(make_i32->return_type.name, std::string("Box__i32"));
+}
+
 TEST_CASE(lowering_monomorphizes_pointer_pattern_correctly)
 {
 	rexc::SourceFile source(

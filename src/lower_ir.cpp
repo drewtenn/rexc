@@ -247,8 +247,16 @@ private:
 
 	void register_type_tables()
 	{
-		for (const auto &decl : module_.structs)
-			struct_layouts_.emplace(decl.name, StructLayout{});
+		for (const auto &decl : module_.structs) {
+			// FE-103: generic struct templates are not registered as
+			// concrete layouts; each `Box<i32>`-style instantiation gets
+			// its own mangled entry created on demand by lower_type_name.
+			if (decl.generic_parameters.empty()) {
+				struct_layouts_.emplace(decl.name, StructLayout{});
+			} else {
+				generic_struct_templates_[decl.name] = &decl;
+			}
+		}
 		for (const auto &decl : module_.enums)
 			enum_layouts_.emplace(decl.name, EnumLayoutInfo{});
 	}
@@ -256,6 +264,8 @@ private:
 	void compute_struct_layouts()
 	{
 		for (const auto &decl : module_.structs) {
+			if (!decl.generic_parameters.empty())
+				continue; // FE-103: generic templates have no layout
 			auto it = struct_layouts_.find(decl.name);
 			if (it == struct_layouts_.end())
 				continue;
@@ -276,6 +286,44 @@ private:
 			it->second.total_size = align_up(offset, struct_alignment);
 			it->second.alignment = struct_alignment;
 		}
+	}
+
+	// FE-103: instantiate a generic struct template (e.g. `Box<i32>`) at
+	// IR-lower time. Mangles the same way sema does so the two layers
+	// agree on the type identity.
+	std::string instantiate_generic_struct_layout(
+	    const ast::StructDecl &tpl,
+	    const std::vector<std::string> &type_arg_names)
+	{
+		std::unordered_map<std::string, ir::Type> bindings;
+		for (std::size_t i = 0;
+		     i < tpl.generic_parameters.size() && i < type_arg_names.size();
+		     ++i)
+			bindings[tpl.generic_parameters[i]] = lower_type_name(type_arg_names[i]);
+		std::string mangled =
+		    tpl.name + mangle_generic_suffix(tpl.generic_parameters, bindings);
+		if (struct_layouts_.find(mangled) != struct_layouts_.end())
+			return mangled;
+		StructLayout layout;
+		std::size_t offset = 0;
+		std::size_t struct_alignment = 1;
+		auto saved = current_type_substitutions_;
+		current_type_substitutions_ = bindings;
+		for (const auto &field : tpl.fields) {
+			ir::Type field_type = lower_type(field.type);
+			std::size_t field_alignment = alignment_of(field_type);
+			offset = align_up(offset, field_alignment);
+			layout.fields.push_back(
+			    StructFieldLayout{field.name, field_type, offset});
+			offset += size_in_bytes(field_type);
+			if (field_alignment > struct_alignment)
+				struct_alignment = field_alignment;
+		}
+		layout.total_size = align_up(offset, struct_alignment);
+		layout.alignment = struct_alignment;
+		current_type_substitutions_ = std::move(saved);
+		struct_layouts_[mangled] = std::move(layout);
+		return mangled;
 	}
 
 	void compute_enum_layouts()
@@ -338,6 +386,30 @@ private:
 			return user_struct_type(name, static_cast<int>(layout->second.total_size * 8));
 		if (auto layout = enum_layouts_.find(name); layout != enum_layouts_.end())
 			return user_enum_type(name, static_cast<int>(layout->second.layout.total_size * 8));
+		// FE-103: lazily instantiate `Box<i32>`-shaped generic struct types.
+		if (auto open = name.find('<');
+		    open != std::string::npos && !name.empty() && name.back() == '>') {
+			std::string base = name.substr(0, open);
+			auto template_it = generic_struct_templates_.find(base);
+			if (template_it != generic_struct_templates_.end()) {
+				auto args = consume_generic_type_arguments(name, base);
+				if (args) {
+					std::string mangled = instantiate_generic_struct_layout(
+					    *template_it->second, *args);
+					auto layout = struct_layouts_.find(mangled);
+					if (layout != struct_layouts_.end())
+						return user_struct_type(
+						    mangled,
+						    static_cast<int>(layout->second.total_size * 8));
+				}
+			}
+		}
+		// FE-103: bare reference to a generic struct (e.g. `Box` in a
+		// struct literal whose concrete instantiation comes from context).
+		// Return a sentinel UserStruct; the consumer (lower_struct_literal)
+		// is expected to swap in the monomorph using the expected type.
+		if (generic_struct_templates_.count(name) > 0)
+			return user_struct_type(name);
 		throw std::runtime_error("unknown primitive type in IR lowering: " + name);
 	}
 
@@ -656,7 +728,7 @@ private:
 		}
 		case ast::Expr::Kind::StructLiteral: {
 			const auto &literal = static_cast<const ast::StructLiteralExpr &>(expr);
-			return lower_struct_literal(literal, locals);
+			return lower_struct_literal(literal, locals, expected);
 		}
 		case ast::Expr::Kind::Tuple: {
 			const auto &tuple = static_cast<const ast::TupleExpr &>(expr);
@@ -789,9 +861,16 @@ private:
 	}
 
 	std::unique_ptr<ir::Value> lower_struct_literal(
-		const ast::StructLiteralExpr &literal, const Locals &locals)
+		const ast::StructLiteralExpr &literal, const Locals &locals,
+		std::optional<ir::Type> expected = std::nullopt)
 	{
 		ir::Type literal_type = lower_type(literal.type);
+		// FE-103: when the literal's bare type is a generic template and
+		// the expected type is one of its monomorphs, adopt the monomorph
+		// so field offsets and types come from the substituted layout.
+		if (expected && is_user_struct(literal_type) && is_user_struct(*expected) &&
+		    generic_struct_templates_.count(literal_type.name) > 0)
+			literal_type = *expected;
 		auto layout_it = struct_layouts_.find(literal_type.name);
 		if (layout_it == struct_layouts_.end())
 			throw std::runtime_error("unknown struct in IR lowering: " + literal_type.name);
@@ -1328,6 +1407,10 @@ private:
 	std::unordered_map<std::string, ImportScope> imports_;
 	std::unordered_set<std::string> modules_;
 	std::unordered_map<std::string, StructLayout> struct_layouts_;
+	// FE-103: generic struct templates indexed by base name; each
+	// `Box<i32>`-style instantiation is materialized lazily into
+	// struct_layouts_ under its mangled name.
+	std::unordered_map<std::string, const ast::StructDecl *> generic_struct_templates_;
 	std::unordered_map<std::string, EnumLayoutInfo> enum_layouts_;
 	std::unordered_map<std::string, EnumVariantLowerInfo> enum_variants_by_qualified_;
 	std::unordered_map<std::string, std::vector<EnumVariantLowerInfo>> enum_variants_by_name_;
