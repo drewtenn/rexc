@@ -109,14 +109,26 @@ fn vec_i32_new(capacity: i32) -> vec<i32> {
 	return vec as vec<i32>;
 }
 
+fn std_alloc_vec_i32_new(capacity: i32) -> vec<i32> {
+	return vec_i32_new(capacity);
+}
+
 fn vec_i32_len(vec: vec<i32>) -> i32 {
 	let raw: *i32 = vec as *i32;
 	return raw[0];
 }
 
+fn std_alloc_vec_i32_len(vec: vec<i32>) -> i32 {
+	return vec_i32_len(vec);
+}
+
 fn vec_i32_capacity(vec: vec<i32>) -> i32 {
 	let raw: *i32 = vec as *i32;
 	return raw[1];
+}
+
+fn std_alloc_vec_i32_capacity(vec: vec<i32>) -> i32 {
+	return vec_i32_capacity(vec);
 }
 
 fn vec_i32_push(vec: vec<i32>, value: i32) -> i32 {
@@ -130,6 +142,10 @@ fn vec_i32_push(vec: vec<i32>, value: i32) -> i32 {
 	return len + 1;
 }
 
+fn std_alloc_vec_i32_push(vec: vec<i32>, value: i32) -> i32 {
+	return vec_i32_push(vec, value);
+}
+
 fn vec_i32_get_or(vec: vec<i32>, index: i32, fallback: i32) -> i32 {
 	if index < 0 {
 		return fallback;
@@ -139,6 +155,10 @@ fn vec_i32_get_or(vec: vec<i32>, index: i32, fallback: i32) -> i32 {
 	}
 	let raw: *i32 = vec as *i32;
 	return raw[2 + index];
+}
+
+fn std_alloc_vec_i32_get_or(vec: vec<i32>, index: i32, fallback: i32) -> i32 {
+	return vec_i32_get_or(vec, index, fallback);
 }
 
 fn slice_i32_from(data: *i32, len: i32) -> slice<i32> {
@@ -155,9 +175,17 @@ fn slice_i32_from(data: *i32, len: i32) -> slice<i32> {
 	return vec as slice<i32>;
 }
 
+fn std_alloc_slice_i32_from(data: *i32, len: i32) -> slice<i32> {
+	return slice_i32_from(data, len);
+}
+
 fn slice_i32_len(slice: slice<i32>) -> i32 {
 	let raw: *i32 = slice as *i32;
 	return raw[0];
+}
+
+fn std_alloc_slice_i32_len(slice: slice<i32>) -> i32 {
+	return slice_i32_len(slice);
 }
 
 fn slice_i32_get_or(slice: slice<i32>, index: i32, fallback: i32) -> i32 {
@@ -171,11 +199,19 @@ fn slice_i32_get_or(slice: slice<i32>, index: i32, fallback: i32) -> i32 {
 	return raw[2 + index];
 }
 
+fn std_alloc_slice_i32_get_or(slice: slice<i32>, index: i32, fallback: i32) -> i32 {
+	return slice_i32_get_or(slice, index, fallback);
+}
+
 fn result_i32_ok(value: i32) -> Result<i32> {
 	let result: *i32 = alloc_bytes(8) as *i32;
 	*(result + 0) = 0;
 	*(result + 1) = value;
 	return result as Result<i32>;
+}
+
+fn std_alloc_result_i32_ok(value: i32) -> Result<i32> {
+	return result_i32_ok(value);
 }
 
 fn result_i32_err(code: i32) -> Result<i32> {
@@ -185,14 +221,26 @@ fn result_i32_err(code: i32) -> Result<i32> {
 	return result as Result<i32>;
 }
 
+fn std_alloc_result_i32_err(code: i32) -> Result<i32> {
+	return result_i32_err(code);
+}
+
 fn result_i32_is_ok(result: Result<i32>) -> bool {
 	let raw: *i32 = result as *i32;
 	return raw[0] >= 0;
 }
 
+fn std_alloc_result_i32_is_ok(result: Result<i32>) -> bool {
+	return result_i32_is_ok(result);
+}
+
 fn result_i32_is_err(result: Result<i32>) -> bool {
 	let raw: *i32 = result as *i32;
 	return raw[0] < 0;
+}
+
+fn std_alloc_result_i32_is_err(result: Result<i32>) -> bool {
+	return result_i32_is_err(result);
 }
 
 fn result_i32_value_or(result: Result<i32>, fallback: i32) -> i32 {
@@ -203,9 +251,17 @@ fn result_i32_value_or(result: Result<i32>, fallback: i32) -> i32 {
 	return fallback;
 }
 
+fn std_alloc_result_i32_value_or(result: Result<i32>, fallback: i32) -> i32 {
+	return result_i32_value_or(result, fallback);
+}
+
 fn result_i32_error(result: Result<i32>) -> i32 {
 	let raw: *i32 = result as *i32;
 	return raw[0];
+}
+
+fn std_alloc_result_i32_error(result: Result<i32>) -> i32 {
+	return result_i32_error(result);
 }
 
 fn _write_digit_to(dest: *u8, value: i32) -> i32 {
