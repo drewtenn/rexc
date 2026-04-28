@@ -139,6 +139,14 @@ private:
 			module.static_scalars.push_back(build_static_scalar(static_scalar, module_path));
 			return;
 		}
+		if (auto *struct_declaration = context->structDeclaration()) {
+			module.structs.push_back(build_struct_declaration(struct_declaration, module_path));
+			return;
+		}
+		if (auto *enum_declaration = context->enumDeclaration()) {
+			module.enums.push_back(build_enum_declaration(enum_declaration, module_path));
+			return;
+		}
 		if (auto *extern_function = context->externFunction()) {
 			module.functions.push_back(build_extern_function(extern_function, module_path));
 			return;
@@ -259,6 +267,62 @@ private:
 		return scalar;
 	}
 
+	ast::StructDecl build_struct_declaration(RexyParser::StructDeclarationContext *context,
+	                                         const std::vector<std::string> &module_path)
+	{
+		ast::StructDecl decl;
+		decl.visibility = visibility(context);
+		decl.name = context->IDENT()->getText();
+		decl.location = location(context);
+		decl.module_path = module_path;
+		if (auto *generics = context->genericParameters())
+			decl.generic_parameters = build_generic_parameters(generics);
+		for (auto *field : context->structField())
+			decl.fields.push_back(build_struct_field(field));
+		return decl;
+	}
+
+	std::vector<std::string> build_generic_parameters(
+		RexyParser::GenericParametersContext *context)
+	{
+		std::vector<std::string> names;
+		for (auto *ident : context->IDENT())
+			names.push_back(ident->getText());
+		return names;
+	}
+
+	ast::StructField build_struct_field(RexyParser::StructFieldContext *context)
+	{
+		auto *name = context->IDENT();
+		return ast::StructField{name->getText(), build_type(context->type()), location(name)};
+	}
+
+	ast::EnumDecl build_enum_declaration(RexyParser::EnumDeclarationContext *context,
+	                                     const std::vector<std::string> &module_path)
+	{
+		ast::EnumDecl decl;
+		decl.visibility = visibility(context);
+		decl.name = context->IDENT()->getText();
+		decl.location = location(context);
+		decl.module_path = module_path;
+		for (auto *variant : context->enumVariant())
+			decl.variants.push_back(build_enum_variant(variant));
+		return decl;
+	}
+
+	ast::EnumVariant build_enum_variant(RexyParser::EnumVariantContext *context)
+	{
+		auto *name = context->IDENT();
+		ast::EnumVariant variant;
+		variant.name = name->getText();
+		variant.location = location(name);
+		if (auto *payload = context->enumPayloadTypeList()) {
+			for (auto *type : payload->type())
+				variant.payload_types.push_back(build_type(type));
+		}
+		return variant;
+	}
+
 	ast::Function build_extern_function(RexyParser::ExternFunctionContext *context,
 	                                    const std::vector<std::string> &module_path)
 	{
@@ -276,9 +340,33 @@ private:
 		ast::Function function = build_signature(context->IDENT(), context->parameterList(),
 		                                         context->type(), location(context));
 		function.visibility = visibility(context);
+		function.is_unsafe = has_unsafe_modifier(context);
+		if (auto *generics = context->genericParameters())
+			function.generic_parameters = build_generic_parameters(generics);
 		function.module_path = module_path;
 		function.body = build_block(context->block());
 		return function;
+	}
+
+	bool has_unsafe_modifier(RexyParser::FunctionDefinitionContext *context)
+	{
+		// 'pub'? 'unsafe'? 'fn' IDENT — scan leading terminals up to 'fn'.
+		for (auto *child : context->children) {
+			std::string text = child->getText();
+			if (text == "fn")
+				return false;
+			if (text == "unsafe")
+				return true;
+		}
+		return false;
+	}
+
+	std::unique_ptr<ast::Stmt> build_unsafe_block(RexyParser::UnsafeBlockContext *context)
+	{
+		std::vector<std::unique_ptr<ast::Stmt>> body;
+		for (auto *statement : context->statement())
+			body.push_back(build_statement(statement));
+		return std::make_unique<ast::UnsafeBlockStmt>(location(context), std::move(body));
 	}
 
 	ast::Function build_signature(antlr4::tree::TerminalNode *name,
@@ -330,6 +418,8 @@ private:
 			return build_assign_statement(assign);
 		if (auto *indirect_assign = context->indirectAssignStatement())
 			return build_indirect_assign_statement(indirect_assign);
+		if (auto *field_assign = context->fieldAssignStatement())
+			return build_field_assign_statement(field_assign);
 		if (auto *inc_dec = context->incDecStatement())
 			return build_inc_dec_statement(inc_dec);
 		if (auto *call_statement = context->callStatement())
@@ -348,6 +438,8 @@ private:
 			return std::make_unique<ast::BreakStmt>(location(break_statement));
 		if (auto *continue_statement = context->continueStatement())
 			return std::make_unique<ast::ContinueStmt>(location(continue_statement));
+		if (auto *unsafe_block = context->unsafeBlock())
+			return build_unsafe_block(unsafe_block);
 
 		diagnostics_.error(location(context), "expected statement");
 		return std::make_unique<ast::ReturnStmt>(
@@ -385,6 +477,16 @@ private:
 		return std::make_unique<ast::IndirectAssignStmt>(
 		    location(context), build_expression(context->expression(0)),
 		    build_expression(context->expression(1)));
+	}
+
+	std::unique_ptr<ast::Stmt> build_field_assign_statement(
+	    RexyParser::FieldAssignStatementContext *context)
+	{
+		// Grammar: '(' '*' expression ')' '.' IDENT '=' expression ';'
+		// expression(0) is the pointer expr; expression(1) is the rhs value.
+		return std::make_unique<ast::FieldAssignStmt>(
+		    location(context), build_expression(context->expression(0)),
+		    context->IDENT()->getText(), build_expression(context->expression(1)));
 	}
 
 	std::unique_ptr<ast::Stmt> build_inc_dec_statement(
@@ -468,7 +570,30 @@ private:
 			pattern.literal = character->getText();
 			return pattern;
 		}
+		if (auto *path = context->qualifiedName()) {
+			pattern.kind = ast::MatchPattern::Kind::Variant;
+			pattern.path = build_qualified_name(path);
+			pattern.bindings = build_pattern_bindings(context->patternBindingList());
+			return pattern;
+		}
+		if (auto *identifier = context->IDENT()) {
+			pattern.kind = ast::MatchPattern::Kind::Struct;
+			pattern.path.push_back(identifier->getText());
+			pattern.bindings = build_pattern_bindings(context->patternBindingList());
+			return pattern;
+		}
 		return pattern;
+	}
+
+	std::vector<std::string> build_pattern_bindings(
+	    RexyParser::PatternBindingListContext *context)
+	{
+		std::vector<std::string> bindings;
+		if (context == nullptr)
+			return bindings;
+		for (auto *binding : context->patternBinding())
+			bindings.push_back(binding->getText());
+		return bindings;
 	}
 
 	std::unique_ptr<ast::Stmt> build_while_statement(
@@ -609,12 +734,27 @@ private:
 	std::unique_ptr<ast::Expr> build_postfix(RexyParser::PostfixContext *context)
 	{
 		auto value = build_primary(context->primary());
-		for (auto *index : context->expression()) {
-			auto offset = build_expression(index);
-			auto address = std::make_unique<ast::BinaryExpr>(
-			    location(index), "+", std::move(value), std::move(offset));
-			value = std::make_unique<ast::UnaryExpr>(
-			    location(index), "*", std::move(address));
+		for (auto *suffix : context->postfixSuffix()) {
+			if (auto *index = suffix->expression()) {
+				value = std::make_unique<ast::IndexExpr>(
+				    location(index), std::move(value), build_expression(index));
+				continue;
+			}
+			if (auto *field = suffix->IDENT()) {
+				value = std::make_unique<ast::FieldAccessExpr>(
+				    location(suffix), std::move(value), field->getText());
+				continue;
+			}
+			if (auto *field = suffix->INTEGER()) {
+				value = std::make_unique<ast::FieldAccessExpr>(
+				    location(suffix), std::move(value), field->getText());
+				continue;
+			}
+			if (suffix->getText() == "?") {
+				value = std::make_unique<ast::TryExpr>(
+				    location(suffix), std::move(value));
+				continue;
+			}
 		}
 		if (!context->children.empty()) {
 			std::string suffix = context->children.back()->getText();
@@ -667,6 +807,12 @@ private:
 			    location(string), decode_quoted_literal(string->getText()));
 		}
 
+		if (auto *literal = context->structLiteral())
+			return build_struct_literal(literal);
+
+		if (auto *tuple = context->tupleExpression())
+			return build_tuple_expression(tuple);
+
 		if (auto *call = context->callExpression())
 			return build_call_expression(call);
 
@@ -674,6 +820,29 @@ private:
 			return std::make_unique<ast::NameExpr>(location(name), name->getText());
 
 		return build_expression(context->expression());
+	}
+
+	std::unique_ptr<ast::Expr> build_tuple_expression(
+	    RexyParser::TupleExpressionContext *context)
+	{
+		auto tuple = std::make_unique<ast::TupleExpr>(location(context));
+		for (auto *element : context->expression())
+			tuple->elements.push_back(build_expression(element));
+		return tuple;
+	}
+
+	std::unique_ptr<ast::Expr> build_struct_literal(RexyParser::StructLiteralContext *context)
+	{
+		auto *name = context->IDENT();
+		ast::TypeName type{name->getText(), location(name)};
+		auto literal = std::make_unique<ast::StructLiteralExpr>(location(context), type);
+		for (auto *field : context->structLiteralField()) {
+			auto *field_name = field->IDENT();
+			literal->fields.push_back(ast::StructLiteralField{
+			    field_name->getText(), build_expression(field->expression()),
+			    location(field_name)});
+		}
+		return literal;
 	}
 
 	std::unique_ptr<ast::Expr> build_call_expression(
@@ -757,6 +926,11 @@ void merge_module(ast::Module &target, ast::Module source)
 	target.static_scalars.insert(target.static_scalars.end(),
 	                             std::make_move_iterator(source.static_scalars.begin()),
 	                             std::make_move_iterator(source.static_scalars.end()));
+	target.structs.insert(target.structs.end(),
+	                      std::make_move_iterator(source.structs.begin()),
+	                      std::make_move_iterator(source.structs.end()));
+	target.enums.insert(target.enums.end(), std::make_move_iterator(source.enums.begin()),
+	                    std::make_move_iterator(source.enums.end()));
 	target.functions.insert(target.functions.end(),
 	                        std::make_move_iterator(source.functions.begin()),
 	                        std::make_move_iterator(source.functions.end()));

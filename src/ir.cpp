@@ -64,6 +64,22 @@ CallValue::CallValue(std::string callee, Type type)
 {
 }
 
+StructLiteralValue::StructLiteralValue(Type type, std::size_t size)
+	: Value(Kind::StructLiteral, std::move(type)), size(size)
+{
+}
+
+StructFieldValue::StructFieldValue(std::unique_ptr<Value> base, Type type,
+                                   std::size_t offset)
+	: Value(Kind::StructField, std::move(type)), base(std::move(base)), offset(offset)
+{
+}
+
+EnumLiteralValue::EnumLiteralValue(Type type, std::uint32_t tag, std::size_t size)
+	: Value(Kind::EnumLiteral, std::move(type)), tag(tag), size(size)
+{
+}
+
 Statement::Statement(Kind kind) : kind(kind) {}
 
 LetStatement::LetStatement(std::string name, std::unique_ptr<Value> value)

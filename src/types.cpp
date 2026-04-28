@@ -9,6 +9,8 @@
 
 #include <cstddef>
 #include <limits>
+#include <algorithm>
+#include <cctype>
 #include <utility>
 
 namespace rexc {
@@ -18,6 +20,19 @@ namespace {
 bool is_valid_integer_width(int bits)
 {
 	return bits == 8 || bits == 16 || bits == 32 || bits == 64;
+}
+
+std::string trim(std::string value)
+{
+	auto begin = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+		return std::isspace(ch) != 0;
+	});
+	auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+		return std::isspace(ch) != 0;
+	}).base();
+	if (begin >= end)
+		return "";
+	return std::string(begin, end);
 }
 
 bool consume_generic(const std::string &name, const std::string &prefix,
@@ -46,6 +61,31 @@ bool consume_generic(const std::string &name, const std::string &prefix,
 	return !inner.empty();
 }
 
+std::vector<std::string> split_comma_list(const std::string &text)
+{
+	std::vector<std::string> parts;
+	int paren_depth = 0;
+	int angle_depth = 0;
+	std::size_t start = 0;
+	for (std::size_t i = 0; i < text.size(); ++i) {
+		char ch = text[i];
+		if (ch == '(')
+			++paren_depth;
+		else if (ch == ')')
+			--paren_depth;
+		else if (ch == '<')
+			++angle_depth;
+		else if (ch == '>')
+			--angle_depth;
+		else if (ch == ',' && paren_depth == 0 && angle_depth == 0) {
+			parts.push_back(trim(text.substr(start, i - start)));
+			start = i + 1;
+		}
+	}
+	parts.push_back(trim(text.substr(start)));
+	return parts;
+}
+
 PrimitiveType handle_with_payload(PrimitiveKind kind, PrimitiveType payload)
 {
 	return PrimitiveType{kind, 0,
@@ -70,9 +110,83 @@ PrimitiveType vector_of(PrimitiveType element)
 	return handle_with_payload(PrimitiveKind::Vector, std::move(element));
 }
 
+PrimitiveType option_of(PrimitiveType value)
+{
+	return handle_with_payload(PrimitiveKind::Option, std::move(value));
+}
+
 PrimitiveType result_of(PrimitiveType value)
 {
 	return handle_with_payload(PrimitiveKind::Result, std::move(value));
+}
+
+PrimitiveType result_of(PrimitiveType value, PrimitiveType error)
+{
+	std::vector<PrimitiveType> elements{value, std::move(error)};
+	PrimitiveType type = handle_with_payload(PrimitiveKind::Result, std::move(value));
+	type.elements = std::make_shared<const std::vector<PrimitiveType>>(std::move(elements));
+	return type;
+}
+
+PrimitiveType tuple_type(std::vector<PrimitiveType> elements)
+{
+	TupleLayout layout = layout_tuple_elements(elements);
+	PrimitiveType type;
+	type.kind = PrimitiveKind::Tuple;
+	type.bits = static_cast<int>(layout.total_size * 8);
+	type.elements = std::make_shared<const std::vector<PrimitiveType>>(std::move(elements));
+	return type;
+}
+
+PrimitiveType user_struct_type(std::string name, int bits)
+{
+	PrimitiveType type;
+	type.kind = PrimitiveKind::UserStruct;
+	type.bits = bits;
+	type.name = std::move(name);
+	return type;
+}
+
+PrimitiveType user_enum_type(std::string name, int bits)
+{
+	PrimitiveType type;
+	type.kind = PrimitiveKind::UserEnum;
+	type.bits = bits;
+	type.name = std::move(name);
+	return type;
+}
+
+bool is_user_struct(PrimitiveType type)
+{
+	return type.kind == PrimitiveKind::UserStruct;
+}
+
+bool is_user_enum(PrimitiveType type)
+{
+	return type.kind == PrimitiveKind::UserEnum;
+}
+
+bool is_tuple(PrimitiveType type)
+{
+	return type.kind == PrimitiveKind::Tuple;
+}
+
+std::optional<std::vector<std::string>> split_tuple_type_name(const std::string &name)
+{
+	if (name.size() < 5 || name.front() != '(' || name.back() != ')')
+		return std::nullopt;
+
+	std::string inner = name.substr(1, name.size() - 2);
+	auto parts = split_comma_list(inner);
+	if (!parts.empty() && parts.back().empty())
+		parts.pop_back();
+	if (parts.size() < 2)
+		return std::nullopt;
+	for (const auto &part : parts) {
+		if (part.empty())
+			return std::nullopt;
+	}
+	return parts;
 }
 
 std::optional<PrimitiveType> parse_primitive_type(const std::string &name)
@@ -82,6 +196,12 @@ std::optional<PrimitiveType> parse_primitive_type(const std::string &name)
 		if (!pointee)
 			return std::nullopt;
 		return pointer_to(*pointee);
+	}
+	if (name.size() > 3 && name.rfind("&[", 0) == 0 && name.back() == ']') {
+		auto element = parse_primitive_type(name.substr(2, name.size() - 3));
+		if (!element)
+			return std::nullopt;
+		return slice_of(*element);
 	}
 	if (name == "owned_str")
 		return PrimitiveType{PrimitiveKind::OwnedStr};
@@ -98,11 +218,36 @@ std::optional<PrimitiveType> parse_primitive_type(const std::string &name)
 			return std::nullopt;
 		return vector_of(*element);
 	}
-	if (consume_generic(name, "Result", inner)) {
+	if (consume_generic(name, "Option", inner)) {
 		auto value = parse_primitive_type(inner);
 		if (!value)
 			return std::nullopt;
-		return result_of(*value);
+		return option_of(*value);
+	}
+	if (consume_generic(name, "Result", inner)) {
+		auto parts = split_comma_list(inner);
+		if (parts.size() != 1 && parts.size() != 2)
+			return std::nullopt;
+		auto value = parse_primitive_type(parts[0]);
+		if (!value)
+			return std::nullopt;
+		if (parts.size() == 1)
+			return result_of(*value);
+		auto error = parse_primitive_type(parts[1]);
+		if (!error)
+			return std::nullopt;
+		return result_of(*value, *error);
+	}
+	if (auto tuple_names = split_tuple_type_name(name)) {
+		std::vector<PrimitiveType> elements;
+		elements.reserve(tuple_names->size());
+		for (const auto &element_name : *tuple_names) {
+			auto element = parse_primitive_type(element_name);
+			if (!element)
+				return std::nullopt;
+			elements.push_back(*element);
+		}
+		return tuple_type(std::move(elements));
 	}
 	if (name == "i8")
 		return PrimitiveType{PrimitiveKind::SignedInteger, 8};
@@ -150,11 +295,32 @@ std::string format_type(PrimitiveType type)
 	case PrimitiveKind::OwnedStr:
 		return "owned_str";
 	case PrimitiveKind::Slice:
-		return "slice<" + format_type(*type.pointee) + ">";
+		return "&[" + format_type(*type.pointee) + "]";
 	case PrimitiveKind::Vector:
 		return "vec<" + format_type(*type.pointee) + ">";
+	case PrimitiveKind::Option:
+		return "Option<" + format_type(*type.pointee) + ">";
 	case PrimitiveKind::Result:
+		if (type.elements && type.elements->size() == 2) {
+			return "Result<" + format_type((*type.elements)[0]) + ", " +
+			       format_type((*type.elements)[1]) + ">";
+		}
 		return "Result<" + format_type(*type.pointee) + ">";
+	case PrimitiveKind::Tuple: {
+		if (!type.elements)
+			return "";
+		std::string formatted = "(";
+		for (std::size_t i = 0; i < type.elements->size(); ++i) {
+			if (i > 0)
+				formatted += ", ";
+			formatted += format_type((*type.elements)[i]);
+		}
+		formatted += ")";
+		return formatted;
+	}
+	case PrimitiveKind::UserStruct:
+	case PrimitiveKind::UserEnum:
+		return type.name;
 	}
 	return "";
 }
@@ -173,9 +339,33 @@ bool is_valid_primitive_type(PrimitiveType type)
 	case PrimitiveKind::Pointer:
 	case PrimitiveKind::Slice:
 	case PrimitiveKind::Vector:
+	case PrimitiveKind::Option:
 	case PrimitiveKind::Result:
-		return type.bits == 0 && type.pointee != nullptr &&
-		       is_valid_primitive_type(*type.pointee);
+		if (type.bits != 0 || type.pointee == nullptr ||
+		    !is_valid_primitive_type(*type.pointee))
+			return false;
+		if (type.kind == PrimitiveKind::Result && type.elements) {
+			if (type.elements->size() != 2)
+				return false;
+			if ((*type.elements)[0] != *type.pointee)
+				return false;
+			for (const auto &element : *type.elements) {
+				if (!is_valid_primitive_type(element))
+					return false;
+			}
+		}
+		return true;
+	case PrimitiveKind::Tuple:
+		if (!type.elements || type.elements->size() < 2 || type.bits <= 0)
+			return false;
+		for (const auto &element : *type.elements) {
+			if (!is_valid_primitive_type(element))
+				return false;
+		}
+		return true;
+	case PrimitiveKind::UserStruct:
+	case PrimitiveKind::UserEnum:
+		return type.bits >= 0 && !type.name.empty();
 	}
 	return false;
 }
@@ -215,6 +405,11 @@ bool is_vector(PrimitiveType type)
 	return is_valid_primitive_type(type) && type.kind == PrimitiveKind::Vector;
 }
 
+bool is_option(PrimitiveType type)
+{
+	return is_valid_primitive_type(type) && type.kind == PrimitiveKind::Option;
+}
+
 bool is_result(PrimitiveType type)
 {
 	return is_valid_primitive_type(type) && type.kind == PrimitiveKind::Result;
@@ -222,7 +417,8 @@ bool is_result(PrimitiveType type)
 
 bool is_handle(PrimitiveType type)
 {
-	return is_owned_str(type) || is_slice(type) || is_vector(type) || is_result(type);
+	return is_owned_str(type) || is_slice(type) || is_vector(type) || is_option(type) ||
+	       is_result(type);
 }
 
 std::optional<PrimitiveType> pointee_type(PrimitiveType type)
@@ -234,9 +430,136 @@ std::optional<PrimitiveType> pointee_type(PrimitiveType type)
 
 std::optional<PrimitiveType> handle_payload_type(PrimitiveType type)
 {
-	if (!is_slice(type) && !is_vector(type) && !is_result(type))
+	if (!is_slice(type) && !is_vector(type) && !is_option(type) && !is_result(type))
 		return std::nullopt;
 	return *type.pointee;
+}
+
+std::optional<PrimitiveType> result_error_type(PrimitiveType type)
+{
+	if (!is_result(type) || !type.elements || type.elements->size() != 2)
+		return std::nullopt;
+	return (*type.elements)[1];
+}
+
+std::optional<std::vector<PrimitiveType>> tuple_elements(PrimitiveType type)
+{
+	if (!is_tuple(type) || !type.elements)
+		return std::nullopt;
+	return *type.elements;
+}
+
+std::optional<std::size_t> type_size_bytes(PrimitiveType type)
+{
+	if (!is_valid_primitive_type(type))
+		return std::nullopt;
+
+	switch (type.kind) {
+	case PrimitiveKind::SignedInteger:
+	case PrimitiveKind::UnsignedInteger:
+		return static_cast<std::size_t>(type.bits) / 8u;
+	case PrimitiveKind::Bool:
+		return 1u;
+	case PrimitiveKind::Char:
+		return 4u;
+	case PrimitiveKind::Pointer:
+	case PrimitiveKind::Str:
+	case PrimitiveKind::OwnedStr:
+	case PrimitiveKind::Slice:
+	case PrimitiveKind::Vector:
+	case PrimitiveKind::Option:
+	case PrimitiveKind::Result:
+		return 8u;
+	case PrimitiveKind::Tuple:
+		if (type.bits <= 0)
+			return std::nullopt;
+		return static_cast<std::size_t>(type.bits) / 8u;
+	case PrimitiveKind::UserStruct:
+	case PrimitiveKind::UserEnum:
+		if (type.bits <= 0)
+			return std::nullopt;
+		return static_cast<std::size_t>(type.bits) / 8u;
+	}
+	return std::nullopt;
+}
+
+std::optional<std::size_t> type_alignment_bytes(PrimitiveType type)
+{
+	if (is_tuple(type) && type.elements)
+		return layout_tuple_elements(*type.elements).alignment;
+
+	auto size = type_size_bytes(type);
+	if (!size)
+		return std::nullopt;
+	return std::max<std::size_t>(*size, 1u);
+}
+
+namespace {
+
+std::size_t align_up(std::size_t value, std::size_t alignment)
+{
+	if (alignment <= 1)
+		return value;
+	return (value + alignment - 1) / alignment * alignment;
+}
+
+} // namespace
+
+EnumLayout layout_enum_variants(const std::vector<EnumVariantSpec> &variants)
+{
+	EnumLayout layout;
+	layout.variants.reserve(variants.size());
+
+	std::size_t max_payload_size = 0;
+	std::size_t max_payload_alignment = 1;
+	for (std::size_t i = 0; i < variants.size(); ++i) {
+		const auto &spec = variants[i];
+		EnumVariantLayout variant;
+		variant.name = spec.name;
+		variant.tag = static_cast<std::uint32_t>(i);
+		variant.payload_types = spec.payload_types;
+
+		std::size_t offset = 0;
+		for (PrimitiveType payload_type : spec.payload_types) {
+			std::size_t field_alignment = type_alignment_bytes(payload_type).value_or(1u);
+			std::size_t field_size = type_size_bytes(payload_type).value_or(0u);
+			offset = align_up(offset, field_alignment);
+			variant.fields.push_back(EnumPayloadFieldLayout{payload_type, offset});
+			offset += field_size;
+			variant.payload_alignment =
+			    std::max(variant.payload_alignment, field_alignment);
+		}
+
+		variant.payload_size = align_up(offset, variant.payload_alignment);
+		max_payload_size = std::max(max_payload_size, variant.payload_size);
+		max_payload_alignment =
+		    std::max(max_payload_alignment, variant.payload_alignment);
+		layout.variants.push_back(std::move(variant));
+	}
+
+	layout.payload_offset = align_up(layout.tag_size, max_payload_alignment);
+	layout.alignment = std::max(layout.tag_alignment, max_payload_alignment);
+	layout.total_size = align_up(layout.payload_offset + max_payload_size,
+	                             layout.alignment);
+	return layout;
+}
+
+TupleLayout layout_tuple_elements(const std::vector<PrimitiveType> &elements)
+{
+	TupleLayout layout;
+	layout.elements.reserve(elements.size());
+
+	std::size_t offset = 0;
+	for (PrimitiveType element_type : elements) {
+		std::size_t element_alignment = type_alignment_bytes(element_type).value_or(1u);
+		std::size_t element_size = type_size_bytes(element_type).value_or(0u);
+		offset = align_up(offset, element_alignment);
+		layout.elements.push_back(TupleElementLayout{element_type, offset});
+		offset += element_size;
+		layout.alignment = std::max(layout.alignment, element_alignment);
+	}
+	layout.total_size = align_up(offset, layout.alignment);
+	return layout;
 }
 
 bool is_i386_codegen_supported(PrimitiveType type)
@@ -244,6 +567,12 @@ bool is_i386_codegen_supported(PrimitiveType type)
 	if (!is_valid_primitive_type(type))
 		return false;
 	if (is_pointer(type) || is_handle(type))
+		return true;
+	if (is_user_enum(type))
+		return true;
+	if (is_tuple(type))
+		return true;
+	if (is_user_struct(type))
 		return true;
 	return !(is_integer(type) && type.bits == 64);
 }

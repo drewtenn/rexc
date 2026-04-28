@@ -199,6 +199,17 @@ fn slice_i32_get_or(slice: slice<i32>, index: i32, fallback: i32) -> i32 {
 	return raw[2 + index];
 }
 
+fn slice_i32_at(slice: &[i32], index: i32) -> i32 {
+	if index < 0 {
+		return panic("slice index out of bounds");
+	}
+	if index >= slice_i32_len(slice) {
+		return panic("slice index out of bounds");
+	}
+	let raw: *i32 = slice as *i32;
+	return raw[2 + index];
+}
+
 fn std_alloc_slice_i32_get_or(slice: slice<i32>, index: i32, fallback: i32) -> i32 {
 	return slice_i32_get_or(slice, index, fallback);
 }

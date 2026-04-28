@@ -1,0 +1,2 @@
+// Result<T, E> is currently a compiler-recognized stdlib type.
+// Generic enum declarations become source-level here when FE-103 lands.

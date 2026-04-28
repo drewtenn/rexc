@@ -61,6 +61,22 @@ if "${build_dir}/rexc" "${repo_dir}/examples/core.rx" --package-path "${tmp_dir}
 fi
 grep -F -q "package path is not a directory: ${tmp_dir}/missing-package-root" "${tmp_dir}/bad-package-path.err"
 
+cat > "${tmp_dir}/diag-json.rx" <<'RX'
+fn main() -> int {
+    return 0;
+}
+RX
+if "${build_dir}/rexc" "${tmp_dir}/diag-json.rx" --diag=json --target i386 -S -o "${tmp_dir}/diag-json.s" 2> "${tmp_dir}/diag-json.err"; then
+	echo "expected json diagnostics to fail" >&2
+	exit 1
+fi
+grep -F -q '"severity": "error"' "${tmp_dir}/diag-json.err"
+grep -F -q '"message": "unknown type '\''int'\''"' "${tmp_dir}/diag-json.err"
+grep -F -q '"span": {' "${tmp_dir}/diag-json.err"
+grep -F -q '"fixits": [' "${tmp_dir}/diag-json.err"
+grep -F -q '"replacement": "i32"' "${tmp_dir}/diag-json.err"
+grep -F -q '"column": 14' "${tmp_dir}/diag-json.err"
+
 "${build_dir}/rexc" "${repo_dir}/examples/core.rx" --target i386 -S -o "${tmp_dir}/types.s"
 test -s "${tmp_dir}/types.s"
 grep -F -q '.asciz "hello"' "${tmp_dir}/types.s"

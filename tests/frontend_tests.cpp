@@ -432,7 +432,7 @@ TEST_CASE(parser_accepts_indirect_assignment)
 	REQUIRE_EQ(assign.value->kind, rexc::ast::Expr::Kind::Integer);
 }
 
-TEST_CASE(parser_desugars_index_expression_to_pointer_add_deref)
+TEST_CASE(parser_preserves_pointer_index_expression_until_lowering)
 {
 	rexc::SourceFile source(
 	    "test.rx",
@@ -444,14 +444,30 @@ TEST_CASE(parser_desugars_index_expression_to_pointer_add_deref)
 	REQUIRE(result.ok());
 	const auto &ret =
 	    static_cast<const rexc::ast::ReturnStmt &>(*result.module().functions[0].body[2]);
-	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Unary);
-	const auto &deref = static_cast<const rexc::ast::UnaryExpr &>(*ret.value);
-	REQUIRE_EQ(deref.op, std::string("*"));
-	REQUIRE_EQ(deref.operand->kind, rexc::ast::Expr::Kind::Binary);
-	const auto &add = static_cast<const rexc::ast::BinaryExpr &>(*deref.operand);
-	REQUIRE_EQ(add.op, std::string("+"));
-	REQUIRE_EQ(add.lhs->kind, rexc::ast::Expr::Kind::Name);
-	REQUIRE_EQ(add.rhs->kind, rexc::ast::Expr::Kind::Integer);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Index);
+	const auto &index = static_cast<const rexc::ast::IndexExpr &>(*ret.value);
+	REQUIRE_EQ(index.base->kind, rexc::ast::Expr::Kind::Name);
+	REQUIRE_EQ(index.index->kind, rexc::ast::Expr::Kind::Integer);
+}
+
+TEST_CASE(parser_preserves_index_expression_until_sema)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main(xs: &[i32]) -> i32 { return xs[0]; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE_EQ(result.module().functions[0].parameters[0].type.name,
+	           std::string("&[i32]"));
+	const auto &ret =
+	    static_cast<const rexc::ast::ReturnStmt &>(*result.module().functions[0].body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::Index);
+	const auto &index = static_cast<const rexc::ast::IndexExpr &>(*ret.value);
+	REQUIRE_EQ(index.base->kind, rexc::ast::Expr::Kind::Name);
+	REQUIRE_EQ(index.index->kind, rexc::ast::Expr::Kind::Integer);
 }
 
 TEST_CASE(parser_accepts_if_else_statements)
@@ -646,4 +662,669 @@ TEST_CASE(parser_rejects_non_call_expression_statement)
 
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.has_errors());
+}
+
+// FE-001 (Phase 1): struct declaration parsing.
+//
+// These tests assert that the parser accepts struct declarations and exposes
+// them on the AST module as StructDecl entries with correctly named fields and
+// declared field types. They MUST fail until grammar/Rexy.g4, AstBuilder, and
+// the Module AST shape are extended to cover structs.
+
+TEST_CASE(parser_accepts_minimal_struct_declaration)
+{
+	rexc::SourceFile source("test.rx", "struct Point { x: i32, y: i32 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(parser_struct_declaration_records_name_and_fields)
+{
+	rexc::SourceFile source("test.rx", "struct Point { x: i32, y: i32 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].name, std::string("Point"));
+	REQUIRE_EQ(module.structs[0].visibility, rexc::ast::Visibility::Private);
+	REQUIRE_EQ(module.structs[0].fields.size(), std::size_t(2));
+	REQUIRE_EQ(module.structs[0].fields[0].name, std::string("x"));
+	REQUIRE_EQ(module.structs[0].fields[0].type.name, std::string("i32"));
+	REQUIRE_EQ(module.structs[0].fields[1].name, std::string("y"));
+	REQUIRE_EQ(module.structs[0].fields[1].type.name, std::string("i32"));
+}
+
+TEST_CASE(parser_accepts_pub_struct_declaration)
+{
+	rexc::SourceFile source("test.rx", "pub struct Color { r: u8, g: u8, b: u8 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].name, std::string("Color"));
+	REQUIRE_EQ(module.structs[0].visibility, rexc::ast::Visibility::Public);
+	REQUIRE_EQ(module.structs[0].fields.size(), std::size_t(3));
+}
+
+TEST_CASE(parser_accepts_struct_with_single_field)
+{
+	rexc::SourceFile source("test.rx", "struct Wrapper { value: i64 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].fields.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].fields[0].name, std::string("value"));
+	REQUIRE_EQ(module.structs[0].fields[0].type.name, std::string("i64"));
+}
+
+TEST_CASE(parser_struct_declaration_records_source_location)
+{
+	rexc::SourceFile source("test.rx", "struct Point { x: i32, y: i32 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].location.line, 1u);
+	REQUIRE_EQ(module.structs[0].fields[0].location.line, 1u);
+	REQUIRE_EQ(module.structs[0].fields[1].location.line, 1u);
+}
+
+TEST_CASE(parser_rejects_struct_field_missing_colon)
+{
+	rexc::SourceFile source("test.rx", "struct Point { x i32, y: i32 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.has_errors());
+}
+
+TEST_CASE(parser_accepts_function_after_struct)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.functions.size(), std::size_t(1));
+}
+
+// Anti-stub coverage for FE-001: these tests defeat a "recognize 'struct' and
+// emit one hardcoded Point" implementation by varying name, field count, field
+// types, and ordering across multiple declarations.
+
+TEST_CASE(parser_accepts_multiple_struct_declarations_in_order)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "struct Color { r: u8, g: u8, b: u8 }\n"
+	    "struct Flag { on: bool }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(3));
+	REQUIRE_EQ(module.structs[0].name, std::string("Point"));
+	REQUIRE_EQ(module.structs[1].name, std::string("Color"));
+	REQUIRE_EQ(module.structs[2].name, std::string("Flag"));
+	REQUIRE_EQ(module.structs[1].fields.size(), std::size_t(3));
+	REQUIRE_EQ(module.structs[2].fields.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[2].fields[0].type.name, std::string("bool"));
+}
+
+TEST_CASE(parser_preserves_distinct_field_names_and_types)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Mixed { count: u32, label: str, ok: bool, byte: u8 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].fields.size(), std::size_t(4));
+	REQUIRE_EQ(module.structs[0].fields[0].name, std::string("count"));
+	REQUIRE_EQ(module.structs[0].fields[0].type.name, std::string("u32"));
+	REQUIRE_EQ(module.structs[0].fields[1].name, std::string("label"));
+	REQUIRE_EQ(module.structs[0].fields[1].type.name, std::string("str"));
+	REQUIRE_EQ(module.structs[0].fields[2].name, std::string("ok"));
+	REQUIRE_EQ(module.structs[0].fields[2].type.name, std::string("bool"));
+	REQUIRE_EQ(module.structs[0].fields[3].name, std::string("byte"));
+	REQUIRE_EQ(module.structs[0].fields[3].type.name, std::string("u8"));
+}
+
+TEST_CASE(parser_accepts_struct_field_with_pointer_type)
+{
+	// Parser should accept *T field types; the meaning of pointers is sema's
+	// problem, not the parser's.
+	rexc::SourceFile source("test.rx", "struct Node { next: *i32 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].fields.size(), std::size_t(1));
+	REQUIRE(module.structs[0].fields[0].type.name.find('*') != std::string::npos);
+}
+
+TEST_CASE(parser_accepts_struct_field_with_unknown_type_name)
+{
+	// Parser is not a name resolver. Unknown type names are accepted at parse
+	// time so sema can report a useful error with the correct span later.
+	rexc::SourceFile source("test.rx", "struct Holder { value: NotYetDeclared }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].fields[0].type.name, std::string("NotYetDeclared"));
+}
+
+TEST_CASE(parser_struct_inside_inline_module_records_module_path)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "mod geom { struct Point { x: i32, y: i32 } }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.structs.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].name, std::string("Point"));
+	REQUIRE_EQ(module.structs[0].module_path.size(), std::size_t(1));
+	REQUIRE_EQ(module.structs[0].module_path[0], std::string("geom"));
+}
+
+TEST_CASE(parser_malformed_struct_does_not_emit_ast)
+{
+	// Confirms parse failure does not leave a partially-built struct in the
+	// AST. Defends against silent half-parsing.
+	rexc::SourceFile source("test.rx", "struct Bad { x i32, y: i32 }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.has_errors());
+	REQUIRE_EQ(result.module().structs.size(), std::size_t(0));
+}
+
+// FE-004 (Phase 1): enum declaration parsing.
+//
+// These tests assert that the parser accepts enum declarations and exposes
+// them on the AST module as EnumDecl entries with named variants and ordered
+// tuple-style payload type lists. They MUST fail until grammar/Rexy.g4,
+// AstBuilder, and the Module AST shape are extended to cover enums.
+
+TEST_CASE(parser_accepts_minimal_enum_declaration)
+{
+	rexc::SourceFile source("test.rx", "enum Option { None, Some(i32) }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(parser_enum_declaration_records_name_variants_and_payloads)
+{
+	rexc::SourceFile source("test.rx", "enum Result { Ok(i32), Err(str) }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.enums.size(), std::size_t(1));
+	REQUIRE_EQ(module.enums[0].name, std::string("Result"));
+	REQUIRE_EQ(module.enums[0].visibility, rexc::ast::Visibility::Private);
+	REQUIRE_EQ(module.enums[0].variants.size(), std::size_t(2));
+	REQUIRE_EQ(module.enums[0].variants[0].name, std::string("Ok"));
+	REQUIRE_EQ(module.enums[0].variants[0].payload_types.size(), std::size_t(1));
+	REQUIRE_EQ(module.enums[0].variants[0].payload_types[0].name, std::string("i32"));
+	REQUIRE_EQ(module.enums[0].variants[1].name, std::string("Err"));
+	REQUIRE_EQ(module.enums[0].variants[1].payload_types.size(), std::size_t(1));
+	REQUIRE_EQ(module.enums[0].variants[1].payload_types[0].name, std::string("str"));
+}
+
+TEST_CASE(parser_accepts_multi_argument_handle_type)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "enum MyErr { Bad }\n"
+	    "fn fallible() -> Result<i32, MyErr> { return Err(Bad()); }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	REQUIRE_EQ(result.module().functions[0].return_type.name,
+	           std::string("Result<i32,MyErr>"));
+}
+
+TEST_CASE(parser_accepts_pub_enum_and_payloadless_variant)
+{
+	rexc::SourceFile source("test.rx", "pub enum Token { End, Number(i64) }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.enums.size(), std::size_t(1));
+	REQUIRE_EQ(module.enums[0].name, std::string("Token"));
+	REQUIRE_EQ(module.enums[0].visibility, rexc::ast::Visibility::Public);
+	REQUIRE_EQ(module.enums[0].variants.size(), std::size_t(2));
+	REQUIRE_EQ(module.enums[0].variants[0].name, std::string("End"));
+	REQUIRE(module.enums[0].variants[0].payload_types.empty());
+}
+
+TEST_CASE(parser_enum_variant_records_multiple_payload_types_in_order)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "enum Event { Click(i32, i32), Key(char), Link(*Node, NotYetDeclared), }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.enums.size(), std::size_t(1));
+	REQUIRE_EQ(module.enums[0].variants.size(), std::size_t(3));
+	const auto &click = module.enums[0].variants[0];
+	REQUIRE_EQ(click.name, std::string("Click"));
+	REQUIRE_EQ(click.payload_types.size(), std::size_t(2));
+	REQUIRE_EQ(click.payload_types[0].name, std::string("i32"));
+	REQUIRE_EQ(click.payload_types[1].name, std::string("i32"));
+	const auto &link = module.enums[0].variants[2];
+	REQUIRE_EQ(link.name, std::string("Link"));
+	REQUIRE_EQ(link.payload_types.size(), std::size_t(2));
+	REQUIRE_EQ(link.payload_types[0].name, std::string("*Node"));
+	REQUIRE_EQ(link.payload_types[1].name, std::string("NotYetDeclared"));
+}
+
+TEST_CASE(parser_enum_inside_inline_module_records_module_path)
+{
+	rexc::SourceFile source("test.rx", "mod ast { enum Expr { Integer(i64), Name(str) } }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.enums.size(), std::size_t(1));
+	REQUIRE_EQ(module.enums[0].name, std::string("Expr"));
+	REQUIRE_EQ(module.enums[0].module_path.size(), std::size_t(1));
+	REQUIRE_EQ(module.enums[0].module_path[0], std::string("ast"));
+}
+
+TEST_CASE(parser_enum_declaration_records_source_locations)
+{
+	rexc::SourceFile source("test.rx", "enum Option { None, Some(i32) }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.enums.size(), std::size_t(1));
+	REQUIRE_EQ(module.enums[0].location.line, 1u);
+	REQUIRE_EQ(module.enums[0].variants[0].location.line, 1u);
+	REQUIRE_EQ(module.enums[0].variants[1].location.line, 1u);
+	REQUIRE_EQ(module.enums[0].variants[1].payload_types[0].location.line, 1u);
+}
+
+TEST_CASE(parser_malformed_enum_does_not_emit_ast)
+{
+	rexc::SourceFile source("test.rx", "enum Bad { Some(i32), Broken(, str) }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.has_errors());
+	REQUIRE_EQ(result.module().enums.size(), std::size_t(0));
+}
+
+TEST_CASE(parser_builds_enum_destructuring_match_pattern)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "enum Option { None, Some(i32) }\n"
+	    "fn main() -> i32 { let value: Option = Some(42); match value { Some(x) => { return x; } _ => { return 0; } } }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	const auto &match =
+	    static_cast<const rexc::ast::MatchStmt &>(*result.module().functions[0].body[1]);
+	REQUIRE_EQ(match.arms[0].patterns[0].kind,
+	           rexc::ast::MatchPattern::Kind::Variant);
+	REQUIRE_EQ(match.arms[0].patterns[0].path.size(), std::size_t(1));
+	REQUIRE_EQ(match.arms[0].patterns[0].path[0], std::string("Some"));
+	REQUIRE_EQ(match.arms[0].patterns[0].bindings.size(), std::size_t(1));
+	REQUIRE_EQ(match.arms[0].patterns[0].bindings[0], std::string("x"));
+}
+
+TEST_CASE(parser_builds_struct_destructuring_match_pattern)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn main() -> i32 { let point: Point = Point { x: 1, y: 2 }; match point { Point { x, y } => { return x; } } }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	const auto &match =
+	    static_cast<const rexc::ast::MatchStmt &>(*result.module().functions[0].body[1]);
+	REQUIRE_EQ(match.arms[0].patterns[0].kind,
+	           rexc::ast::MatchPattern::Kind::Struct);
+	REQUIRE_EQ(match.arms[0].patterns[0].path[0], std::string("Point"));
+	REQUIRE_EQ(match.arms[0].patterns[0].bindings.size(), std::size_t(2));
+	REQUIRE_EQ(match.arms[0].patterns[0].bindings[0], std::string("x"));
+	REQUIRE_EQ(match.arms[0].patterns[0].bindings[1], std::string("y"));
+}
+
+// FE-002a (Phase 1): field-access expression parsing (`p.x`).
+//
+// These tests assert that `IDENT.IDENT` and chained access shapes are accepted
+// and emitted as FieldAccessExpr AST nodes. They MUST fail until the postfix
+// grammar rule is extended and AstBuilder produces FieldAccessExpr nodes.
+
+TEST_CASE(parser_accepts_field_access_in_return)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn read_x(p: Point) -> i32 { return p.x; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(parser_field_access_records_base_and_field_name)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn read_x(p: Point) -> i32 { return p.x; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &module = result.module();
+	REQUIRE_EQ(module.functions.size(), std::size_t(1));
+
+	const auto &body = module.functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(1));
+	REQUIRE_EQ(body[0]->kind, rexc::ast::Stmt::Kind::Return);
+
+	const auto &ret = static_cast<const rexc::ast::ReturnStmt &>(*body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::FieldAccess);
+	const auto &field_access = static_cast<const rexc::ast::FieldAccessExpr &>(*ret.value);
+	REQUIRE_EQ(field_access.field, std::string("x"));
+	REQUIRE_EQ(field_access.base->kind, rexc::ast::Expr::Kind::Name);
+	const auto &base = static_cast<const rexc::ast::NameExpr &>(*field_access.base);
+	REQUIRE_EQ(base.name, std::string("p"));
+}
+
+TEST_CASE(parser_accepts_chained_field_access)
+{
+	// Defeats a "single-level only" stub. `a.b.c` should parse as
+	// FieldAccess{ base = FieldAccess{ base = a, field = b }, field = c }.
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Inner { val: i32 }\n"
+	    "struct Outer { inner: Inner }\n"
+	    "fn read(o: Outer) -> i32 { return o.inner.val; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	const auto &ret = static_cast<const rexc::ast::ReturnStmt &>(*body[0]);
+	REQUIRE_EQ(ret.value->kind, rexc::ast::Expr::Kind::FieldAccess);
+
+	const auto &outer = static_cast<const rexc::ast::FieldAccessExpr &>(*ret.value);
+	REQUIRE_EQ(outer.field, std::string("val"));
+	REQUIRE_EQ(outer.base->kind, rexc::ast::Expr::Kind::FieldAccess);
+
+	const auto &inner = static_cast<const rexc::ast::FieldAccessExpr &>(*outer.base);
+	REQUIRE_EQ(inner.field, std::string("inner"));
+	REQUIRE_EQ(inner.base->kind, rexc::ast::Expr::Kind::Name);
+}
+
+TEST_CASE(parser_field_access_records_distinct_field_name)
+{
+	// Anti-stub: defeats "always emit field='x'". Tests a different field name
+	// than every other test in this section.
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn read_y(p: Point) -> i32 { return p.y; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	const auto &ret = static_cast<const rexc::ast::ReturnStmt &>(*body[0]);
+	const auto &field_access = static_cast<const rexc::ast::FieldAccessExpr &>(*ret.value);
+	REQUIRE_EQ(field_access.field, std::string("y"));
+}
+
+TEST_CASE(parser_field_access_records_source_location)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn read_x(p: Point) -> i32 { return p.x; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	const auto &ret = static_cast<const rexc::ast::ReturnStmt &>(*body[0]);
+	REQUIRE_EQ(ret.value->location.line, 2u);
+}
+
+TEST_CASE(parser_field_access_works_in_let_initializer)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn copy_x(p: Point) -> i32 { let v: i32 = p.x; return v; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(2));
+	REQUIRE_EQ(body[0]->kind, rexc::ast::Stmt::Kind::Let);
+	const auto &let = static_cast<const rexc::ast::LetStmt &>(*body[0]);
+	REQUIRE_EQ(let.initializer->kind, rexc::ast::Expr::Kind::FieldAccess);
+	const auto &fa = static_cast<const rexc::ast::FieldAccessExpr &>(*let.initializer);
+	REQUIRE_EQ(fa.field, std::string("x"));
+}
+
+TEST_CASE(parser_rejects_field_access_with_no_field_name)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn bad(p: Point) -> i32 { return p.; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.has_errors());
+}
+
+// FE-003b (Phase 1): field assignment via pointer-to-struct.
+
+TEST_CASE(parser_accepts_field_assign_through_pointer_deref)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn write_x(p: *Point) -> i32 { (*p).x = 42; return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(parser_field_assign_records_base_field_value)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn write_y(p: *Point) -> i32 { (*p).y = 7; return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	const auto &body = result.module().functions[0].body;
+	REQUIRE_EQ(body.size(), std::size_t(2));
+	REQUIRE_EQ(body[0]->kind, rexc::ast::Stmt::Kind::FieldAssign);
+	const auto &fa = static_cast<const rexc::ast::FieldAssignStmt &>(*body[0]);
+	REQUIRE_EQ(fa.field, std::string("y"));
+}
+
+TEST_CASE(parser_accepts_struct_literal_in_let_initializer)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn make() -> i32 { let p: Point = Point { x: 40, y: 2 }; return p.y; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// FE-007 (Phase 1): tuple type and expression parsing.
+
+TEST_CASE(parser_accepts_tuple_type_expression_and_index_access)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 { let pair: (i32, bool) = (40, true); return pair.0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// FE-101 (Phase 2): generic type parameters on `fn` and `struct`.
+
+TEST_CASE(parser_accepts_generic_function_signature)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn id<T>(x: T) -> T { return x; }\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	REQUIRE_EQ(result.module().functions.size(), std::size_t(2));
+	REQUIRE_EQ(result.module().functions[0].name, std::string("id"));
+	REQUIRE_EQ(result.module().functions[0].generic_parameters.size(), std::size_t(1));
+	REQUIRE_EQ(result.module().functions[0].generic_parameters[0], std::string("T"));
+}
+
+TEST_CASE(parser_accepts_generic_struct_declaration)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Pair<T, U> { first: T, second: U }\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	REQUIRE_EQ(result.module().structs.size(), std::size_t(1));
+	REQUIRE_EQ(result.module().structs[0].name, std::string("Pair"));
+	REQUIRE_EQ(result.module().structs[0].generic_parameters.size(), std::size_t(2));
+	REQUIRE_EQ(result.module().structs[0].generic_parameters[0], std::string("T"));
+	REQUIRE_EQ(result.module().structs[0].generic_parameters[1], std::string("U"));
+}
+
+TEST_CASE(parser_accepts_function_without_generics_keeps_empty_list)
+{
+	rexc::SourceFile source(
+	    "test.rx", "fn add(a: i32, b: i32) -> i32 { return a + b; }\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	REQUIRE(result.module().functions[0].generic_parameters.empty());
 }

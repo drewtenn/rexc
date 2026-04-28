@@ -3,6 +3,7 @@
 // Typed intermediate representation consumed by the x86 backend.
 #include "rexc/types.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -13,7 +14,7 @@ namespace rexc::ir {
 using Type = PrimitiveType;
 
 struct Value {
-	enum class Kind { Integer, Bool, Char, String, Local, Global, Unary, Binary, Cast, Call };
+	enum class Kind { Integer, Bool, Char, String, Local, Global, Unary, Binary, Cast, Call, StructLiteral, StructField, EnumLiteral };
 
 	Value(Kind kind, Type type);
 	virtual ~Value() = default;
@@ -88,6 +89,41 @@ struct CallValue final : Value {
 	std::vector<std::unique_ptr<Value>> arguments;
 };
 
+struct StructLiteralValue final : Value {
+	struct Field {
+		std::string name;
+		Type type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
+		std::size_t offset = 0;
+		std::unique_ptr<Value> value;
+	};
+
+	StructLiteralValue(Type type, std::size_t size);
+
+	std::size_t size = 0;
+	std::vector<Field> fields;
+};
+
+struct StructFieldValue final : Value {
+	StructFieldValue(std::unique_ptr<Value> base, Type type, std::size_t offset);
+
+	std::unique_ptr<Value> base;
+	std::size_t offset = 0;
+};
+
+struct EnumLiteralValue final : Value {
+	struct Payload {
+		Type type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
+		std::size_t offset = 0;
+		std::unique_ptr<Value> value;
+	};
+
+	EnumLiteralValue(Type type, std::uint32_t tag, std::size_t size);
+
+	std::uint32_t tag = 0;
+	std::size_t size = 0;
+	std::vector<Payload> payloads;
+};
+
 struct Statement {
 	enum class Kind { Let, Assign, IndirectAssign, Expr, Return, If, Match, While, For, Break, Continue };
 
@@ -141,7 +177,13 @@ struct IfStatement final : Statement {
 };
 
 struct MatchPattern {
-	enum class Kind { Default, Integer, Bool, Char };
+	enum class Kind { Default, Integer, Bool, Char, EnumVariant, Struct };
+
+	struct Binding {
+		std::string name;
+		Type type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
+		std::size_t offset = 0;
+	};
 
 	Kind kind = Kind::Default;
 	Type type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
@@ -149,6 +191,8 @@ struct MatchPattern {
 	bool bool_value = false;
 	char32_t char_value = U'\0';
 	bool is_negative = false;
+	std::uint32_t tag = 0;
+	std::vector<Binding> bindings;
 };
 
 struct MatchArm {

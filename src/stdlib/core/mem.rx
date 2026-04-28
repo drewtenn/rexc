@@ -31,26 +31,40 @@ fn str_copy_to(dest: *u8, value: str, max_len: i32) -> i32 {
 	return index;
 }
 
-fn slice_u8_len(data: *u8, len: i32) -> i32 {
-	return len;
+fn slice_u8_len(slice: &[u8]) -> i32 {
+	let raw: *i32 = slice as *i32;
+	return raw[0];
 }
 
-fn slice_u8_is_empty(data: *u8, len: i32) -> bool {
-	return len <= 0;
+fn slice_u8_is_empty(slice: &[u8]) -> bool {
+	return slice_u8_len(slice) <= 0;
 }
 
-fn slice_u8_get_or(data: *u8, len: i32, index: i32, fallback: u8) -> u8 {
+fn slice_u8_at(slice: &[u8], index: i32) -> u8 {
+	if index < 0 {
+		return panic("slice index out of bounds") as u8;
+	}
+	if index >= slice_u8_len(slice) {
+		return panic("slice index out of bounds") as u8;
+	}
+	let raw: *u8 = (slice as *u8) + 8;
+	return raw[index];
+}
+
+fn slice_u8_get_or(slice: &[u8], index: i32, fallback: u8) -> u8 {
 	if index < 0 {
 		return fallback;
 	}
-	if index >= len {
+	if index >= slice_u8_len(slice) {
 		return fallback;
 	}
-	return data[index];
+	return slice_u8_at(slice, index);
 }
 
-fn slice_u8_copy_to(dest: *u8, src: *u8, len: i32) -> i32 {
-	return memcpy_u8(dest, src, len);
+fn slice_u8_copy_to(dest: *u8, src: &[u8]) -> i32 {
+	let len: i32 = slice_u8_len(src);
+	let raw: *u8 = (src as *u8) + 8;
+	return memcpy_u8(dest, raw, len);
 }
 
 fn error_none() -> i32 {

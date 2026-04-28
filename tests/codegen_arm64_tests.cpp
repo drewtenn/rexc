@@ -17,6 +17,7 @@ static std::string compile_to_arm64_assembly(const std::string &text)
 	REQUIRE(parsed.ok());
 	rexc::SemanticOptions semantic_options;
 	semantic_options.stdlib_symbols = rexc::StdlibSymbolPolicy::DefaultPrelude;
+	semantic_options.enforce_unsafe_blocks = false;  // FE-013: pre-existing tests
 	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics, semantic_options).ok());
 	rexc::LowerOptions lower_options;
 	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::DefaultPrelude;
@@ -36,6 +37,7 @@ static std::string compile_to_arm64_assembly_with_all_stdlib_symbols(const std::
 
 	rexc::SemanticOptions semantic_options;
 	semantic_options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
+	semantic_options.enforce_unsafe_blocks = false;  // FE-013: pre-existing tests
 	auto sema = rexc::analyze_module(parsed.module(), diagnostics, semantic_options);
 	REQUIRE(sema.ok());
 
@@ -302,6 +304,28 @@ TEST_CASE(codegen_arm64_macos_emits_u8_pointer_to_str_cast_as_noop)
 	REQUIRE(assembly.find("\tbl _") == std::string::npos);
 }
 
+// FE-012 (Phase 1): `?` operator desugars to early-return on Err and
+// extracts the Ok payload via the existing result_i32_* stdlib helpers.
+
+TEST_CASE(codegen_arm64_macos_emits_try_operator_propagation_for_result_i32)
+{
+	auto assembly = compile_to_arm64_assembly_with_all_stdlib_symbols(
+		"fn fallible() -> Result<i32> { return result_i32_ok(7); }\n"
+		"fn caller() -> Result<i32> {\n"
+		"  let value: i32 = fallible()?;\n"
+		"  return result_i32_ok(value + 1);\n"
+		"}\n"
+		"fn main() -> i32 { alloc_reset(); return result_i32_value_or(caller(), -1); }\n");
+
+	// The lowered `?` invokes the err check and value extraction helpers.
+	REQUIRE(assembly.find("bl _result_i32_is_err") != std::string::npos);
+	REQUIRE(assembly.find("bl _result_i32_value_or") != std::string::npos);
+	// caller still calls fallible exactly once and result_i32_ok for its own
+	// happy-path return, so both symbols appear.
+	REQUIRE(assembly.find("bl _fallible") != std::string::npos);
+	REQUIRE(assembly.find("bl _result_i32_ok") != std::string::npos);
+}
+
 TEST_CASE(codegen_arm64_macos_emits_alloc_helper_calls)
 {
 	auto assembly = compile_to_arm64_assembly_with_all_stdlib_symbols(
@@ -317,4 +341,133 @@ TEST_CASE(codegen_arm64_macos_emits_alloc_helper_calls)
 	REQUIRE(assembly.find("bl _alloc_bool_to_str") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_char_to_str") != std::string::npos);
 	REQUIRE(assembly.find("bl _alloc_remaining") != std::string::npos);
+}
+
+// FE-003a (Phase 1): struct field-load codegen on arm64-macos.
+
+TEST_CASE(codegen_arm64_macos_emits_struct_field_load_through_pointer)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn read_x(p: *Point) -> i32 { return (*p).x; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(assembly.find("_read_x:") != std::string::npos);
+	// arm64 i32 sign-extending load from a register is `ldrsw`.
+	REQUIRE(assembly.find("ldrsw") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_struct_field_load_with_nonzero_offset)
+{
+	// y is at offset 4 — the +4 offset must appear before the ldrsw.
+	auto assembly = compile_to_arm64_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn read_y(p: *Point) -> i32 { return (*p).y; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(assembly.find("_read_y:") != std::string::npos);
+	REQUIRE(assembly.find("mov w0, #4") != std::string::npos);
+	REQUIRE(assembly.find("ldrsw") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_struct_literal_field_access)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn main() -> i32 { let p: Point = Point { x: 40, y: 2 }; return p.y; }\n");
+
+	REQUIRE(assembly.find("_main:") != std::string::npos);
+	REQUIRE(assembly.find("lsr x0, x0, #32") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_accepts_struct_by_value_parameter)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn read_y(p: Point) -> i32 { return p.y; }\n"
+		"fn main() -> i32 { return read_y(Point { x: 40, y: 2 }); }\n");
+
+	REQUIRE(assembly.find("_read_y:") != std::string::npos);
+	REQUIRE(assembly.find("str x0, [x29, #-8]") != std::string::npos);
+	REQUIRE(assembly.find("lsr x0, x0, #32") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_passes_two_register_struct_by_value)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"struct Quad { a: i32, b: i32, c: i32, d: i32 }\n"
+		"fn read_d(q: Quad) -> i32 { return q.d; }\n"
+		"fn main() -> i32 { return read_d(Quad { a: 1, b: 2, c: 3, d: 4 }); }\n");
+
+	REQUIRE(assembly.find("_read_d:") != std::string::npos);
+	REQUIRE(assembly.find("str x0, [x29, #-8]") != std::string::npos);
+	REQUIRE(assembly.find("str x1, [x29, #-16]") != std::string::npos);
+	REQUIRE(assembly.find("lsr x0, x0, #32") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_extracts_field_from_two_register_struct_local)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"struct Quad { a: i32, b: i32, c: i32, d: i32 }\n"
+		"fn main() -> i32 { let q: Quad = Quad { a: 1, b: 2, c: 3, d: 4 }; return q.d; }\n");
+
+	REQUIRE(assembly.find("_main:") != std::string::npos);
+	REQUIRE(assembly.find("lsr x0, x0, #32") != std::string::npos);
+}
+
+// FE-007 (Phase 1): tuple by-value ABI and numeric field extraction.
+
+TEST_CASE(codegen_arm64_macos_emits_tuple_literal_field_access)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn main() -> i32 { let pair: (i32, bool) = (40, true); return pair.0; }\n");
+
+	REQUIRE(assembly.find("_main:") != std::string::npos);
+	REQUIRE(assembly.find("#40") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_accepts_tuple_by_value_parameter)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"fn second(pair: (i32, i32)) -> i32 { return pair.1; }\n"
+		"fn main() -> i32 { return second((40, 2)); }\n");
+
+	REQUIRE(assembly.find("_second:") != std::string::npos);
+	REQUIRE(assembly.find("str x0, [x29, #-8]") != std::string::npos);
+	REQUIRE(assembly.find("lsr x0, x0, #32") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_enum_constructor_tag)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"enum Option { None, Some(i32) }\n"
+		"fn tag(value: *Option) -> u32 { return *((value as *u8) as *u32); }\n"
+		"fn main() -> i32 { let mut value: Option = Some(42); return tag(&value) as i32; }\n");
+
+	REQUIRE(assembly.find("_main:") != std::string::npos);
+	REQUIRE(assembly.find("#1") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_emits_enum_payload_for_raw_extraction)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"enum Option { None, Some(i32) }\n"
+		"fn payload(value: *Option) -> i32 { return *(((value as *u8) + 4) as *i32); }\n"
+		"fn main() -> i32 { let mut value: Option = Some(42); return payload(&value); }\n");
+
+	REQUIRE(assembly.find("_main:") != std::string::npos);
+	REQUIRE(assembly.find("#42") != std::string::npos);
+	REQUIRE(assembly.find("#4") != std::string::npos);
+}
+
+TEST_CASE(codegen_arm64_macos_passes_large_struct_on_stack)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"struct Six { a: i32, b: i32, c: i32, d: i32, e: i32, f: i32 }\n"
+		"fn read_f(s: Six) -> i32 { return s.f; }\n"
+		"fn main() -> i32 { return read_f(Six { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 }); }\n");
+
+	REQUIRE(assembly.find("_read_f:") != std::string::npos);
+	REQUIRE(assembly.find("[x29, #48]") != std::string::npos);
+	REQUIRE(assembly.find("lsr x0, x0, #32") != std::string::npos);
 }

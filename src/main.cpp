@@ -33,6 +33,11 @@ enum class OutputMode {
 	DrunixExecutable,
 };
 
+enum class DiagnosticMode {
+	Human,
+	Json,
+};
+
 struct Options {
 	std::string input_path;
 	std::string output_path;
@@ -46,6 +51,7 @@ struct Options {
 #endif
 	OutputMode output_mode = OutputMode::Assembly;
 	bool output_mode_selected = false;
+	DiagnosticMode diagnostic_mode = DiagnosticMode::Human;
 };
 
 void select_output_mode(Options &options, OutputMode mode)
@@ -101,6 +107,10 @@ Options parse_options(int argc, char **argv)
 			if (!parsed_target)
 				throw std::runtime_error("unknown target: " + target_name);
 			options.target = *parsed_target;
+			continue;
+		}
+		if (arg == "--diag=json") {
+			options.diagnostic_mode = DiagnosticMode::Json;
 			continue;
 		}
 		if (arg == "--drunix-root" && i + 1 < argc) {
@@ -399,6 +409,14 @@ void remove_if_present(const std::string &path)
 	std::remove(path.c_str());
 }
 
+std::string format_diagnostics(const rexc::Diagnostics &diagnostics,
+                               DiagnosticMode mode)
+{
+	if (mode == DiagnosticMode::Json)
+		return diagnostics.format_json();
+	return diagnostics.format();
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -412,13 +430,16 @@ int main(int argc, char **argv)
 		auto parsed = rexc::parse_file_tree(options.input_path, diagnostics,
 		                                    std::move(load_options));
 		if (!parsed.ok()) {
-			std::cerr << diagnostics.format();
+			std::cerr << format_diagnostics(diagnostics, options.diagnostic_mode);
 			return 1;
 		}
 
-		auto sema = rexc::analyze_module(parsed.module(), diagnostics);
+		// FE-013: the CLI enforces the unsafe-block rule on user code.
+		rexc::SemanticOptions semantic_options;
+		semantic_options.enforce_unsafe_blocks = true;
+		auto sema = rexc::analyze_module(parsed.module(), diagnostics, semantic_options);
 		if (!sema.ok()) {
-			std::cerr << diagnostics.format();
+			std::cerr << format_diagnostics(diagnostics, options.diagnostic_mode);
 			return 1;
 		}
 
@@ -429,7 +450,7 @@ int main(int argc, char **argv)
 				? rexc::emit_arm64_macos_assembly(ir, diagnostics)
 				: rexc::emit_x86_assembly(ir, diagnostics, machine);
 		if (!codegen.ok()) {
-			std::cerr << diagnostics.format();
+			std::cerr << format_diagnostics(diagnostics, options.diagnostic_mode);
 			return 1;
 		}
 
@@ -506,6 +527,7 @@ int main(int argc, char **argv)
 			std::cerr << "usage: rexc input.rx "
 			             "[--package-path path] "
 			             "[--target i386|i386-linux|i386-drunix|x86_64|x86_64-linux|arm64-macos] "
+			             "[--diag=json] "
 			             "[-S|-c|--drunix-root path] -o output\n";
 			return 2;
 		}

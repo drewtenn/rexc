@@ -24,7 +24,7 @@ struct Parameter {
 };
 
 struct Expr {
-	enum class Kind { Integer, Bool, Char, String, Name, Unary, Binary, Cast, Call };
+	enum class Kind { Integer, Bool, Char, String, Name, Unary, Binary, Cast, Call, StructLiteral, Tuple, FieldAccess, Index, Try };
 
 	Expr(Kind kind, SourceLocation location);
 	virtual ~Expr() = default;
@@ -96,8 +96,48 @@ struct CallExpr final : Expr {
 	std::vector<std::unique_ptr<Expr>> arguments;
 };
 
+struct StructLiteralField {
+	std::string name;
+	std::unique_ptr<Expr> value;
+	SourceLocation location;
+};
+
+struct StructLiteralExpr final : Expr {
+	StructLiteralExpr(SourceLocation location, TypeName type);
+
+	TypeName type;
+	std::vector<StructLiteralField> fields;
+};
+
+struct TupleExpr final : Expr {
+	explicit TupleExpr(SourceLocation location);
+
+	std::vector<std::unique_ptr<Expr>> elements;
+};
+
+struct FieldAccessExpr final : Expr {
+	FieldAccessExpr(SourceLocation location, std::unique_ptr<Expr> base, std::string field);
+
+	std::unique_ptr<Expr> base;
+	std::string field;
+};
+
+struct IndexExpr final : Expr {
+	IndexExpr(SourceLocation location, std::unique_ptr<Expr> base,
+	          std::unique_ptr<Expr> index);
+
+	std::unique_ptr<Expr> base;
+	std::unique_ptr<Expr> index;
+};
+
+struct TryExpr final : Expr {
+	TryExpr(SourceLocation location, std::unique_ptr<Expr> operand);
+
+	std::unique_ptr<Expr> operand;
+};
+
 struct Stmt {
-	enum class Kind { Let, Assign, IndirectAssign, Expr, Return, If, Match, While, For, Break, Continue };
+	enum class Kind { Let, Assign, IndirectAssign, FieldAssign, Expr, Return, If, Match, While, For, Break, Continue, UnsafeBlock };
 
 	Stmt(Kind kind, SourceLocation location);
 	virtual ~Stmt() = default;
@@ -131,6 +171,15 @@ struct IndirectAssignStmt final : Stmt {
 	std::unique_ptr<Expr> value;
 };
 
+struct FieldAssignStmt final : Stmt {
+	FieldAssignStmt(SourceLocation location, std::unique_ptr<Expr> base,
+	                std::string field, std::unique_ptr<Expr> value);
+
+	std::unique_ptr<Expr> base;
+	std::string field;
+	std::unique_ptr<Expr> value;
+};
+
 struct ExprStmt final : Stmt {
 	ExprStmt(SourceLocation location, std::unique_ptr<Expr> value);
 
@@ -154,9 +203,11 @@ struct IfStmt final : Stmt {
 };
 
 struct MatchPattern {
-	enum class Kind { Default, Integer, Bool, Char };
+	enum class Kind { Default, Integer, Bool, Char, Variant, Struct };
 
 	Kind kind = Kind::Default;
+	std::vector<std::string> path;
+	std::vector<std::string> bindings;
 	std::string literal;
 	bool bool_value = false;
 	char32_t char_value = U'\0';
@@ -204,10 +255,18 @@ struct ContinueStmt final : Stmt {
 	explicit ContinueStmt(SourceLocation location);
 };
 
+struct UnsafeBlockStmt final : Stmt {
+	UnsafeBlockStmt(SourceLocation location, std::vector<std::unique_ptr<Stmt>> body);
+
+	std::vector<std::unique_ptr<Stmt>> body;
+};
+
 struct Function {
 	bool is_extern = false;
+	bool is_unsafe = false;
 	Visibility visibility = Visibility::Private;
 	std::string name;
+	std::vector<std::string> generic_parameters;
 	std::vector<Parameter> parameters;
 	TypeName return_type;
 	std::vector<std::unique_ptr<Stmt>> body;
@@ -247,6 +306,35 @@ struct StaticScalar {
 	std::vector<std::string> module_path;
 };
 
+struct StructField {
+	std::string name;
+	TypeName type;
+	SourceLocation location;
+};
+
+struct StructDecl {
+	Visibility visibility = Visibility::Private;
+	std::string name;
+	std::vector<std::string> generic_parameters;
+	std::vector<StructField> fields;
+	SourceLocation location;
+	std::vector<std::string> module_path;
+};
+
+struct EnumVariant {
+	std::string name;
+	std::vector<TypeName> payload_types;
+	SourceLocation location;
+};
+
+struct EnumDecl {
+	Visibility visibility = Visibility::Private;
+	std::string name;
+	std::vector<EnumVariant> variants;
+	SourceLocation location;
+	std::vector<std::string> module_path;
+};
+
 struct UseDecl {
 	std::vector<std::string> module_path;
 	std::vector<std::string> import_path;
@@ -265,6 +353,8 @@ struct Module {
 	std::vector<UseDecl> uses;
 	std::vector<StaticBuffer> static_buffers;
 	std::vector<StaticScalar> static_scalars;
+	std::vector<StructDecl> structs;
+	std::vector<EnumDecl> enums;
 	std::vector<Function> functions;
 };
 

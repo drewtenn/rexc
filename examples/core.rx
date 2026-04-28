@@ -52,7 +52,7 @@ fn casts() -> i32 {
     return letter as i32 + low + flag;
 }
 
-fn pointers() -> i32 {
+unsafe fn pointers() -> i32 {
     let mut value: i32 = 7;
     let p: *i32 = &value;
     *p = 9;
@@ -60,7 +60,7 @@ fn pointers() -> i32 {
     return p[1 - 1];
 }
 
-fn statics() -> i32 {
+unsafe fn statics() -> i32 {
     COUNTER = COUNTER + 1;
     let p: *i32 = (SCRATCH + 0) as *i32;
     *p = COUNTER;

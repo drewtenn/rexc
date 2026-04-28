@@ -131,6 +131,9 @@ std::string portable_stdlib_assembly(CodegenTarget target)
 
 	SemanticOptions semantic_options;
 	semantic_options.stdlib_symbols = StdlibSymbolPolicy::None;
+	// FE-013: stdlib code IS the trusted runtime — its raw deref and
+	// extern fn calls cannot themselves be wrapped in unsafe.
+	semantic_options.enforce_unsafe_blocks = false;
 	auto sema = analyze_module(parsed.module(), diagnostics, semantic_options);
 	if (!sema.ok())
 		return "# failed to analyze stdlib.rx\n# " + diagnostics.format() + "\n";

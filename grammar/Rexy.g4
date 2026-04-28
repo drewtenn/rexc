@@ -9,6 +9,8 @@ item
 	: externFunction
 	| staticBuffer
 	| staticScalar
+	| structDeclaration
+	| enumDeclaration
 	| functionDefinition
 	| moduleDeclaration
 	| useDeclaration
@@ -41,12 +43,36 @@ staticArrayElement
 	| STRING
 	;
 
+structDeclaration
+	: 'pub'? 'struct' IDENT genericParameters? '{' (structField (',' structField)* ','?)? '}'
+	;
+
+genericParameters
+	: '<' IDENT (',' IDENT)* ','? '>'
+	;
+
+structField
+	: IDENT ':' type
+	;
+
+enumDeclaration
+	: 'pub'? 'enum' IDENT '{' enumVariant (',' enumVariant)* ','? '}'
+	;
+
+enumVariant
+	: IDENT ('(' enumPayloadTypeList ')')?
+	;
+
+enumPayloadTypeList
+	: type (',' type)* ','?
+	;
+
 externFunction
 	: 'pub'? 'extern' 'fn' IDENT '(' parameterList? ')' '->' type ';'
 	;
 
 functionDefinition
-	: 'pub'? 'fn' IDENT '(' parameterList? ')' '->' type block
+	: 'pub'? 'unsafe'? 'fn' IDENT genericParameters? '(' parameterList? ')' '->' type block
 	;
 
 parameterList
@@ -59,12 +85,22 @@ parameter
 
 type
 	: '*' type
+	| sliceType
+	| tupleType
 	| handleType
 	| primitiveType
 	;
 
+sliceType
+	: '&' '[' type ']'
+	;
+
+tupleType
+	: '(' type ',' type (',' type)* ','? ')'
+	;
+
 handleType
-	: IDENT ('<' type '>')?
+	: IDENT ('<' type (',' type)* ','? '>')?
 	;
 
 primitiveType
@@ -89,6 +125,7 @@ statement
 	: letStatement
 	| assignStatement
 	| indirectAssignStatement
+	| fieldAssignStatement
 	| incDecStatement
 	| callStatement
 	| returnStatement
@@ -98,6 +135,11 @@ statement
 	| forStatement
 	| breakStatement
 	| continueStatement
+	| unsafeBlock
+	;
+
+unsafeBlock
+	: 'unsafe' '{' statement* '}'
 	;
 
 letStatement
@@ -110,6 +152,10 @@ assignStatement
 
 indirectAssignStatement
 	: '*' expression '=' expression ';'
+	;
+
+fieldAssignStatement
+	: '(' '*' expression ')' '.' IDENT '=' expression ';'
 	;
 
 incDecStatement
@@ -141,6 +187,17 @@ matchPattern
 	| '-'? INTEGER
 	| BOOL
 	| CHAR
+	| qualifiedName '(' patternBindingList? ')'
+	| IDENT '{' patternBindingList? '}'
+	;
+
+patternBindingList
+	: patternBinding (',' patternBinding)* ','?
+	;
+
+patternBinding
+	: IDENT
+	| '_'
 	;
 
 whileStatement
@@ -214,7 +271,13 @@ unary
 	;
 
 postfix
-	: primary ('[' expression ']')* ('++' | '--')?
+	: primary postfixSuffix* ('++' | '--')?
+	;
+
+postfixSuffix
+	: '[' expression ']'
+	| '.' (IDENT | INTEGER)
+	| '?'
 	;
 
 primary
@@ -222,9 +285,23 @@ primary
 	| BOOL
 	| CHAR
 	| STRING
+	| structLiteral
+	| tupleExpression
 	| callExpression
 	| IDENT
 	| '(' expression ')'
+	;
+
+tupleExpression
+	: '(' expression ',' expression (',' expression)* ','? ')'
+	;
+
+structLiteral
+	: IDENT '{' (structLiteralField (',' structLiteralField)* ','?)? '}'
+	;
+
+structLiteralField
+	: IDENT ':' expression
 	;
 
 callExpression

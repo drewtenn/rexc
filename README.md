@@ -292,17 +292,18 @@ The current Rexy example programs are console-style programs, so launching the b
 from Finder will not show a window. For visible GUI apps, Rexy would need
 bindings or runtime support for Cocoa/AppKit entry points.
 
-To build a linked Drunix i386 executable in one compiler invocation, point `rexc`
-at a Drunix checkout that has `user/user.ld`, `user/lib/crt0.o`, and
-`user/lib/libc.a`:
+To build a linked Drunix i386 executable in one compiler invocation, point
+`rexc` at a Drunix checkout that has generated
+`build/user/x86/linker/user.ld`:
 
 ```sh
 build/rexc examples/core.rx --target i386-drunix --drunix-root /path/to/DrunixOS -o build/add.drunix
 ```
 
 For compatibility, `--drunix-root` also treats i386 aliases as the
-`i386-drunix` runtime target. Drunix executable links include Rexy's hosted
-standard-library runtime object before `user/lib/libc.a`.
+`i386-drunix` runtime target. Drunix executable links use Rexy's generated
+startup object and hosted standard-library runtime object together with the
+Drunix user linker script.
 
 ## Modules And Package Paths
 
@@ -311,7 +312,7 @@ Use `mod foo;` to load a file-backed module named `foo`. `rexc` looks for either
 items symbol names such as `foo_add`. Mark the module and any cross-module
 items `pub` when other modules need to reach them.
 
-```rust
+```rexy
 // main.rx
 mod math;
 use math::add;
@@ -323,7 +324,7 @@ fn main() -> i32 {
 }
 ```
 
-```rust
+```rexy
 // math.rx
 pub fn add(a: i32, b: i32) -> i32 {
     return a + b;
@@ -385,49 +386,61 @@ source .rx
 
 1. **CLI input**: `src/main.cpp` parses the entry file tree, including
    file-backed modules found beside the entry file or under `--package-path`
-   roots, and owns the top-level flow. It prints diagnostics and exits
-   non-zero if any frontend or backend stage fails.
+   roots, and owns the top-level flow. It prints human diagnostics by default
+   or machine-readable diagnostics with `--diag=json`, then exits non-zero if
+   any frontend or backend stage fails.
 
 2. **Lexing and parsing**: ANTLR generates the lexer and parser from
    `grammar/Rexy.g4`. `src/parse.cpp` invokes those generated classes for
-   functions, extern declarations, immutable and mutable `let` declarations,
-   assignment, indirect pointer assignment, `return`, `if/else`, `while`,
-   `break`, and `continue` statements, expressions, explicit casts, type names,
-   and literals, then converts the parse tree into the AST types declared in
+   modules, imports, structs, enums, functions, extern declarations, statics,
+   immutable and mutable `let` declarations, assignments, pointer and field
+   stores, `return`, `if/else`, `match`, `while`, `for`, `break`, `continue`,
+   and `unsafe` block statements, `unsafe fn`, expressions, explicit casts,
+   postfix `?` propagation, multi-argument handle type names, and literals,
+   then converts the parse tree into the AST types declared in
    `include/rexc/ast.hpp`.
 
 3. **AST**: The AST preserves source-level structure: functions, parameters,
-   `let`, assignment, indirect pointer assignment, `return`, `if/else`,
-   `while`, `break`, and `continue` statements, names, calls, unary/binary
-   expressions, comparison expressions, logical expressions, explicit casts,
-   and integer/bool/char/string literals. Integer literals keep their original
+   user-defined types, `let`, assignment, indirect pointer assignment, field
+   assignment, `return`, `if/else`, `match`, `while`, `for`, `break`,
+   `continue`, and `unsafe` block statements, names, calls, tuple and struct
+   literals, unary/binary expressions, comparison expressions, logical
+   expressions, `?` propagation expressions, explicit casts, and
+   integer/bool/char/string literals. Integer literals keep their original
    decimal text so later stages can range-check large values without parser
    overflow.
 
 4. **Semantic analysis**: `src/sema.cpp` validates names, duplicate functions
-   and locals, function calls, return types, initializer and assignment types,
-   local mutability, pointer address/dereference rules, arithmetic operands,
-   comparison operands, `if` and `while` condition types, loop-only `break` and
-   `continue`, unary operators, and integer literal ranges. It uses the type
-   helpers in `src/types.cpp` so all frontend checks share one type model.
+   and locals, struct fields, enum variants, function calls, return types,
+   initializer and assignment types, local mutability, pointer
+   address/dereference rules, tuple and field access, slice indexing and
+   `len`, `Option<T>` / `Result<T,E>` constructor calls, `?` propagation,
+   arithmetic operands, comparison operands, `if`, `match`, `while`, and
+   `for` condition types, enum match exhaustiveness, loop-only `break` and
+   `continue`, raw-pointer and extern-call `unsafe` requirements, unary
+   operators, and integer literal ranges. It uses the type helpers in
+   `src/types.cpp` so all frontend checks share one type model.
 
 5. **IR lowering**: `src/lower_ir.cpp` converts the checked AST into the typed
    IR in `include/rexc/ir.hpp`. The IR carries resolved primitive types on
    functions, parameters, locals, assignments, indirect pointer assignments,
-   calls, literals, unary expressions, binary expressions, comparisons,
-   `if/else` branches, and `while` loops with `break` and `continue`. This
-   gives the backend a smaller, typed representation to emit.
+   calls, literals, tuple and struct values, enum construction, slice
+   operations, `?` propagation, unary expressions, binary expressions,
+   comparisons, `if/else` branches, `match` arms, and loops with `break` and
+   `continue`. This gives the backend a smaller, typed representation to emit.
 
 6. **x86 code generation**: `src/codegen_x86.cpp` emits GNU assembler syntax
-   for either `i386` or `x86_64`. It emits supported scalar values in target
-   stack slots, emits strings in `.rodata` with `.LstrN` labels, uses signed or
-   unsigned division and comparison condition codes based on IR type, emits
-   explicit casts with target-width sign or zero extension, emits address-of,
-   dereference, scaled pointer arithmetic, pointer indexing, and indirect
-   pointer stores, emits branch labels and jumps for short-circuiting logical
-   operators, `if/else`, `while`, `break`, and `continue`, stores assignments
-   into existing local slots, and reports backend diagnostics when a type is
-   unsupported by the selected target.
+   for either `i386` or `x86_64`; `src/codegen_arm64.cpp` emits Darwin ARM64
+   assembly for the macOS target. The backends emit supported scalar and
+   aggregate values, strings in read-only data, signed or unsigned division and
+   comparison condition codes based on IR type, explicit casts with
+   target-width sign or zero extension, address-of, dereference, scaled pointer
+   arithmetic, checked slice helper calls, pointer indexing, indirect pointer
+   stores, field stores, branch labels and jumps for short-circuiting logical
+   operators, `if/else`, `match`, loops, `break`, and `continue`. The i386
+   backend supports small aggregate returns and by-value aggregate traffic up
+   to the Phase 1 exit-gate ABI surface. Backends report diagnostics when a
+   type or ABI path is unsupported by the selected target.
 
 7. **Assembly output**: `build/rexc input.rx [--target i386|x86_64|arm64-macos] -S -o
    output.s` writes assembly only after code generation succeeds. Failed code
@@ -453,13 +466,62 @@ source .rx
 ## Core Types
 
 Rexy supports signed integers (`i8`, `i16`, `i32`, `i64`), unsigned integers
-(`u8`, `u16`, `u32`, `u64`), `bool`, `char`, `str`, and pointer types written
-as `*T`.
+(`u8`, `u16`, `u32`, `u64`), `bool`, `char`, `str`, raw pointer types written
+as `*T`, first-class slice types written as `&[T]`, tuple types such as
+`(i32, bool)`, and handle types such as `vec<i32>`, `Option<i32>`, and
+`Result<i32, MyErr>`.
+
+User-defined structs and enums are part of the current frontend and backend
+surface:
+
+```rexy
+struct Point { x: i32, y: i32 }
+enum Option { None, Some(i32) }
+
+fn main() -> i32 {
+    let point: Point = Point { x: 40, y: 2 };
+    let value: Option = Some(point.x + point.y);
+    match value {
+        Some(x) => { return x; }
+        _ => { return 0; }
+    }
+}
+```
+
+Struct fields are laid out with target-aware alignment. Tuple fields use
+numeric access such as `pair.0`. Slice values carry a pointer plus a length;
+`len(slice)` returns the element count and `slice[index]` lowers through
+checked slice helpers. `Option<T>` and `Result<T, E>` are compiler-recognized
+stdlib types in the prelude; `Some`, `None`, `Ok`, and `Err` type-check against
+the surrounding expected type. The two-argument `Result<T,E>` form is currently
+a frontend contract until generic monomorphization lands. Legacy `Result<T>`
+remains accepted for the current alloc-backed helper functions. The `?`
+operator is available for `Result` propagation; today the lowering path is
+focused on the bootstrap `Result<i32>` helper shape.
+
+```rexy
+enum MyErr { Bad }
+
+// Frontend/type-check shape for typed errors.
+fn parse() -> Result<i32, MyErr> {
+    return Ok(42);
+}
+
+// Current lowering/codegen shape for `?`.
+fn classify() -> Result<i32> {
+    let value: i32 = std::alloc::result_i32_ok(7)?;
+    return std::alloc::result_i32_ok(value);
+}
+```
 
 The `i386` target emits code for `i8`, `i16`, `i32`, `u8`, `u16`, `u32`,
-`bool`, `char`, `str`, and pointer values. The `i64` and `u64` types parse and
-type-check, but `i386` code generation fails with a backend diagnostic when a
-program needs to load, store, or return those 64-bit values directly.
+`bool`, `char`, `str`, pointer values, local structs/enums/tuples, slices, and
+small by-value aggregates needed by the Phase 1 Drunix userland path.
+The `i64` and `u64` types parse and type-check, but `i386` code generation
+fails with a backend diagnostic when a program needs to load, store, or return
+those 64-bit values directly. Some aggregate-by-value function ABI paths are
+still target-specific; unsupported combinations fail as backend diagnostics
+instead of silently producing bad code.
 
 The `x86_64` target emits code for all current primitive types, including
 `i64` and `u64`, and represents pointers as 64-bit addresses using the
@@ -467,11 +529,11 @@ Linux/System V x86_64 calling convention.
 
 ## Standard Library
 
-Rexy's standard library is being shaped after Rust's layered model, scaled down
+Rexy's standard library is being shaped as a small layered runtime, scaled down
 to what Rexy can support today. `core` is the always-available,
-target-independent contract layer. A future `alloc` layer will own heap-backed
-types once Rexy has an allocator contract. `std` is the hosted layer linked
-into normal command-line executables.
+target-independent contract layer. `alloc` contains the current bootstrap bump
+arena, owned string helpers, typed vectors, slices, and sentinel-result helpers.
+`std` is the hosted layer linked into normal command-line executables.
 
 The current implementation is still a bootstrap stage, but the direction is
 Rexy-first and portable by default: hosted `std` functions are declared by
@@ -484,8 +546,9 @@ roadmap is to implement that Rexy capability and then keep moving in Rexy
 source.
 
 The source tree mirrors those layers: `src/stdlib/core/` contains
-target-independent catalog entries, `src/stdlib/std/` contains hosted prelude
-entries, and `src/stdlib/sys/` contains target runtime adapters.
+target-independent catalog entries, `src/stdlib/alloc/` contains the bootstrap
+allocation layer, `src/stdlib/std/` contains hosted OS-facing entries, and
+`src/stdlib/sys/` contains target runtime adapters.
 
 The default bare prelude is deliberately small, so programs can call common
 console, string, parse/read, and panic helpers without module syntax:
@@ -510,7 +573,7 @@ console, string, parse/read, and panic helpers without module syntax:
 | `println_char` | `fn(char) -> i32` | Writes one character followed by `\n`. |
 | `parse_i32` | `fn(str) -> i32` | Parses a signed decimal integer, returning `0` for invalid or overflow input. |
 | `read_i32` | `fn() -> i32` | Reads one input line and parses it as `i32`. |
-| `parse_bool` | `fn(str) -> bool` | Parses `true`, returning `false` for any other value until result types exist. |
+| `parse_bool` | `fn(str) -> bool` | Parses `true`, returning `false` for any other value until parser helpers return typed results. |
 | `read_bool` | `fn() -> bool` | Reads one input line and parses it as `bool`. |
 | `panic` | `fn(str) -> i32` | Writes `panic: ` plus the message, then terminates with status `101`. |
 
@@ -520,20 +583,21 @@ implemented in Rexy using a `static mut [u8; 1024]` buffer and the primitive
 `sys_read` hook. `strlen`, `str_is_empty`, `str_eq`, `str_starts_with`,
 `str_ends_with`, `str_contains`, `str_find`, and `parse_i32` are early
 `core`-style target-independent contracts implemented in Rexy source.
-`parse_i32` accepts
-an optional leading `-` followed by decimal digits; empty strings, invalid
-characters, and overflow return `0` until Rexy has richer result types.
+`parse_i32` accepts an optional leading `-` followed by decimal digits; empty
+strings, invalid characters, and overflow return `0` until those parser helpers
+return typed results.
 
 Public stdlib helpers outside the default prelude still emit into hosted
 runtime builds. Bridge-backed `std_*` declarations also remain available
 through explicit paths such as `std::io::println` and `std::process::exit`.
-Bootstrap allocation, raw memory, file/path/environment, sentinel-result, and
-`std_*` bridge symbols are not default bare names; compiler internals and tests
-that need those helpers opt into the explicit `All` policy.
+Bootstrap allocation, raw memory, file/path/environment, sentinel-result,
+typed-vector, slice, and `std_*` bridge symbols are not default bare names;
+compiler internals and tests that need those helpers opt into the explicit
+`All` policy.
 
 Example:
 
-```rust
+```rexy
 fn main() -> i32 {
     println("name?");
     let name: str = read_line();
@@ -564,12 +628,12 @@ Rexy stdlib source.
 
 ### Standard Library Roadmap
 
-Rexy's stdlib should move toward this Rust-style shape:
+Rexy's stdlib should move toward this layered shape:
 
 | Layer | Role | Rexy direction |
 | --- | --- | --- |
 | `core` | Target-independent primitives and compiler-known contracts. No OS, process, file, terminal, or heap dependency. | Keep primitive operations, string/slice contracts, panic/abort hooks, and eventually traits here. |
-| `alloc` | Heap-backed library types that require an allocator but not an OS. | Add after Rexy has allocator hooks; this is where owned strings, vectors, and boxed values should live. |
+| `alloc` | Heap-backed library types that require an allocator but not an OS. | Replace the bootstrap bump arena with explicit allocator values, then generalize owned strings, vectors, and boxed values. |
 | `std` | Hosted OS integration layered on `core` and `alloc`. | Keep console I/O, process exit, files, environment, arguments, and platform services here. |
 | `sys`/runtime adapters | Narrow target- and OS-specific bridge code. | Split by target triple such as `i386-linux`, `i386-drunix`, `x86_64-linux`, and `arm64-macos`; keep assembly here only when ABI or syscall details require it. |
 
@@ -604,7 +668,7 @@ target.
 
 ## Operators And Control Flow
 
-Rexy supports integer arithmetic with `+`, `-`, `*`, and `/`. Integer
+Rexy supports integer arithmetic with `+`, `-`, `*`, `/`, and `%`. Integer
 comparisons are supported with `==`, `!=`, `<`, `<=`, `>`, and `>=`; comparison
 results have type `bool`. Both comparison operands must be integers with the
 same type. Signed integer comparisons use signed condition codes, and unsigned
@@ -621,18 +685,19 @@ other character casts such as `char as u8`, are rejected.
 Function calls can be used as expressions or as statements. Call statements are
 intended for side-effecting standard-library functions:
 
-```rust
+```rexy
 println("hello");
 std::process::exit(1);
 ```
 
 Pointer expressions use `&` to take the address of a mutable local and `*` to
 dereference a pointer. Pointer arithmetic supports `pointer + integer` and
-`pointer - integer`, with the integer offset scaled by the pointee size.
-Indexing is syntax for dereferencing a scaled pointer offset: `p[i]` means
-`*(p + i)`. Indirect assignment writes through a pointer:
+`pointer - integer`, with the integer offset scaled by the pointee size. Raw
+pointer indexing is syntax for dereferencing a scaled pointer offset: `p[i]`
+means `*(p + i)`. Slice indexing uses the same source syntax but lowers through
+checked helper calls. Indirect assignment writes through a pointer:
 
-```rust
+```rexy
 fn main() -> i32 {
     let mut x: i32 = 7;
     let p: *i32 = &x;
@@ -643,7 +708,7 @@ fn main() -> i32 {
 
 Rexy also supports `if` and `if/else` statements:
 
-```rust
+```rexy
 fn main() -> i32 {
     let left: i32 = 7;
     let right: i32 = 9;
@@ -659,9 +724,10 @@ The `if` condition must be `bool`. Locals declared inside a branch are scoped to
 that branch and are not visible after the `if` statement.
 
 Mutable locals use `let mut` and can be updated with assignment statements.
-Plain `let` bindings and parameters are immutable.
+Plain `let` bindings and parameters are immutable. Mutable scalar locals can
+also use prefix or postfix `++` and `--`.
 
-```rust
+```rexy
 fn count() -> i32 {
     let mut value: i32 = 0;
     while value < 10 {
@@ -682,12 +748,80 @@ scoped to that body and are not visible after the loop. `break` exits the
 innermost loop, and `continue` jumps to the next condition check of the
 innermost loop. Both are only valid inside loops.
 
+`for` loops are available with a C-style initializer, condition, and increment.
+The initializer can be a `let` or assignment statement, and the increment can be
+an assignment, indirect assignment, or increment/decrement expression:
+
+```rexy
+fn sum() -> i32 {
+    let mut total: i32 = 0;
+    for let mut i: i32 = 0; i < 4; i++ {
+        total = total + i;
+    }
+    return total;
+}
+```
+
+`match` statements support literal patterns, `_`, multiple patterns with `|`,
+enum payload destructuring, and struct field destructuring:
+
+```rexy
+struct Point { x: i32, y: i32 }
+enum Option { None, Some(i32) }
+
+fn value(point: Point, option: Option) -> i32 {
+    let mut total: i32 = 0;
+    match point {
+        Point { x, y } => { total = x + y; }
+    }
+    match option {
+        Some(extra) => { return total + extra; }
+        _ => { return total; }
+    }
+}
+```
+
+Enum matches are checked for exhaustiveness. A match over an enum must cover
+every variant or include `_`; missing variants produce a diagnostic pointing at
+the uncovered variant.
+
+The CLI enforces `unsafe` for operations that leave Rexy's safe subset. Raw
+pointer dereference, indirect raw-pointer writes, field writes through a raw
+pointer, and calls to `extern fn` must appear inside `unsafe { ... }` or inside
+an `unsafe fn` body:
+
+```rexy
+extern fn raw_syscall(n: i32) -> i32;
+
+unsafe fn read_raw(p: *i32) -> i32 {
+    return *p;
+}
+
+fn call_raw() -> i32 {
+    let mut result: i32 = 0;
+    unsafe {
+        result = raw_syscall(0);
+    }
+    return result;
+}
+```
+
+## Diagnostics
+
+Human diagnostics include source locations and are capped so a single bad file
+does not flood the terminal. Pass `--diag=json` to emit structured diagnostics
+with span and fix-it fields for editor and tool integrations:
+
+```sh
+build/rexc bad.rx --diag=json -S -o build/bad.s
+```
+
 ## Build For Drunix Userland
 
 Rexy currently emits assembly for Linux-compatible `i386` and `x86_64`
-targets. To build a runnable Drunix userland executable with the current Drunix
-runtime, select the `i386` target, assemble a 32-bit object file, then link it
-with Drunix's user runtime and linker script.
+targets, plus the `i386-drunix` runtime target. To build a runnable Drunix
+userland executable, select `--target i386-drunix` and point `--drunix-root` at
+a Drunix checkout with its user linker script generated.
 
 Set the Drunix checkout path:
 
@@ -702,10 +836,11 @@ cmake -S . -B build
 cmake --build build
 ```
 
-Build the Drunix startup object and runtime archive:
+Generate the Drunix user linker script if the checkout has not already built
+user programs:
 
 ```sh
-make -C "$DRUNIX/user" lib/crt0.o lib/libc.a
+make -C "$DRUNIX/user" ../build/user/x86/linker/user.ld
 ```
 
 Compile and link the final Drunix ELF executable:
@@ -714,19 +849,17 @@ Compile and link the final Drunix ELF executable:
 build/rexc examples/core.rx --target i386-drunix --drunix-root "$DRUNIX" -o build/add.drunix
 ```
 
-The command above is equivalent to compiling assembly, assembling an i386
-object, and linking it with the Drunix user runtime:
+The Phase 1 exit-gate program in the Drunix checkout exercises the current
+safe subset: structs, payload-bearing enums, exhaustive `match`, `Result<i32>`,
+`?`, and the i386 small-aggregate ABI:
 
 ```sh
-build/rexc examples/core.rx --target i386 -S -o build/add.s
-x86_64-elf-as --32 -o build/add.o build/add.s
-x86_64-elf-ld -m elf_i386 \
-  -T "$DRUNIX/user/user.ld" \
-  -o build/add.drunix \
-  "$DRUNIX/user/lib/crt0.o" \
-  build/add.o \
-  "$DRUNIX/user/lib/libc.a"
+build/rexc ../../user/apps/phase1test.rx --target i386-drunix --drunix-root "$DRUNIX" -o build/phase1test.drunix
 ```
+
+Under the hood, `rexc` emits a temporary i386 object, generates a small Drunix
+startup object, emits the target-specific hosted runtime object, and invokes an
+ELF linker with `$DRUNIX/build/user/x86/linker/user.ld`.
 
 Verify the output:
 
@@ -735,10 +868,9 @@ file build/add.drunix
 x86_64-elf-readelf -h build/add.drunix
 ```
 
-The result should be a 32-bit Intel 80386 executable ELF. Drunix's `crt0.o`
-provides `_start`, prepares `argc`, `argv`, and `envp`, calls `main`, and exits
-through the Drunix syscall runtime. Keep `lib/libc.a` after `build/add.o` so
-the linker pulls only the archive members needed by the program.
+The result should be a 32-bit Intel 80386 executable ELF. The generated startup
+object provides `_start`, prepares `argc`, `argv`, and `envp`, calls `main`,
+and exits through Rexy's Drunix syscall runtime adapter.
 
 ## Build 32-Bit And 64-Bit Objects
 

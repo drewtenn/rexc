@@ -11,6 +11,9 @@
 
 #include "names.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -69,12 +72,113 @@ std::uint64_t max_signed_magnitude(PrimitiveType type)
 	return (1ULL << (type.bits - 1)) - 1;
 }
 
+std::optional<std::size_t> parse_tuple_field_index(const std::string &field)
+{
+	if (field.empty())
+		return std::nullopt;
+	std::size_t value = 0;
+	for (char ch : field) {
+		if (ch < '0' || ch > '9')
+			return std::nullopt;
+		value = value * 10u + static_cast<std::size_t>(ch - '0');
+	}
+	return value;
+}
+
+bool is_negative_integer_literal(const ast::Expr &expr)
+{
+	if (expr.kind != ast::Expr::Kind::Unary)
+		return false;
+	const auto &unary = static_cast<const ast::UnaryExpr &>(expr);
+	return unary.op == "-" && unary.operand->kind == ast::Expr::Kind::Integer;
+}
+
+std::optional<std::string> slice_helper_type_suffix(PrimitiveType type)
+{
+	if (type == i32_type())
+		return std::string("i32");
+	if (type == u8_type())
+		return std::string("u8");
+	return std::nullopt;
+}
+
+std::string trim_type_text(std::string value)
+{
+	auto begin = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+		return std::isspace(ch) != 0;
+	});
+	auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+		return std::isspace(ch) != 0;
+	}).base();
+	if (begin >= end)
+		return "";
+	return std::string(begin, end);
+}
+
+std::vector<std::string> split_type_arguments(const std::string &text)
+{
+	std::vector<std::string> parts;
+	int paren_depth = 0;
+	int angle_depth = 0;
+	std::size_t start = 0;
+	for (std::size_t i = 0; i < text.size(); ++i) {
+		char ch = text[i];
+		if (ch == '(')
+			++paren_depth;
+		else if (ch == ')')
+			--paren_depth;
+		else if (ch == '<')
+			++angle_depth;
+		else if (ch == '>')
+			--angle_depth;
+		else if (ch == ',' && paren_depth == 0 && angle_depth == 0) {
+			parts.push_back(trim_type_text(text.substr(start, i - start)));
+			start = i + 1;
+		}
+	}
+	parts.push_back(trim_type_text(text.substr(start)));
+	return parts;
+}
+
+std::optional<std::vector<std::string>> consume_generic_type_arguments(
+    const std::string &name, const std::string &prefix)
+{
+	const std::string open = prefix + "<";
+	if (name.size() <= open.size() || name.rfind(open, 0) != 0 || name.back() != '>')
+		return std::nullopt;
+
+	int depth = 0;
+	for (std::size_t i = prefix.size(); i < name.size(); ++i) {
+		if (name[i] == '<')
+			++depth;
+		else if (name[i] == '>') {
+			--depth;
+			if (depth == 0 && i != name.size() - 1)
+				return std::nullopt;
+			if (depth < 0)
+				return std::nullopt;
+		}
+	}
+	if (depth != 0)
+		return std::nullopt;
+
+	auto inner = name.substr(prefix.size() + 1, name.size() - prefix.size() - 2);
+	auto parts = split_type_arguments(inner);
+	for (const auto &part : parts) {
+		if (part.empty())
+			return std::nullopt;
+	}
+	return parts;
+}
+
 struct FunctionInfo {
 	SourceLocation location;
 	PrimitiveType return_type = PrimitiveType{PrimitiveKind::SignedInteger, 32};
 	std::vector<PrimitiveType> parameter_types;
 	std::vector<std::string> module_path;
+	std::vector<std::string> generic_parameters;
 	ast::Visibility visibility = ast::Visibility::Private;
+	bool is_extern = false;
 };
 
 struct LocalInfo {
@@ -95,6 +199,52 @@ struct ModuleInfo {
 	ast::Visibility visibility = ast::Visibility::Private;
 };
 
+struct StructInfo {
+	SourceLocation location;
+	std::vector<std::string> module_path;
+	ast::Visibility visibility = ast::Visibility::Private;
+	std::vector<std::pair<std::string, PrimitiveType>> fields;
+	std::size_t total_size = 0;
+	std::size_t alignment = 1;
+	bool is_generic = false;
+	std::optional<PrimitiveType> field_type(const std::string &name) const
+	{
+		for (const auto &field : fields)
+			if (field.first == name)
+				return field.second;
+		return std::nullopt;
+	}
+};
+
+struct EnumVariantInfo {
+	SourceLocation location;
+	std::string name;
+	std::uint32_t tag = 0;
+	std::vector<PrimitiveType> payload_types;
+};
+
+struct EnumInfo {
+	SourceLocation location;
+	std::string name;
+	std::vector<std::string> module_path;
+	ast::Visibility visibility = ast::Visibility::Private;
+	EnumLayout layout;
+	std::vector<EnumVariantInfo> variants;
+
+	const EnumVariantInfo *variant(const std::string &name) const
+	{
+		for (const auto &entry : variants)
+			if (entry.name == name)
+				return &entry;
+		return nullptr;
+	}
+};
+
+struct EnumVariantRef {
+	const EnumInfo *enum_info = nullptr;
+	const EnumVariantInfo *variant = nullptr;
+};
+
 enum class ImportKind { Function, Global, Module, Invalid };
 
 struct ImportInfo {
@@ -113,6 +263,7 @@ public:
 	bool run()
 	{
 		build_module_table();
+		build_type_tables();
 		build_static_table();
 		build_function_table();
 		build_import_table();
@@ -224,6 +375,101 @@ private:
 			note_module_path(module.module_path);
 			modules_[key] = ModuleInfo{module.location, module.module_path,
 			                           module.visibility};
+		}
+	}
+
+	void build_type_tables()
+	{
+		// Multi-pass registration: first pass records all user type names so
+		// structs and enums can cross-reference each other regardless of
+		// declaration order. Later passes validate member/payload type names.
+		for (const auto &decl : module_.structs) {
+			if (structs_.find(decl.name) != structs_.end()) {
+				diagnostics_.error(decl.location,
+				                   "struct '" + decl.name + "' already declared");
+				continue;
+			}
+			structs_[decl.name] = StructInfo{decl.location, decl.module_path,
+			                                 decl.visibility, {}, 0, 1};
+		}
+
+		for (const auto &decl : module_.enums) {
+			if (enums_.find(decl.name) != enums_.end()) {
+				diagnostics_.error(decl.location,
+				                   "enum '" + decl.name + "' already declared");
+				continue;
+			}
+			if (structs_.find(decl.name) != structs_.end()) {
+				diagnostics_.error(decl.location,
+				                   "type '" + decl.name + "' already declared");
+				continue;
+			}
+			EnumInfo info;
+			info.location = decl.location;
+			info.name = decl.name;
+			info.module_path = decl.module_path;
+			info.visibility = decl.visibility;
+			enums_[decl.name] = std::move(info);
+		}
+
+		for (const auto &decl : module_.structs) {
+			auto it = structs_.find(decl.name);
+			if (it == structs_.end())
+				continue; // rejected as duplicate above
+			// FE-102: register the struct's generic parameters so field
+			// types like `T` resolve. Generic structs skip layout computation
+			// — sizes are known only at FE-103 monomorphization.
+			current_generic_parameters_.clear();
+			for (const auto &name : decl.generic_parameters)
+				current_generic_parameters_.insert(name);
+			std::vector<std::pair<std::string, PrimitiveType>> fields;
+			fields.reserve(decl.fields.size());
+			for (const auto &field : decl.fields) {
+				auto field_type = check_type(field.type);
+				fields.emplace_back(field.name, field_type);
+			}
+			it->second.fields = std::move(fields);
+			it->second.is_generic = !decl.generic_parameters.empty();
+			if (!it->second.is_generic)
+				compute_struct_layout(it->second);
+			current_generic_parameters_.clear();
+		}
+
+		for (const auto &decl : module_.enums) {
+			auto it = enums_.find(decl.name);
+			if (it == enums_.end())
+				continue; // rejected above
+
+			std::unordered_set<std::string> seen_variants;
+			std::vector<EnumVariantSpec> layout_specs;
+			for (const auto &variant : decl.variants) {
+				std::vector<PrimitiveType> payload_types;
+				payload_types.reserve(variant.payload_types.size());
+				for (const auto &payload_type : variant.payload_types)
+					payload_types.push_back(check_type(payload_type));
+
+				if (!seen_variants.insert(variant.name).second) {
+					diagnostics_.error(
+					    variant.location,
+					    "variant '" + variant.name + "' already declared in enum '" +
+					        decl.name + "'");
+					continue;
+				}
+
+				layout_specs.push_back(
+				    EnumVariantSpec{variant.name, payload_types});
+				EnumVariantInfo info;
+				info.location = variant.location;
+				info.name = variant.name;
+				info.payload_types = std::move(payload_types);
+				it->second.variants.push_back(std::move(info));
+			}
+
+			it->second.layout = layout_enum_variants(layout_specs);
+			for (std::size_t i = 0; i < it->second.variants.size() &&
+			                        i < it->second.layout.variants.size(); ++i) {
+				it->second.variants[i].tag = it->second.layout.variants[i].tag;
+			}
 		}
 	}
 
@@ -369,6 +615,12 @@ private:
 				continue;
 			}
 			note_module_path(function.module_path);
+			// FE-102: register the function's generic parameters so the
+			// signature's references to `T` resolve here too. Cleared after
+			// each entry so the scope is per-function.
+			current_generic_parameters_.clear();
+			for (const auto &name : function.generic_parameters)
+				current_generic_parameters_.insert(name);
 			FunctionInfo info;
 			info.location = function.location;
 			info.return_type = check_type(function.return_type);
@@ -376,7 +628,10 @@ private:
 				info.parameter_types.push_back(check_type(parameter.type));
 			info.module_path = function.module_path;
 			info.visibility = function.visibility;
+			info.is_extern = function.is_extern;
+			info.generic_parameters = function.generic_parameters;
 			functions_[key] = std::move(info);
+			current_generic_parameters_.clear();
 		}
 	}
 
@@ -636,6 +891,12 @@ private:
 		current_module_path_ = &function.module_path;
 		std::unordered_map<std::string, LocalInfo> locals;
 
+		// FE-102: register this function's generic parameters so check_type
+		// recognizes bare identifiers like `T` while walking the body.
+		current_generic_parameters_.clear();
+		for (const auto &name : function.generic_parameters)
+			current_generic_parameters_.insert(name);
+
 		for (const auto &parameter : function.parameters) {
 			PrimitiveType parameter_type = check_type(parameter.type);
 			if (!locals.emplace(parameter.name, LocalInfo{parameter_type, false}).second)
@@ -644,8 +905,16 @@ private:
 
 		PrimitiveType return_type = check_type(function.return_type);
 
+		current_function_return_type_ = return_type;
+		// `unsafe fn` opens an unsafe context for its entire body; FE-013.
+		if (function.is_unsafe)
+			++unsafe_depth_;
 		for (const auto &statement : function.body)
 			analyze_statement(return_type, locals, *statement, 0);
+		if (function.is_unsafe)
+			--unsafe_depth_;
+		current_function_return_type_.reset();
+		current_generic_parameters_.clear();
 		current_module_path_ = nullptr;
 	}
 
@@ -721,11 +990,62 @@ private:
 				return;
 			}
 
+			// FE-013: `*ptr = value` is a raw deref write — must be unsafe.
+			if (options_.enforce_unsafe_blocks && unsafe_depth_ == 0)
+				diagnostics_.error(
+				    assign.location,
+				    "indirect write through raw pointer requires `unsafe` block");
+
 			auto value_type = check_expr(locals, *assign.value, *target_pointee);
 			if (value_type && !types_compatible(*target_pointee, *value_type)) {
 				diagnostics_.error(assign.location, "assignment type mismatch: expected '" +
 				                   format_type(*target_pointee) + "' but got '" +
 				                   format_type(*value_type) + "'");
+			}
+			return;
+		}
+
+		if (statement.kind == ast::Stmt::Kind::FieldAssign) {
+			const auto &assign = static_cast<const ast::FieldAssignStmt &>(statement);
+			// `(*p).field = value` is a write through a raw pointer; FE-013.
+			if (options_.enforce_unsafe_blocks && unsafe_depth_ == 0)
+				diagnostics_.error(
+				    assign.location,
+				    "field write through raw pointer requires `unsafe` block");
+			// `assign.base` is the pointer expression `p` from `(*p).field = value`.
+			auto base_type = check_expr(locals, *assign.base);
+			if (!base_type) {
+				check_expr(locals, *assign.value);
+				return;
+			}
+			auto pointee = pointee_type(*base_type);
+			if (!pointee || !is_user_struct(*pointee)) {
+				diagnostics_.error(assign.location,
+				                   "field assignment requires pointer-to-struct base");
+				check_expr(locals, *assign.value);
+				return;
+			}
+			auto it = structs_.find(pointee->name);
+			if (it == structs_.end()) {
+				diagnostics_.error(assign.location,
+				                   "struct '" + pointee->name + "' not in scope");
+				check_expr(locals, *assign.value);
+				return;
+			}
+			auto field_type = it->second.field_type(assign.field);
+			if (!field_type) {
+				diagnostics_.error(assign.location,
+				                   "struct '" + pointee->name + "' has no field '" +
+				                       assign.field + "'");
+				check_expr(locals, *assign.value);
+				return;
+			}
+			auto value_type = check_expr(locals, *assign.value, *field_type);
+			if (value_type && !types_compatible(*field_type, *value_type)) {
+				diagnostics_.error(assign.location,
+				                   "assignment type mismatch: expected '" +
+				                       format_type(*field_type) + "' but got '" +
+				                       format_type(*value_type) + "'");
 			}
 			return;
 		}
@@ -751,9 +1071,17 @@ private:
 		if (statement.kind == ast::Stmt::Kind::Match) {
 			const auto &match_stmt = static_cast<const ast::MatchStmt &>(statement);
 			auto value_type = check_expr(locals, *match_stmt.value);
+			const EnumInfo *matched_enum = nullptr;
+			std::unordered_set<std::string> covered_enum_variants;
+			if (value_type && is_user_enum(*value_type)) {
+				auto enum_it = enums_.find(value_type->name);
+				if (enum_it != enums_.end())
+					matched_enum = &enum_it->second;
+			}
 			bool saw_default = false;
 			for (std::size_t i = 0; i < match_stmt.arms.size(); ++i) {
 				const auto &arm = match_stmt.arms[i];
+				auto arm_locals = locals;
 				for (const auto &pattern : arm.patterns) {
 					if (saw_default)
 						diagnostics_.error(pattern.location,
@@ -764,14 +1092,31 @@ private:
 							                   "match default pattern must be alone");
 						saw_default = true;
 					} else if (value_type) {
-						check_match_pattern(pattern, *value_type);
+						if (!pattern.bindings.empty() && arm.patterns.size() != 1)
+							diagnostics_.error(pattern.location,
+							                   "binding match pattern must be alone");
+						auto covered_variant =
+						    check_match_pattern(pattern, *value_type, arm_locals);
+						if (matched_enum && covered_variant &&
+						    covered_variant->enum_info == matched_enum)
+							covered_enum_variants.insert(covered_variant->variant->name);
 					}
 				}
 
-				auto arm_locals = locals;
 				for (const auto &arm_statement : arm.body)
 					analyze_statement(function_return_type, arm_locals, *arm_statement,
 					                  loop_depth);
+			}
+			if (matched_enum && !saw_default) {
+				for (const auto &variant : matched_enum->variants) {
+					if (covered_enum_variants.find(variant.name) ==
+					    covered_enum_variants.end()) {
+						diagnostics_.error(
+						    variant.location,
+						    "non-exhaustive enum match: missing variant '" +
+						        variant.name + "'");
+					}
+				}
 			}
 			return;
 		}
@@ -821,6 +1166,15 @@ private:
 			return;
 		}
 
+		if (statement.kind == ast::Stmt::Kind::UnsafeBlock) {
+			const auto &unsafe_block = static_cast<const ast::UnsafeBlockStmt &>(statement);
+			++unsafe_depth_;
+			for (const auto &inner : unsafe_block.body)
+				analyze_statement(function_return_type, locals, *inner, loop_depth);
+			--unsafe_depth_;
+			return;
+		}
+
 		if (statement.kind == ast::Stmt::Kind::Expr) {
 			const auto &expr_statement = static_cast<const ast::ExprStmt &>(statement);
 			check_expr(locals, *expr_statement.value);
@@ -836,28 +1190,103 @@ private:
 		}
 	}
 
-	void check_match_pattern(const ast::MatchPattern &pattern, PrimitiveType value_type)
+	std::optional<EnumVariantRef> check_match_pattern(
+	    const ast::MatchPattern &pattern, PrimitiveType value_type,
+	    std::unordered_map<std::string, LocalInfo> &locals)
 	{
 		switch (pattern.kind) {
 		case ast::MatchPattern::Kind::Default:
-			return;
+			return std::nullopt;
 		case ast::MatchPattern::Kind::Integer:
 			if (!is_integer(value_type)) {
 				diagnostics_.error(pattern.location, "match pattern type mismatch");
-				return;
+				return std::nullopt;
 			}
 			check_integer_literal(pattern.location, value_type, pattern.literal,
 			                      pattern.is_negative);
-			return;
+			return std::nullopt;
 		case ast::MatchPattern::Kind::Bool:
 			if (value_type != bool_type())
 				diagnostics_.error(pattern.location, "match pattern type mismatch");
-			return;
+			return std::nullopt;
 		case ast::MatchPattern::Kind::Char:
 			if (value_type.kind != PrimitiveKind::Char)
 				diagnostics_.error(pattern.location, "match pattern type mismatch");
+			return std::nullopt;
+		case ast::MatchPattern::Kind::Variant:
+			return check_enum_match_pattern(pattern, value_type, locals);
+		case ast::MatchPattern::Kind::Struct:
+			check_struct_match_pattern(pattern, value_type, locals);
+			return std::nullopt;
+		}
+		return std::nullopt;
+	}
+
+	std::optional<EnumVariantRef> check_enum_match_pattern(
+	    const ast::MatchPattern &pattern, PrimitiveType value_type,
+	    std::unordered_map<std::string, LocalInfo> &locals)
+	{
+		if (!is_user_enum(value_type)) {
+			diagnostics_.error(pattern.location, "match pattern type mismatch");
+			return std::nullopt;
+		}
+
+		bool enum_diagnostic_emitted = false;
+		auto ref = resolve_enum_variant(pattern.path, pattern.location, value_type,
+		                                enum_diagnostic_emitted);
+		if (!ref)
+			return std::nullopt;
+		if (!types_compatible(enum_type(*ref->enum_info), value_type)) {
+			diagnostics_.error(pattern.location, "match pattern type mismatch");
+			return std::nullopt;
+		}
+		if (ref->variant->payload_types.size() != pattern.bindings.size()) {
+			diagnostics_.error(
+			    pattern.location,
+			    "enum variant '" + ref->variant->name + "' pattern expected " +
+			        std::to_string(ref->variant->payload_types.size()) +
+			        " bindings but got " + std::to_string(pattern.bindings.size()));
+			return std::nullopt;
+		}
+		for (std::size_t i = 0; i < pattern.bindings.size(); ++i)
+			bind_match_local(pattern.location, pattern.bindings[i],
+			                 ref->variant->payload_types[i], locals);
+		return ref;
+	}
+
+	void check_struct_match_pattern(const ast::MatchPattern &pattern,
+	                                PrimitiveType value_type,
+	                                std::unordered_map<std::string, LocalInfo> &locals)
+	{
+		if (!is_user_struct(value_type) || pattern.path.empty() ||
+		    pattern.path[0] != value_type.name) {
+			diagnostics_.error(pattern.location, "match pattern type mismatch");
 			return;
 		}
+		auto it = structs_.find(value_type.name);
+		if (it == structs_.end())
+			return;
+		if (it->second.fields.size() != pattern.bindings.size()) {
+			diagnostics_.error(
+			    pattern.location,
+			    "struct '" + value_type.name + "' pattern expected " +
+			        std::to_string(it->second.fields.size()) +
+			        " bindings but got " + std::to_string(pattern.bindings.size()));
+			return;
+		}
+		for (std::size_t i = 0; i < pattern.bindings.size(); ++i)
+			bind_match_local(pattern.location, pattern.bindings[i],
+			                 it->second.fields[i].second, locals);
+	}
+
+	void bind_match_local(SourceLocation location, const std::string &name,
+	                      PrimitiveType type,
+	                      std::unordered_map<std::string, LocalInfo> &locals)
+	{
+		if (name == "_")
+			return;
+		if (!locals.emplace(name, LocalInfo{type, false}).second)
+			diagnostics_.error(location, "duplicate local '" + name + "'");
 	}
 
 	std::optional<PrimitiveType> check_expr(
@@ -939,12 +1368,33 @@ private:
 		}
 		case ast::Expr::Kind::Call: {
 			const auto &call = static_cast<const ast::CallExpr &>(expr);
+			if (call.callee_path.size() == 1 && call.callee_path[0] == "len")
+				return check_len_call(locals, call);
 			auto function = resolve_function(call.callee_path, call.location);
 			if (function == nullptr) {
-				if (!has_invalid_import_prefix(call.callee_path))
+				if (auto builtin_variant = check_builtin_option_result_call(
+				        locals, call, expected)) {
+					return builtin_variant;
+				}
+				bool enum_diagnostic_emitted = false;
+				if (auto variant = resolve_enum_variant(
+				        call.callee_path, call.location, expected,
+				        enum_diagnostic_emitted)) {
+					return check_enum_variant_call(locals, call, *variant);
+				}
+				if (!enum_diagnostic_emitted && !has_invalid_import_prefix(call.callee_path))
 					diagnostics_.error(call.location,
 					                   "unknown function '" + call.callee + "'");
 			} else {
+				// FE-013: extern fn calls cross an unchecked ABI boundary and
+				// must be inside an `unsafe` block (or `unsafe fn`).
+				if (function->is_extern && options_.enforce_unsafe_blocks &&
+				    unsafe_depth_ == 0) {
+					diagnostics_.error(
+					    call.location,
+					    "call to extern function '" + call.callee +
+					        "' requires `unsafe` block");
+				}
 				std::size_t expected_count = function->parameter_types.size();
 				if (expected_count != call.arguments.size()) {
 					diagnostics_.error(call.location, "function '" + call.callee + "' expected " +
@@ -970,11 +1420,262 @@ private:
 				check_expr(locals, *argument);
 			return i32_type();
 		}
+		case ast::Expr::Kind::StructLiteral: {
+			const auto &literal = static_cast<const ast::StructLiteralExpr &>(expr);
+			PrimitiveType literal_type = check_type(literal.type);
+			if (!is_user_struct(literal_type)) {
+				for (const auto &field : literal.fields)
+					check_expr(locals, *field.value);
+				return literal_type;
+			}
+
+			auto it = structs_.find(literal_type.name);
+			if (it == structs_.end()) {
+				diagnostics_.error(literal.location,
+				                   "struct '" + literal_type.name + "' not in scope");
+				for (const auto &field : literal.fields)
+					check_expr(locals, *field.value);
+				return literal_type;
+			}
+
+			std::unordered_set<std::string> seen_fields;
+			for (const auto &field : literal.fields) {
+				if (!seen_fields.insert(field.name).second) {
+					diagnostics_.error(field.location,
+					                   "duplicate field '" + field.name +
+					                       "' in struct literal");
+					check_expr(locals, *field.value);
+					continue;
+				}
+				auto field_type = it->second.field_type(field.name);
+				if (!field_type) {
+					diagnostics_.error(field.location,
+					                   "struct '" + literal_type.name + "' has no field '" +
+					                       field.name + "'");
+					check_expr(locals, *field.value);
+					continue;
+				}
+				auto value_type = check_expr(locals, *field.value, *field_type);
+				if (value_type && !types_compatible(*field_type, *value_type)) {
+					diagnostics_.error(field.location,
+					                   "field type mismatch: expected '" +
+					                       format_type(*field_type) + "' but got '" +
+					                       format_type(*value_type) + "'");
+				}
+			}
+
+			for (const auto &declared_field : it->second.fields) {
+				if (seen_fields.find(declared_field.first) == seen_fields.end()) {
+					diagnostics_.error(literal.location,
+					                   "missing field '" + declared_field.first +
+					                       "' in struct literal");
+				}
+			}
+			if (expected && !types_compatible(*expected, literal_type)) {
+				diagnostics_.error(literal.location,
+				                   "initializer type mismatch: expected '" +
+				                       format_type(*expected) + "' but got '" +
+				                       format_type(literal_type) + "'");
+			}
+			return literal_type;
+		}
+		case ast::Expr::Kind::Tuple: {
+			const auto &tuple = static_cast<const ast::TupleExpr &>(expr);
+			std::optional<std::vector<PrimitiveType>> expected_elements;
+			if (expected && is_tuple(*expected))
+				expected_elements = tuple_elements(*expected);
+
+			if (expected_elements && expected_elements->size() != tuple.elements.size()) {
+				diagnostics_.error(
+				    tuple.location,
+				    "tuple initializer expected " +
+				        std::to_string(expected_elements->size()) +
+				        " elements but got " + std::to_string(tuple.elements.size()));
+			}
+
+			std::vector<PrimitiveType> element_types;
+			element_types.reserve(tuple.elements.size());
+			for (std::size_t i = 0; i < tuple.elements.size(); ++i) {
+				std::optional<PrimitiveType> element_expected;
+				if (expected_elements && i < expected_elements->size())
+					element_expected = (*expected_elements)[i];
+				auto value_type = check_expr(locals, *tuple.elements[i], element_expected);
+				if (!value_type) {
+					element_types.push_back(i32_type());
+					continue;
+				}
+				if (element_expected && !types_compatible(*element_expected, *value_type)) {
+					diagnostics_.error(
+					    tuple.elements[i]->location,
+					    "tuple element type mismatch: expected '" +
+					        format_type(*element_expected) + "' but got '" +
+					        format_type(*value_type) + "'");
+				}
+				element_types.push_back(*value_type);
+			}
+			return tuple_type(std::move(element_types));
+		}
+		case ast::Expr::Kind::FieldAccess: {
+			const auto &access = static_cast<const ast::FieldAccessExpr &>(expr);
+			auto base_type = check_expr(locals, *access.base);
+			if (!base_type)
+				return std::nullopt;
+			if (is_tuple(*base_type)) {
+				auto elements = tuple_elements(*base_type);
+				auto index = parse_tuple_field_index(access.field);
+				if (!elements || !index) {
+					diagnostics_.error(access.location,
+					                   "tuple field access requires numeric field");
+					return std::nullopt;
+				}
+				if (*index >= elements->size()) {
+					diagnostics_.error(access.location,
+					                   "tuple has no field '" + access.field + "'");
+					return std::nullopt;
+				}
+				return (*elements)[*index];
+			}
+			if (!is_user_struct(*base_type)) {
+				diagnostics_.error(access.location,
+				                   "field access requires struct value, got '" +
+				                       format_type(*base_type) + "'");
+				return std::nullopt;
+			}
+			auto it = structs_.find(base_type->name);
+			if (it == structs_.end()) {
+				diagnostics_.error(access.location,
+				                   "struct '" + base_type->name + "' not in scope");
+				return std::nullopt;
+			}
+			auto field_type = it->second.field_type(access.field);
+			if (!field_type) {
+				diagnostics_.error(access.location,
+				                   "struct '" + base_type->name + "' has no field '" +
+				                       access.field + "'");
+				return std::nullopt;
+			}
+			return field_type;
+		}
+		case ast::Expr::Kind::Index: {
+			const auto &index = static_cast<const ast::IndexExpr &>(expr);
+			return check_index_expr(locals, index);
+		}
+		case ast::Expr::Kind::Try: {
+			const auto &try_expr = static_cast<const ast::TryExpr &>(expr);
+			return check_try_expr(locals, try_expr);
+		}
 		default:
 			break;
 		}
 
 		return i32_type();
+	}
+
+	std::optional<PrimitiveType> check_try_expr(
+		const std::unordered_map<std::string, LocalInfo> &locals,
+		const ast::TryExpr &try_expr)
+	{
+		auto operand_type = check_expr(locals, *try_expr.operand);
+		if (!operand_type)
+			return std::nullopt;
+
+		if (!is_result(*operand_type)) {
+			diagnostics_.error(try_expr.location,
+			                   "'?' operator requires Result operand, got '" +
+			                       format_type(*operand_type) + "'");
+			return std::nullopt;
+		}
+
+		if (!current_function_return_type_) {
+			diagnostics_.error(try_expr.location,
+			                   "'?' operator used outside of a function");
+			return std::nullopt;
+		}
+
+		if (!is_result(*current_function_return_type_)) {
+			diagnostics_.error(
+			    try_expr.location,
+			    "'?' operator requires enclosing function to return Result, got '" +
+			        format_type(*current_function_return_type_) + "'");
+			return std::nullopt;
+		}
+
+		auto operand_error = result_error_type(*operand_type).value_or(i32_type());
+		auto return_error = result_error_type(*current_function_return_type_)
+		                        .value_or(i32_type());
+		if (!types_compatible(return_error, operand_error)) {
+			diagnostics_.error(
+			    try_expr.location,
+			    "'?' error type mismatch: function returns '" +
+			        format_type(*current_function_return_type_) +
+			        "' but operand is '" + format_type(*operand_type) + "'");
+			return std::nullopt;
+		}
+
+		auto payload = handle_payload_type(*operand_type);
+		if (!payload)
+			return i32_type();
+		return payload;
+	}
+
+	std::optional<PrimitiveType> check_len_call(
+		const std::unordered_map<std::string, LocalInfo> &locals, const ast::CallExpr &call)
+	{
+		if (call.arguments.size() != 1) {
+			diagnostics_.error(call.location, "len() expected 1 argument but got " +
+			                   std::to_string(call.arguments.size()));
+			for (const auto &argument : call.arguments)
+				check_expr(locals, *argument);
+			return i32_type();
+		}
+		auto argument_type = check_expr(locals, *call.arguments[0]);
+		if (!argument_type)
+			return i32_type();
+		if (argument_type->kind == PrimitiveKind::Str)
+			return i32_type();
+		if (!is_slice(*argument_type)) {
+			diagnostics_.error(call.location, "len() requires slice or str argument");
+			return i32_type();
+		}
+		auto element = handle_payload_type(*argument_type);
+		if (!element || !slice_helper_type_suffix(*element)) {
+			diagnostics_.error(call.location,
+			                   "len() does not support slice element type '" +
+			                       (element ? format_type(*element) : std::string("")) + "'");
+		}
+		return i32_type();
+	}
+
+	std::optional<PrimitiveType> check_index_expr(
+		const std::unordered_map<std::string, LocalInfo> &locals, const ast::IndexExpr &index)
+	{
+		auto base_type = check_expr(locals, *index.base);
+		auto index_type = check_expr(locals, *index.index, i32_type());
+		if (index_type && !is_integer(*index_type))
+			diagnostics_.error(index.index->location, "index expression requires integer index");
+		if (!base_type)
+			return std::nullopt;
+		if (is_negative_integer_literal(*index.index) && is_slice(*base_type))
+			diagnostics_.error(index.index->location, "slice index out of bounds");
+		if (is_slice(*base_type)) {
+			auto element = handle_payload_type(*base_type);
+			if (!element)
+				return std::nullopt;
+			if (!slice_helper_type_suffix(*element)) {
+				diagnostics_.error(index.location,
+				                   "slice indexing does not support element type '" +
+				                       format_type(*element) + "'");
+			}
+			return element;
+		}
+		if (base_type->kind == PrimitiveKind::Str)
+			return u8_type();
+		auto pointee = pointee_type(*base_type);
+		if (!pointee) {
+			diagnostics_.error(index.location, "index expression requires pointer, str, or slice base");
+			return std::nullopt;
+		}
+		return pointee;
 	}
 
 	std::optional<PrimitiveType> check_unary_expr(
@@ -1116,6 +1817,13 @@ private:
 			diagnostics_.error(unary.location, "dereference requires pointer operand");
 			return operand_type;
 		}
+		// FE-013: raw pointer deref must be inside an `unsafe` block or
+		// `unsafe fn`. Slice/string/owned-str access goes through their own
+		// helpers and is safe — only the bare `*ptr` form lands here.
+		if (options_.enforce_unsafe_blocks && unsafe_depth_ == 0)
+			diagnostics_.error(
+			    unary.location,
+			    "dereference of raw pointer requires `unsafe` block");
 		return target_type;
 	}
 
@@ -1205,12 +1913,238 @@ private:
 
 	PrimitiveType check_type(const ast::TypeName &type)
 	{
-		auto primitive_type = parse_primitive_type(type.name);
-		if (!primitive_type) {
-			diagnostics_.error(type.location, "unknown type '" + type.name + "'");
+		return check_type_name(type.name, type.location);
+	}
+
+	PrimitiveType check_type_name(const std::string &name, const SourceLocation &loc)
+	{
+		if (auto option_args = consume_generic_type_arguments(name, "Option")) {
+			if (option_args->size() == 1)
+				return option_of(check_type_name((*option_args)[0], loc));
+			diagnostics_.error(loc, "Option expects 1 type argument");
+			return option_of(i32_type());
+		}
+		if (auto result_args = consume_generic_type_arguments(name, "Result")) {
+			if (result_args->size() == 1)
+				return result_of(check_type_name((*result_args)[0], loc));
+			if (result_args->size() == 2) {
+				return result_of(check_type_name((*result_args)[0], loc),
+				                 check_type_name((*result_args)[1], loc));
+			}
+			diagnostics_.error(loc, "Result expects 1 or 2 type arguments");
+			return result_of(i32_type());
+		}
+		auto primitive_type = parse_primitive_type(name);
+		if (primitive_type)
+			return *primitive_type;
+		if (!name.empty() && name.front() == '*')
+			return pointer_to(check_type_name(name.substr(1), loc));
+		if (auto tuple_names = split_tuple_type_name(name)) {
+			std::vector<PrimitiveType> elements;
+			elements.reserve(tuple_names->size());
+			for (const auto &element_name : *tuple_names)
+				elements.push_back(check_type_name(element_name, loc));
+			return tuple_type(std::move(elements));
+		}
+		if (structs_.find(name) != structs_.end())
+			return struct_type(name, structs_.at(name));
+		if (auto it = enums_.find(name); it != enums_.end())
+			return enum_type(it->second);
+		// FE-102: a bare identifier matching a generic parameter in scope
+		// resolves to a type variable. We model it as a UserStruct with the
+		// parameter name; layout/codegen for generic bodies is gated on
+		// FE-103 monomorphization, so callers must avoid size queries here.
+		if (current_generic_parameters_.count(name) > 0)
+			return user_struct_type(name);
+		if (name == "int") {
+			diagnostics_.error(
+			    loc, "unknown type '" + name + "'",
+			    {FixIt{"replace with 'i32'", SourceSpan::from_location(loc, name.size()),
+			           "i32"}});
 			return i32_type();
 		}
-		return *primitive_type;
+		diagnostics_.error(loc, "unknown type '" + name + "'");
+		return i32_type();
+	}
+
+	static std::size_t align_up(std::size_t value, std::size_t alignment)
+	{
+		if (alignment <= 1)
+			return value;
+		return (value + alignment - 1) / alignment * alignment;
+	}
+
+	void compute_struct_layout(StructInfo &info)
+	{
+		std::size_t offset = 0;
+		std::size_t struct_alignment = 1;
+		for (const auto &field : info.fields) {
+			std::size_t field_alignment = type_alignment_bytes(field.second).value_or(1u);
+			std::size_t field_size = type_size_bytes(field.second).value_or(0u);
+			offset = align_up(offset, field_alignment);
+			offset += field_size;
+			if (field_alignment > struct_alignment)
+				struct_alignment = field_alignment;
+		}
+		info.alignment = struct_alignment;
+		info.total_size = align_up(offset, struct_alignment);
+	}
+
+	PrimitiveType struct_type(const std::string &name, const StructInfo &info) const
+	{
+		return user_struct_type(name, static_cast<int>(info.total_size * 8));
+	}
+
+	PrimitiveType enum_type(const EnumInfo &info) const
+	{
+		return user_enum_type(info.name,
+		                      static_cast<int>(info.layout.total_size * 8));
+	}
+
+	std::optional<std::string> builtin_constructor_name(
+	    const std::vector<std::string> &path, PrimitiveType expected) const
+	{
+		if (path.size() == 1)
+			return path[0];
+		if (path.size() != 2)
+			return std::nullopt;
+		if (is_option(expected) && path[0] == "Option")
+			return path[1];
+		if (is_result(expected) && path[0] == "Result")
+			return path[1];
+		return std::nullopt;
+	}
+
+	std::optional<PrimitiveType> check_builtin_option_result_call(
+	    const std::unordered_map<std::string, LocalInfo> &locals,
+	    const ast::CallExpr &call, std::optional<PrimitiveType> expected)
+	{
+		if (!expected || (!is_option(*expected) && !is_result(*expected)))
+			return std::nullopt;
+		auto constructor = builtin_constructor_name(call.callee_path, *expected);
+		if (!constructor)
+			return std::nullopt;
+
+		std::optional<PrimitiveType> payload_type;
+		if (is_option(*expected)) {
+			if (*constructor == "None") {
+				payload_type = std::nullopt;
+			} else if (*constructor == "Some") {
+				payload_type = handle_payload_type(*expected);
+			} else {
+				return std::nullopt;
+			}
+		} else if (*constructor == "Ok") {
+			payload_type = handle_payload_type(*expected);
+		} else if (*constructor == "Err") {
+			payload_type = result_error_type(*expected).value_or(i32_type());
+		} else {
+			return std::nullopt;
+		}
+
+		std::size_t expected_count = payload_type ? 1u : 0u;
+		if (expected_count != call.arguments.size()) {
+			diagnostics_.error(
+			    call.location,
+			    "enum variant '" + *constructor + "' expected " +
+			        std::to_string(expected_count) + " arguments but got " +
+			        std::to_string(call.arguments.size()));
+		}
+		for (std::size_t i = 0; i < call.arguments.size(); ++i) {
+			auto argument_type = check_expr(locals, *call.arguments[i], payload_type);
+			if (payload_type && argument_type &&
+			    !types_compatible(*payload_type, *argument_type)) {
+				diagnostics_.error(
+				    call.arguments[i]->location,
+				    "enum payload type mismatch: expected '" +
+				        format_type(*payload_type) + "' but got '" +
+				        format_type(*argument_type) + "'");
+			}
+		}
+		return expected;
+	}
+
+	std::optional<EnumVariantRef> resolve_enum_variant(
+	    const std::vector<std::string> &path, SourceLocation location,
+	    std::optional<PrimitiveType> expected, bool &diagnostic_emitted)
+	{
+		if (path.empty())
+			return std::nullopt;
+
+		if (path.size() == 2) {
+			auto enum_it = enums_.find(path[0]);
+			if (enum_it == enums_.end())
+				return std::nullopt;
+			auto *variant = enum_it->second.variant(path[1]);
+			if (variant == nullptr) {
+				diagnostics_.error(location,
+				                   "unknown enum variant '" + path[1] +
+				                       "' for enum '" + path[0] + "'");
+				diagnostic_emitted = true;
+				return std::nullopt;
+			}
+			return EnumVariantRef{&enum_it->second, variant};
+		}
+
+		if (path.size() != 1)
+			return std::nullopt;
+
+		if (expected && is_user_enum(*expected)) {
+			auto enum_it = enums_.find(expected->name);
+			if (enum_it != enums_.end()) {
+				auto *variant = enum_it->second.variant(path[0]);
+				if (variant != nullptr)
+					return EnumVariantRef{&enum_it->second, variant};
+				diagnostics_.error(location,
+				                   "unknown enum variant '" + path[0] +
+				                       "' for enum '" + expected->name + "'");
+				diagnostic_emitted = true;
+				return std::nullopt;
+			}
+		}
+
+		std::optional<EnumVariantRef> match;
+		for (const auto &entry : enums_) {
+			if (auto *variant = entry.second.variant(path[0])) {
+				if (match) {
+					diagnostics_.error(location,
+					                   "ambiguous enum variant '" + path[0] + "'");
+					diagnostic_emitted = true;
+					return std::nullopt;
+				}
+				match = EnumVariantRef{&entry.second, variant};
+			}
+		}
+		return match;
+	}
+
+	std::optional<PrimitiveType> check_enum_variant_call(
+	    const std::unordered_map<std::string, LocalInfo> &locals,
+	    const ast::CallExpr &call, const EnumVariantRef &ref)
+	{
+		std::size_t expected_count = ref.variant->payload_types.size();
+		if (expected_count != call.arguments.size()) {
+			diagnostics_.error(
+			    call.location,
+			    "enum variant '" + ref.variant->name + "' expected " +
+			        std::to_string(expected_count) + " arguments but got " +
+			        std::to_string(call.arguments.size()));
+		}
+		for (std::size_t i = 0; i < call.arguments.size(); ++i) {
+			std::optional<PrimitiveType> payload_type;
+			if (i < expected_count)
+				payload_type = ref.variant->payload_types[i];
+			auto argument_type = check_expr(locals, *call.arguments[i], payload_type);
+			if (payload_type && argument_type &&
+			    !types_compatible(*payload_type, *argument_type)) {
+				diagnostics_.error(
+				    call.arguments[i]->location,
+				    "enum payload type mismatch: expected '" +
+				        format_type(*payload_type) + "' but got '" +
+				        format_type(*argument_type) + "'");
+			}
+		}
+		return enum_type(*ref.enum_info);
 	}
 
 	const ast::Module &module_;
@@ -1222,7 +2156,12 @@ private:
 	std::unordered_set<std::string> reserved_stdlib_module_paths_;
 	std::unordered_map<std::string, ImportScope> imports_;
 	std::unordered_map<std::string, ModuleInfo> modules_;
+	std::unordered_map<std::string, StructInfo> structs_;
+	std::unordered_map<std::string, EnumInfo> enums_;
 	const std::vector<std::string> *current_module_path_ = nullptr;
+	std::optional<PrimitiveType> current_function_return_type_;
+	int unsafe_depth_ = 0;
+	std::unordered_set<std::string> current_generic_parameters_;
 };
 
 } // namespace

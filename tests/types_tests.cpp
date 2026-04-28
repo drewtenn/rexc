@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <utility>
+#include <vector>
 
 TEST_CASE(types_parse_all_core_primitive_names)
 {
@@ -41,21 +43,34 @@ TEST_CASE(types_parse_and_format_handle_types)
 {
 	auto owned = rexc::parse_primitive_type("owned_str");
 	auto slice = rexc::parse_primitive_type("slice<i32>");
+	auto first_class_slice = rexc::parse_primitive_type("&[i32]");
 	auto vec = rexc::parse_primitive_type("vec<i32>");
+	auto option = rexc::parse_primitive_type("Option<i32>");
 	auto result = rexc::parse_primitive_type("Result<i32>");
+	auto typed_result = rexc::parse_primitive_type("Result<i32, bool>");
 
 	REQUIRE(owned.has_value());
 	REQUIRE(slice.has_value());
+	REQUIRE(first_class_slice.has_value());
 	REQUIRE(vec.has_value());
+	REQUIRE(option.has_value());
 	REQUIRE(result.has_value());
+	REQUIRE(typed_result.has_value());
 	REQUIRE_EQ(rexc::format_type(*owned), std::string("owned_str"));
-	REQUIRE_EQ(rexc::format_type(*slice), std::string("slice<i32>"));
+	REQUIRE_EQ(rexc::format_type(*slice), std::string("&[i32]"));
+	REQUIRE_EQ(*first_class_slice, *slice);
+	REQUIRE_EQ(rexc::format_type(*first_class_slice), std::string("&[i32]"));
 	REQUIRE_EQ(rexc::format_type(*vec), std::string("vec<i32>"));
+	REQUIRE_EQ(rexc::format_type(*option), std::string("Option<i32>"));
 	REQUIRE_EQ(rexc::format_type(*result), std::string("Result<i32>"));
+	REQUIRE_EQ(rexc::format_type(*typed_result), std::string("Result<i32, bool>"));
 	REQUIRE(rexc::is_i386_codegen_supported(*owned));
 	REQUIRE(rexc::is_i386_codegen_supported(*slice));
+	REQUIRE(rexc::is_i386_codegen_supported(*first_class_slice));
 	REQUIRE(rexc::is_i386_codegen_supported(*vec));
+	REQUIRE(rexc::is_i386_codegen_supported(*option));
 	REQUIRE(rexc::is_i386_codegen_supported(*result));
+	REQUIRE(rexc::is_i386_codegen_supported(*typed_result));
 }
 
 TEST_CASE(types_report_integer_properties)
@@ -140,4 +155,45 @@ TEST_CASE(types_reject_invalid_primitive_shapes)
 	REQUIRE(!rexc::integer_literal_fits(signed_128, 0));
 	REQUIRE(!rexc::integer_literal_fits(bool_with_bits, 0));
 	REQUIRE(!rexc::unsigned_integer_literal_fits(unsigned_128, 0));
+}
+
+TEST_CASE(types_model_user_enum_identity_and_formatting)
+{
+	auto option = rexc::user_enum_type("Option", 32);
+	auto result = rexc::user_enum_type("Result", 64);
+
+	REQUIRE(rexc::is_user_enum(option));
+	REQUIRE(!rexc::is_user_struct(option));
+	REQUIRE(rexc::is_valid_primitive_type(option));
+	REQUIRE_EQ(rexc::format_type(option), std::string("Option"));
+	REQUIRE(option != result);
+}
+
+TEST_CASE(types_layout_tagged_enum_with_largest_payload)
+{
+	auto i32 = *rexc::parse_primitive_type("i32");
+	auto i64 = *rexc::parse_primitive_type("i64");
+	auto boolean = *rexc::parse_primitive_type("bool");
+	std::vector<rexc::EnumVariantSpec> variants{
+	    {"None", {}},
+	    {"Some", {i32}},
+	    {"Pair", {i64, boolean}},
+	};
+
+	auto layout = rexc::layout_enum_variants(variants);
+
+	REQUIRE_EQ(layout.tag_size, std::size_t(4));
+	REQUIRE_EQ(layout.tag_alignment, std::size_t(4));
+	REQUIRE_EQ(layout.payload_offset, std::size_t(8));
+	REQUIRE_EQ(layout.total_size, std::size_t(24));
+	REQUIRE_EQ(layout.alignment, std::size_t(8));
+	REQUIRE_EQ(layout.variants.size(), std::size_t(3));
+	REQUIRE_EQ(layout.variants[0].tag, std::uint32_t(0));
+	REQUIRE_EQ(layout.variants[1].tag, std::uint32_t(1));
+	REQUIRE_EQ(layout.variants[2].tag, std::uint32_t(2));
+	REQUIRE_EQ(layout.variants[0].payload_size, std::size_t(0));
+	REQUIRE_EQ(layout.variants[1].payload_size, std::size_t(4));
+	REQUIRE_EQ(layout.variants[2].payload_size, std::size_t(16));
+	REQUIRE_EQ(layout.variants[2].fields[0].offset, std::size_t(0));
+	REQUIRE_EQ(layout.variants[2].fields[1].offset, std::size_t(8));
 }

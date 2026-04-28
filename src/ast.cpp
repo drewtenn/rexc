@@ -88,6 +88,35 @@ CallExpr::CallExpr(SourceLocation location, std::vector<std::string> callee_path
 {
 }
 
+StructLiteralExpr::StructLiteralExpr(SourceLocation location, TypeName type)
+	: Expr(Kind::StructLiteral, std::move(location)), type(std::move(type))
+{
+}
+
+TupleExpr::TupleExpr(SourceLocation location)
+	: Expr(Kind::Tuple, std::move(location))
+{
+}
+
+FieldAccessExpr::FieldAccessExpr(SourceLocation location, std::unique_ptr<Expr> base,
+                                 std::string field)
+	: Expr(Kind::FieldAccess, std::move(location)), base(std::move(base)),
+	  field(std::move(field))
+{
+}
+
+IndexExpr::IndexExpr(SourceLocation location, std::unique_ptr<Expr> base,
+                     std::unique_ptr<Expr> index)
+	: Expr(Kind::Index, std::move(location)), base(std::move(base)),
+	  index(std::move(index))
+{
+}
+
+TryExpr::TryExpr(SourceLocation location, std::unique_ptr<Expr> operand)
+	: Expr(Kind::Try, std::move(location)), operand(std::move(operand))
+{
+}
+
 Stmt::Stmt(Kind kind, SourceLocation location)
 	: kind(kind), location(std::move(location))
 {
@@ -110,6 +139,13 @@ IndirectAssignStmt::IndirectAssignStmt(SourceLocation location, std::unique_ptr<
                                        std::unique_ptr<Expr> value)
 	: Stmt(Kind::IndirectAssign, std::move(location)), target(std::move(target)),
 	  value(std::move(value))
+{
+}
+
+FieldAssignStmt::FieldAssignStmt(SourceLocation location, std::unique_ptr<Expr> base,
+                                 std::string field, std::unique_ptr<Expr> value)
+	: Stmt(Kind::FieldAssign, std::move(location)), base(std::move(base)),
+	  field(std::move(field)), value(std::move(value))
 {
 }
 
@@ -161,6 +197,12 @@ BreakStmt::BreakStmt(SourceLocation location)
 
 ContinueStmt::ContinueStmt(SourceLocation location)
 	: Stmt(Kind::Continue, std::move(location))
+{
+}
+
+UnsafeBlockStmt::UnsafeBlockStmt(SourceLocation location,
+                                 std::vector<std::unique_ptr<Stmt>> body)
+	: Stmt(Kind::UnsafeBlock, std::move(location)), body(std::move(body))
 {
 }
 

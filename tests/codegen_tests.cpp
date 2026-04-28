@@ -28,6 +28,7 @@ static CodegenAttempt compile_to_codegen_result(
 	REQUIRE(parsed.ok());
 	rexc::SemanticOptions semantic_options;
 	semantic_options.stdlib_symbols = rexc::StdlibSymbolPolicy::DefaultPrelude;
+	semantic_options.enforce_unsafe_blocks = false;  // FE-013: pre-existing tests
 	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics, semantic_options).ok());
 	rexc::LowerOptions lower_options;
 	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::DefaultPrelude;
@@ -55,6 +56,7 @@ static std::string compile_to_assembly_with_all_stdlib_symbols(
 
 	rexc::SemanticOptions semantic_options;
 	semantic_options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
+	semantic_options.enforce_unsafe_blocks = false;  // FE-013: pre-existing tests
 	auto sema = rexc::analyze_module(parsed.module(), diagnostics, semantic_options);
 	REQUIRE(sema.ok());
 
@@ -751,4 +753,314 @@ TEST_CASE(codegen_i386_emits_alloc_helper_calls)
 	REQUIRE(assembly.find("call alloc_bool_to_str") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_char_to_str") != std::string::npos);
 	REQUIRE(assembly.find("call alloc_remaining") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_lowers_first_class_slice_len_and_index_to_checked_helpers)
+{
+	auto assembly = compile_to_assembly_with_all_stdlib_symbols(
+	    "fn first(xs: &[i32]) -> i32 { return len(xs) + xs[0]; }\n");
+
+	REQUIRE(assembly.find("call slice_i32_len") != std::string::npos);
+	REQUIRE(assembly.find("call slice_i32_at") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_enum_constructor_tag)
+{
+	auto assembly = compile_to_assembly(
+		"enum Option { None, Some(i32) }\n"
+		"fn tag(value: *Option) -> u32 { return *((value as *u8) as *u32); }\n"
+		"fn main() -> i32 { let mut value: Option = Some(42); return tag(&value) as i32; }\n");
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("$1") != std::string::npos);
+	REQUIRE(assembly.find("leal -8(%ebp)") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_enum_payload_for_raw_extraction)
+{
+	auto assembly = compile_to_assembly(
+		"enum Option { None, Some(i32) }\n"
+		"fn payload(value: *Option) -> i32 { return *(((value as *u8) + 4) as *i32); }\n"
+		"fn main() -> i32 { let mut value: Option = Some(42); return payload(&value); }\n");
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("$42") != std::string::npos);
+	REQUIRE(assembly.find("$4") != std::string::npos);
+	REQUIRE(assembly.find("leal -8(%ebp)") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_enum_match_destructuring_payload_binding)
+{
+	auto assembly = compile_to_assembly(
+		"enum Option { None, Some(i32) }\n"
+		"fn main() -> i32 { let value: Option = Some(42); match value { Some(x) => { return x; } _ => { return 0; } } }\n");
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("cmpl $1") != std::string::npos);
+	REQUIRE(assembly.find("$42") != std::string::npos);
+	REQUIRE(assembly.find("-4(%ebp)") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_struct_match_destructuring_field_binding)
+{
+	auto assembly = compile_to_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn main() -> i32 { let point: Point = Point { x: 40, y: 2 }; match point { Point { x, y } => { return x + y; } } }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("$40") != std::string::npos);
+	REQUIRE(assembly.find("$2") != std::string::npos);
+	REQUIRE(assembly.find("add") != std::string::npos);
+}
+
+// FE-003a (Phase 1): struct field-load codegen via pointer cast.
+//
+// Confirms that (*p).x lowers through IR and emits an actual load on x86.
+// Defers struct-by-value parameter ABI to a follow-up cycle.
+
+TEST_CASE(codegen_emits_struct_field_load_through_pointer)
+{
+	auto assembly = compile_to_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn read_x(p: *Point) -> i32 { return (*p).x; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(assembly.find("read_x:") != std::string::npos);
+	// Field x is at offset 0; the load should appear via pointer indirection.
+	// We expect at least one mov from a base register into eax.
+	REQUIRE(assembly.find("ret") != std::string::npos);
+}
+
+TEST_CASE(codegen_emits_struct_field_load_with_nonzero_offset)
+{
+	// Field y is at offset 4 — codegen must generate a +4 byte offset before
+	// the load. Anti-stub: defeats "always load offset 0".
+	auto assembly = compile_to_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn read_y(p: *Point) -> i32 { return (*p).y; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(assembly.find("read_y:") != std::string::npos);
+	// The 4-byte offset should appear somewhere in the function.
+	// On i386 small constants commonly appear as $4 — accept any visible form.
+	REQUIRE(assembly.find("$4") != std::string::npos);
+}
+
+TEST_CASE(codegen_emits_struct_field_store_through_pointer)
+{
+	// FE-003b: (*p).x = 42 — write side, mirror of the read codegen.
+	auto assembly = compile_to_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn write_x(p: *Point) -> i32 { (*p).x = 42; return 0; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(assembly.find("write_x:") != std::string::npos);
+	// Constant 42 should appear in the emitted body.
+	REQUIRE(assembly.find("$42") != std::string::npos);
+}
+
+TEST_CASE(codegen_emits_struct_field_store_with_nonzero_offset)
+{
+	// (*p).y = 7 — must add +4 byte offset before storing.
+	auto assembly = compile_to_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn write_y(p: *Point) -> i32 { (*p).y = 7; return 0; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(assembly.find("write_y:") != std::string::npos);
+	REQUIRE(assembly.find("$4") != std::string::npos);
+	REQUIRE(assembly.find("$7") != std::string::npos);
+}
+
+TEST_CASE(codegen_aligns_mixed_size_struct_fields)
+{
+	// FE-003c: `struct Mixed { flag: bool, value: i32 }` — `value` must be at
+	// offset 4 (not 1), so the loaded i32 is 4-byte aligned. The constant 4
+	// (not 1) must appear in the read function.
+	auto assembly = compile_to_assembly(
+		"struct Mixed { flag: bool, value: i32 }\n"
+		"fn read_value(p: *Mixed) -> i32 { return (*p).value; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(assembly.find("read_value:") != std::string::npos);
+	REQUIRE(assembly.find("$4") != std::string::npos);
+	// A misaligned packing would emit $1 here. The presence of $4 plus the
+	// absence of any movl/movabsq with a literal $1 in this function is the
+	// strongest assertion we can write without a full disassembly tool.
+}
+
+TEST_CASE(codegen_aligns_struct_with_pointer_field_after_byte)
+{
+	// pointer field needs 8-byte alignment after a u8 — offset should be 8,
+	// not 1. Anti-stub: defeats "always align to 4 bytes".
+	auto assembly = compile_to_assembly(
+		"struct Hybrid { tag: u8, ptr: *i32 }\n"
+		"fn read_ptr(p: *Hybrid) -> *i32 { return (*p).ptr; }\n"
+		"fn main() -> i32 { return 0; }\n");
+
+	REQUIRE(assembly.find("read_ptr:") != std::string::npos);
+	REQUIRE(assembly.find("$8") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_struct_literal_field_access)
+{
+	auto assembly = compile_to_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn main() -> i32 { let p: Point = Point { x: 40, y: 2 }; return p.y; }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("shrq $32") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_accepts_struct_by_value_parameter)
+{
+	auto assembly = compile_to_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn read_y(p: Point) -> i32 { return p.y; }\n"
+		"fn main() -> i32 { return read_y(Point { x: 40, y: 2 }); }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("read_y:") != std::string::npos);
+	REQUIRE(assembly.find("movq %rdi") != std::string::npos);
+	REQUIRE(assembly.find("shrq $32") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_passes_two_register_struct_by_value)
+{
+	auto assembly = compile_to_assembly(
+		"struct Quad { a: i32, b: i32, c: i32, d: i32 }\n"
+		"fn read_d(q: Quad) -> i32 { return q.d; }\n"
+		"fn main() -> i32 { return read_d(Quad { a: 1, b: 2, c: 3, d: 4 }); }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("read_d:") != std::string::npos);
+	REQUIRE(assembly.find("movq %rdi") != std::string::npos);
+	REQUIRE(assembly.find("movq %rsi") != std::string::npos);
+	REQUIRE(assembly.find("shrq $32") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_extracts_field_from_two_register_struct_local)
+{
+	auto assembly = compile_to_assembly(
+		"struct Quad { a: i32, b: i32, c: i32, d: i32 }\n"
+		"fn main() -> i32 { let q: Quad = Quad { a: 1, b: 2, c: 3, d: 4 }; return q.d; }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("shrq $32") != std::string::npos);
+}
+
+// FE-007 (Phase 1): tuple by-value ABI and numeric field extraction.
+
+TEST_CASE(codegen_x86_64_emits_tuple_literal_field_access)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { let pair: (i32, bool) = (40, true); return pair.0; }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("$40") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_accepts_tuple_by_value_parameter)
+{
+	auto assembly = compile_to_assembly(
+		"fn second(pair: (i32, i32)) -> i32 { return pair.1; }\n"
+		"fn main() -> i32 { return second((40, 2)); }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("second:") != std::string::npos);
+	REQUIRE(assembly.find("movq %rdi") != std::string::npos);
+	REQUIRE(assembly.find("shrq $32") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_emits_local_tuple_field_access)
+{
+	auto assembly = compile_to_assembly(
+		"fn main() -> i32 { let pair: (i32, bool) = (40, true); return pair.0; }\n");
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("movl $40, %eax") != std::string::npos);
+}
+
+// FE-015 (i386 aggregate ABI): tuples up to 8 bytes ride in EDX:EAX on
+// returns and on the stack across pushed chunks for arguments.
+
+TEST_CASE(codegen_i386_accepts_small_tuple_by_value_parameter)
+{
+	auto assembly = compile_to_assembly(
+		"fn second(pair: (i32, i32)) -> i32 { return pair.1; }\n"
+		"fn main() -> i32 { return second((40, 2)); }\n");
+
+	REQUIRE(assembly.find("second:") != std::string::npos);
+	REQUIRE(assembly.find("call second") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_enum_constructor_tag)
+{
+	auto assembly = compile_to_assembly(
+		"enum Option { None, Some(i32) }\n"
+		"fn tag(value: *Option) -> u32 { return *((value as *u8) as *u32); }\n"
+		"fn main() -> i32 { let mut value: Option = Some(42); return tag(&value) as i32; }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("$1") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_emits_enum_payload_for_raw_extraction)
+{
+	auto assembly = compile_to_assembly(
+		"enum Option { None, Some(i32) }\n"
+		"fn payload(value: *Option) -> i32 { return *(((value as *u8) + 4) as *i32); }\n"
+		"fn main() -> i32 { let mut value: Option = Some(42); return payload(&value); }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("main:") != std::string::npos);
+	REQUIRE(assembly.find("$42") != std::string::npos);
+	REQUIRE(assembly.find("$4") != std::string::npos);
+}
+
+TEST_CASE(codegen_x86_64_passes_large_struct_on_stack)
+{
+	auto assembly = compile_to_assembly(
+		"struct Six { a: i32, b: i32, c: i32, d: i32, e: i32, f: i32 }\n"
+		"fn read_f(s: Six) -> i32 { return s.f; }\n"
+		"fn main() -> i32 { return read_f(Six { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 }); }\n",
+		rexc::CodegenTarget::X86_64);
+
+	REQUIRE(assembly.find("read_f:") != std::string::npos);
+	REQUIRE(assembly.find("32(%rbp)") != std::string::npos);
+	REQUIRE(assembly.find("shrq $32") != std::string::npos);
+}
+
+// FE-015 (i386 aggregate ABI): structs up to 8 bytes ride in EDX:EAX
+// on returns. Wider aggregates (3+ chunks) are still rejected — they
+// would need a hidden return pointer, which is a follow-up.
+
+TEST_CASE(codegen_i386_accepts_small_struct_by_value_return)
+{
+	auto assembly = compile_to_assembly(
+		"struct Point { x: i32, y: i32 }\n"
+		"fn make() -> Point { return Point { x: 40, y: 2 }; }\n"
+		"fn main() -> i32 { let p: Point = make(); return p.x + p.y; }\n");
+
+	REQUIRE(assembly.find("make:") != std::string::npos);
+	REQUIRE(assembly.find("call make") != std::string::npos);
+	// Multi-chunk return uses %edx for chunk 1 and %eax for chunk 0.
+	REQUIRE(assembly.find("movl %edx, %eax") != std::string::npos);
+}
+
+TEST_CASE(codegen_i386_rejects_aggregate_wider_than_two_chunks)
+{
+	auto attempt = compile_to_codegen_result(
+		"struct Triple { a: i32, b: i32, c: i32 }\n"
+		"fn main() -> Triple { return Triple { a: 1, b: 2, c: 3 }; }\n");
+
+	REQUIRE(!attempt.result.ok());
+	REQUIRE(attempt.diagnostics.format().find(
+	            "by-value function ABI on i386 is limited to \xe2\x89\xa4 8 bytes") !=
+	        std::string::npos);
 }

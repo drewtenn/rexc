@@ -50,12 +50,26 @@ bool is_logical_operator(const std::string &op)
 	return op == "&&" || op == "||";
 }
 
-ir::Type lower_type(const ast::TypeName &type)
+std::optional<std::size_t> parse_tuple_field_index(const std::string &field)
 {
-	auto primitive_type = parse_primitive_type(type.name);
-	if (!primitive_type)
-		throw std::runtime_error("unknown primitive type in IR lowering: " + type.name);
-	return *primitive_type;
+	if (field.empty())
+		return std::nullopt;
+	std::size_t value = 0;
+	for (char ch : field) {
+		if (ch < '0' || ch > '9')
+			return std::nullopt;
+		value = value * 10u + static_cast<std::size_t>(ch - '0');
+	}
+	return value;
+}
+
+std::optional<std::string> slice_helper_type_suffix(PrimitiveType type)
+{
+	if (type == i32_type())
+		return std::string("i32");
+	if (type == u8_type())
+		return std::string("u8");
+	return std::nullopt;
 }
 
 struct FunctionInfo {
@@ -86,6 +100,9 @@ public:
 
 	ir::Module run()
 	{
+		register_type_tables();
+		compute_struct_layouts();
+		compute_enum_layouts();
 		build_static_table();
 		build_function_table();
 		build_import_table();
@@ -103,6 +120,192 @@ public:
 private:
 	using Locals = std::unordered_map<std::string, ir::Type>;
 	using ImportScope = std::unordered_map<std::string, ImportInfo>;
+
+	struct StructFieldLayout {
+		std::string name;
+		ir::Type type;
+		std::size_t offset = 0;
+	};
+
+	struct StructLayout {
+		std::vector<StructFieldLayout> fields;
+		std::size_t total_size = 0;
+		std::size_t alignment = 1;
+		std::optional<StructFieldLayout> field(const std::string &name) const
+		{
+			for (const auto &f : fields)
+				if (f.name == name)
+					return f;
+			return std::nullopt;
+		}
+	};
+
+	struct EnumLayoutInfo {
+		EnumLayout layout;
+	};
+
+	struct EnumVariantLowerInfo {
+		ir::Type enum_type = PrimitiveType{PrimitiveKind::UserEnum};
+		EnumVariantLayout variant;
+		std::size_t payload_offset = 4;
+		std::size_t total_size = 4;
+	};
+
+	std::size_t size_in_bytes(const ir::Type &type) const
+	{
+		switch (type.kind) {
+		case PrimitiveKind::SignedInteger:
+		case PrimitiveKind::UnsignedInteger:
+			return static_cast<std::size_t>(type.bits) / 8u;
+		case PrimitiveKind::Bool:
+			return 1u;
+		case PrimitiveKind::Char:
+			return 4u;
+		case PrimitiveKind::Pointer:
+		case PrimitiveKind::Str:
+		case PrimitiveKind::OwnedStr:
+		case PrimitiveKind::Slice:
+		case PrimitiveKind::Vector:
+		case PrimitiveKind::Option:
+		case PrimitiveKind::Result:
+			return 8u; // assume 64-bit pointer-shaped layout
+		case PrimitiveKind::Tuple:
+			return type.bits > 0 ? static_cast<std::size_t>(type.bits) / 8u : 0u;
+		case PrimitiveKind::UserStruct: {
+			auto it = struct_layouts_.find(type.name);
+			return it == struct_layouts_.end() ? 0u : it->second.total_size;
+		}
+		case PrimitiveKind::UserEnum: {
+			auto it = enum_layouts_.find(type.name);
+			if (it != enum_layouts_.end())
+				return it->second.layout.total_size;
+			return type.bits > 0 ? static_cast<std::size_t>(type.bits) / 8u : 0u;
+		}
+		}
+		return 0u;
+	}
+
+	std::size_t alignment_of(const ir::Type &type) const
+	{
+		if (type.kind == PrimitiveKind::UserStruct) {
+			auto it = struct_layouts_.find(type.name);
+			if (it != struct_layouts_.end())
+				return it->second.alignment;
+		}
+		if (type.kind == PrimitiveKind::UserEnum) {
+			auto it = enum_layouts_.find(type.name);
+			if (it != enum_layouts_.end())
+				return it->second.layout.alignment;
+		}
+		if (type.kind == PrimitiveKind::Tuple) {
+			auto elements = tuple_elements(type);
+			if (elements)
+				return layout_tuple_elements(*elements).alignment;
+		}
+		// Natural alignment: align to the type's own size. Matches what x86_64
+		// and AArch64 require for non-faulting loads/stores. Doesn't yet model
+		// per-target overrides (e.g., 32-bit pointers on i386 align to 4).
+		std::size_t size = size_in_bytes(type);
+		return size == 0 ? 1 : size;
+	}
+
+	static std::size_t align_up(std::size_t value, std::size_t alignment)
+	{
+		if (alignment <= 1)
+			return value;
+		return (value + alignment - 1) / alignment * alignment;
+	}
+
+	void register_type_tables()
+	{
+		for (const auto &decl : module_.structs)
+			struct_layouts_.emplace(decl.name, StructLayout{});
+		for (const auto &decl : module_.enums)
+			enum_layouts_.emplace(decl.name, EnumLayoutInfo{});
+	}
+
+	void compute_struct_layouts()
+	{
+		for (const auto &decl : module_.structs) {
+			auto it = struct_layouts_.find(decl.name);
+			if (it == struct_layouts_.end())
+				continue;
+			std::size_t offset = 0;
+			std::size_t struct_alignment = 1;
+			for (const auto &field : decl.fields) {
+				ir::Type field_type = lower_type(field.type);
+				std::size_t field_alignment = alignment_of(field_type);
+				offset = align_up(offset, field_alignment);
+				it->second.fields.push_back(
+				    StructFieldLayout{field.name, field_type, offset});
+				offset += size_in_bytes(field_type);
+				if (field_alignment > struct_alignment)
+					struct_alignment = field_alignment;
+			}
+			// Round total size up to the struct's alignment so arrays of
+			// structs work correctly.
+			it->second.total_size = align_up(offset, struct_alignment);
+			it->second.alignment = struct_alignment;
+		}
+	}
+
+	void compute_enum_layouts()
+	{
+		for (const auto &decl : module_.enums) {
+			auto it = enum_layouts_.find(decl.name);
+			if (it == enum_layouts_.end())
+				continue;
+			std::vector<EnumVariantSpec> specs;
+			specs.reserve(decl.variants.size());
+			for (const auto &variant : decl.variants) {
+				std::vector<PrimitiveType> payload_types;
+				payload_types.reserve(variant.payload_types.size());
+				for (const auto &payload_type : variant.payload_types)
+					payload_types.push_back(lower_type(payload_type));
+				specs.push_back(EnumVariantSpec{variant.name, std::move(payload_types)});
+			}
+
+			it->second.layout = layout_enum_variants(specs);
+			ir::Type enum_type = user_enum_type(
+				decl.name, static_cast<int>(it->second.layout.total_size * 8));
+			for (const auto &variant : it->second.layout.variants) {
+				EnumVariantLowerInfo info;
+				info.enum_type = enum_type;
+				info.variant = variant;
+				info.payload_offset = it->second.layout.payload_offset;
+				info.total_size = it->second.layout.total_size;
+				enum_variants_by_name_[variant.name].push_back(info);
+				enum_variants_by_qualified_[decl.name + "::" + variant.name] =
+					std::move(info);
+			}
+		}
+	}
+
+	ir::Type lower_type(const ast::TypeName &type)
+	{
+		return lower_type_name(type.name);
+	}
+
+	ir::Type lower_type_name(const std::string &name)
+	{
+		auto primitive_type = parse_primitive_type(name);
+		if (primitive_type)
+			return *primitive_type;
+		if (!name.empty() && name.front() == '*')
+			return pointer_to(lower_type_name(name.substr(1)));
+		if (auto tuple_names = split_tuple_type_name(name)) {
+			std::vector<PrimitiveType> elements;
+			elements.reserve(tuple_names->size());
+			for (const auto &element_name : *tuple_names)
+				elements.push_back(lower_type_name(element_name));
+			return tuple_type(std::move(elements));
+		}
+		if (auto layout = struct_layouts_.find(name); layout != struct_layouts_.end())
+			return user_struct_type(name, static_cast<int>(layout->second.total_size * 8));
+		if (auto layout = enum_layouts_.find(name); layout != enum_layouts_.end())
+			return user_enum_type(name, static_cast<int>(layout->second.layout.total_size * 8));
+		throw std::runtime_error("unknown primitive type in IR lowering: " + name);
+	}
 
 	const std::vector<stdlib::FunctionDecl> &bare_stdlib_functions() const
 	{
@@ -350,10 +553,15 @@ private:
 			return lower_unary(static_cast<const ast::UnaryExpr &>(expr), locals, expected);
 		case ast::Expr::Kind::Call: {
 			const auto &call_expr = static_cast<const ast::CallExpr &>(expr);
+			if (call_expr.callee_path.size() == 1 && call_expr.callee_path[0] == "len")
+				return lower_len_call(call_expr, locals);
 			auto function = resolve_function(call_expr.callee_path);
-			if (function == nullptr)
+			if (function == nullptr) {
+				if (auto variant = resolve_enum_variant(call_expr.callee_path, expected))
+					return lower_enum_literal(call_expr, *variant, locals);
 				throw std::runtime_error("unknown function in IR lowering: " +
 				                         call_expr.callee);
+			}
 
 			auto call = std::make_unique<ir::CallValue>(function->symbol_name,
 			                                            function->return_type);
@@ -366,9 +574,300 @@ private:
 			}
 			return call;
 		}
+		case ast::Expr::Kind::StructLiteral: {
+			const auto &literal = static_cast<const ast::StructLiteralExpr &>(expr);
+			return lower_struct_literal(literal, locals);
+		}
+		case ast::Expr::Kind::Tuple: {
+			const auto &tuple = static_cast<const ast::TupleExpr &>(expr);
+			return lower_tuple_literal(tuple, locals, expected);
+		}
+		case ast::Expr::Kind::FieldAccess: {
+			const auto &access = static_cast<const ast::FieldAccessExpr &>(expr);
+			return lower_field_access(access, locals);
+		}
+		case ast::Expr::Kind::Index: {
+			const auto &index = static_cast<const ast::IndexExpr &>(expr);
+			return lower_index_expr(index, locals);
+		}
+		case ast::Expr::Kind::Try: {
+			const auto &try_expr = static_cast<const ast::TryExpr &>(expr);
+			return lower_try_expr(try_expr, locals);
+		}
 		}
 
 		throw std::runtime_error("unexpected expression in IR lowering");
+	}
+
+	std::unique_ptr<ir::Value> lower_try_expr(const ast::TryExpr &try_expr,
+	                                          const Locals &locals)
+	{
+		// FE-012: lower `expr?` as
+		//   let __try_tmp_N = expr;
+		//   if (result_i32_is_err(__try_tmp_N)) { return __try_tmp_N; }
+		//   <result_i32_value_or(__try_tmp_N, 0)>   // value of the expression
+		//
+		// The pre-statements are emitted into pending_pre_statements_, which
+		// the surrounding statement loop flushes before the consuming
+		// statement. Per FE-012's Phase 1 scoping note, this codepath only
+		// supports Result<i32> with the function returning Result<i32>; the
+		// generic case is gated on FE-103.
+		auto operand = lower_expr(*try_expr.operand, locals);
+		if (!is_result(operand->type))
+			throw std::runtime_error("'?' operator on non-Result in IR lowering");
+
+		auto payload = handle_payload_type(operand->type).value_or(i32_type());
+		if (operand->type != result_of(i32_type()) || payload != i32_type())
+			throw std::runtime_error(
+			    "'?' operator only supports Result<i32> in IR lowering "
+			    "until FE-103 monomorphization lands");
+
+		if (!pending_pre_statements_)
+			throw std::runtime_error(
+			    "'?' operator used outside a statement context in IR lowering");
+
+		std::string tmp_name = "__try_tmp_" + std::to_string(try_temp_counter_++);
+		ir::Type result_type = operand->type;
+
+		// let __try_tmp_N = <operand>;
+		pending_pre_statements_->push_back(std::make_unique<ir::LetStatement>(
+		    tmp_name, std::move(operand)));
+
+		// if (result_i32_is_err(__try_tmp_N)) { return __try_tmp_N; }
+		auto is_err_call =
+		    std::make_unique<ir::CallValue>("result_i32_is_err", bool_type());
+		is_err_call->arguments.push_back(
+		    std::make_unique<ir::LocalValue>(tmp_name, result_type));
+
+		std::vector<std::unique_ptr<ir::Statement>> then_body;
+		then_body.push_back(std::make_unique<ir::ReturnStatement>(
+		    std::make_unique<ir::LocalValue>(tmp_name, result_type)));
+		pending_pre_statements_->push_back(std::make_unique<ir::IfStatement>(
+		    std::move(is_err_call), std::move(then_body),
+		    std::vector<std::unique_ptr<ir::Statement>>{}));
+
+		// result_i32_value_or(__try_tmp_N, 0) — the propagated Ok value
+		auto value_or_call =
+		    std::make_unique<ir::CallValue>("result_i32_value_or", payload);
+		value_or_call->arguments.push_back(
+		    std::make_unique<ir::LocalValue>(tmp_name, result_type));
+		value_or_call->arguments.push_back(
+		    std::make_unique<ir::IntegerValue>(payload, "0", false));
+		return value_or_call;
+	}
+
+	std::unique_ptr<ir::Value> lower_len_call(
+		const ast::CallExpr &call, const Locals &locals)
+	{
+		if (call.arguments.size() != 1)
+			throw std::runtime_error("invalid len() call in IR lowering");
+		auto argument = lower_expr(*call.arguments[0], locals);
+		if (argument->type.kind == PrimitiveKind::Str) {
+			auto lowered = std::make_unique<ir::CallValue>("strlen", i32_type());
+			lowered->arguments.push_back(std::move(argument));
+			return lowered;
+		}
+		if (!is_slice(argument->type))
+			throw std::runtime_error("len() on non-slice in IR lowering");
+		auto element = handle_payload_type(argument->type);
+		auto suffix = element ? slice_helper_type_suffix(*element) : std::nullopt;
+		if (!suffix)
+			throw std::runtime_error("unsupported slice len element type in IR lowering");
+		auto lowered = std::make_unique<ir::CallValue>("slice_" + *suffix + "_len", i32_type());
+		lowered->arguments.push_back(std::move(argument));
+		return lowered;
+	}
+
+	std::unique_ptr<ir::Value> lower_index_expr(
+		const ast::IndexExpr &index, const Locals &locals)
+	{
+		auto base = lower_expr(*index.base, locals);
+		auto offset = lower_expr(*index.index, locals, i32_type());
+		if (is_slice(base->type)) {
+			auto element = handle_payload_type(base->type);
+			auto suffix = element ? slice_helper_type_suffix(*element) : std::nullopt;
+			if (!element || !suffix)
+				throw std::runtime_error("unsupported slice index element type in IR lowering");
+			auto lowered = std::make_unique<ir::CallValue>("slice_" + *suffix + "_at", *element);
+			lowered->arguments.push_back(std::move(base));
+			lowered->arguments.push_back(std::move(offset));
+			return lowered;
+		}
+
+		ir::Type result_type = u8_type();
+		ir::Type address_type = pointer_to(u8_type());
+		if (base->type.kind != PrimitiveKind::Str) {
+			auto pointee = pointee_type(base->type);
+			if (!pointee)
+				throw std::runtime_error("index base is not pointer, str, or slice in IR lowering");
+			result_type = *pointee;
+			address_type = base->type;
+		}
+		auto address = std::make_unique<ir::BinaryValue>(
+			"+", std::move(base), std::move(offset), address_type);
+		return std::make_unique<ir::UnaryValue>("*", std::move(address), result_type);
+	}
+
+	std::unique_ptr<ir::Value> lower_struct_literal(
+		const ast::StructLiteralExpr &literal, const Locals &locals)
+	{
+		ir::Type literal_type = lower_type(literal.type);
+		auto layout_it = struct_layouts_.find(literal_type.name);
+		if (layout_it == struct_layouts_.end())
+			throw std::runtime_error("unknown struct in IR lowering: " + literal_type.name);
+		auto lowered = std::make_unique<ir::StructLiteralValue>(
+			literal_type, layout_it->second.total_size);
+		for (const auto &field : literal.fields) {
+			auto field_layout = layout_it->second.field(field.name);
+			if (!field_layout)
+				throw std::runtime_error("unknown field in IR lowering: " + field.name);
+			lowered->fields.push_back(ir::StructLiteralValue::Field{
+			    field.name, field_layout->type, field_layout->offset,
+			    lower_expr(*field.value, locals, field_layout->type)});
+		}
+		return lowered;
+	}
+
+	std::unique_ptr<ir::Value> lower_tuple_literal(
+		const ast::TupleExpr &tuple, const Locals &locals,
+		std::optional<ir::Type> expected)
+	{
+		std::optional<std::vector<PrimitiveType>> expected_elements;
+		if (expected && is_tuple(*expected))
+			expected_elements = tuple_elements(*expected);
+
+		std::vector<PrimitiveType> element_types;
+		element_types.reserve(tuple.elements.size());
+		std::vector<std::unique_ptr<ir::Value>> values;
+		values.reserve(tuple.elements.size());
+		for (std::size_t i = 0; i < tuple.elements.size(); ++i) {
+			std::optional<ir::Type> element_expected;
+			if (expected_elements && i < expected_elements->size())
+				element_expected = (*expected_elements)[i];
+			auto value = lower_expr(*tuple.elements[i], locals, element_expected);
+			element_types.push_back(value->type);
+			values.push_back(std::move(value));
+		}
+
+		ir::Type literal_type = tuple_type(std::move(element_types));
+		TupleLayout layout = layout_tuple_elements(*literal_type.elements);
+		auto lowered = std::make_unique<ir::StructLiteralValue>(
+			literal_type, layout.total_size);
+		for (std::size_t i = 0; i < values.size(); ++i) {
+			lowered->fields.push_back(ir::StructLiteralValue::Field{
+			    std::to_string(i), layout.elements[i].type, layout.elements[i].offset,
+			    std::move(values[i])});
+		}
+		return lowered;
+	}
+
+	std::optional<EnumVariantLowerInfo> resolve_enum_variant(
+		const std::vector<std::string> &path, std::optional<ir::Type> expected) const
+	{
+		if (path.size() == 2) {
+			auto it = enum_variants_by_qualified_.find(path[0] + "::" + path[1]);
+			if (it != enum_variants_by_qualified_.end())
+				return it->second;
+			return std::nullopt;
+		}
+		if (path.size() != 1)
+			return std::nullopt;
+
+		if (expected && is_user_enum(*expected)) {
+			auto it = enum_variants_by_qualified_.find(expected->name + "::" + path[0]);
+			if (it != enum_variants_by_qualified_.end())
+				return it->second;
+		}
+
+		auto matches = enum_variants_by_name_.find(path[0]);
+		if (matches == enum_variants_by_name_.end() || matches->second.size() != 1)
+			return std::nullopt;
+		return matches->second.front();
+	}
+
+	std::unique_ptr<ir::Value> lower_enum_literal(
+		const ast::CallExpr &call, const EnumVariantLowerInfo &variant,
+		const Locals &locals)
+	{
+		auto lowered = std::make_unique<ir::EnumLiteralValue>(
+			variant.enum_type, variant.variant.tag, variant.total_size);
+		for (std::size_t i = 0; i < call.arguments.size(); ++i) {
+			const auto &field = variant.variant.fields[i];
+			lowered->payloads.push_back(ir::EnumLiteralValue::Payload{
+				field.type,
+				variant.payload_offset + field.offset,
+				lower_expr(*call.arguments[i], locals, field.type)});
+		}
+		return lowered;
+	}
+
+	std::unique_ptr<ir::Value> lower_field_access(
+		const ast::FieldAccessExpr &access, const Locals &locals)
+	{
+		if (access.base->kind != ast::Expr::Kind::Unary)
+			return lower_struct_value_field_access(access, locals);
+
+		const auto &deref = static_cast<const ast::UnaryExpr &>(*access.base);
+		if (deref.op != "*")
+			return lower_struct_value_field_access(access, locals);
+
+		auto pointer_value = lower_expr(*deref.operand, locals);
+		if (!is_pointer(pointer_value->type))
+			throw std::runtime_error("field access requires pointer-to-struct base");
+		auto pointee = pointee_type(pointer_value->type);
+		if (!pointee || !is_user_struct(*pointee))
+			throw std::runtime_error("field access requires pointer-to-struct base");
+
+		auto layout_it = struct_layouts_.find(pointee->name);
+		if (layout_it == struct_layouts_.end())
+			throw std::runtime_error("unknown struct in IR lowering: " + pointee->name);
+		auto field_layout = layout_it->second.field(access.field);
+		if (!field_layout)
+			throw std::runtime_error("unknown field in IR lowering: " + access.field);
+
+		ir::Type field_type = field_layout->type;
+		auto offset_value = std::make_unique<ir::IntegerValue>(
+			i32_type(), std::to_string(field_layout->offset), false);
+
+		// Cast pointer-to-struct to pointer-to-u8 so '+' arithmetic advances
+		// by exactly `offset` bytes (pointer arithmetic scales by pointee
+		// size; *u8 has size 1).
+		auto byte_ptr = std::make_unique<ir::CastValue>(
+			std::move(pointer_value), pointer_to(u8_type()));
+		auto field_byte_ptr = std::make_unique<ir::BinaryValue>(
+			"+", std::move(byte_ptr), std::move(offset_value),
+			pointer_to(u8_type()));
+		auto field_typed_ptr = std::make_unique<ir::CastValue>(
+			std::move(field_byte_ptr), pointer_to(field_type));
+		return std::make_unique<ir::UnaryValue>(
+			"*", std::move(field_typed_ptr), field_type);
+	}
+
+	std::unique_ptr<ir::Value> lower_struct_value_field_access(
+		const ast::FieldAccessExpr &access, const Locals &locals)
+	{
+		auto base = lower_expr(*access.base, locals);
+		if (is_tuple(base->type)) {
+			auto elements = tuple_elements(base->type);
+			auto index = parse_tuple_field_index(access.field);
+			if (!elements || !index || *index >= elements->size())
+				throw std::runtime_error("unknown tuple field in IR lowering: " +
+				                         access.field);
+			TupleLayout layout = layout_tuple_elements(*elements);
+			return std::make_unique<ir::StructFieldValue>(
+				std::move(base), layout.elements[*index].type,
+				layout.elements[*index].offset);
+		}
+		if (!is_user_struct(base->type))
+			throw std::runtime_error("field access requires struct value");
+		auto layout_it = struct_layouts_.find(base->type.name);
+		if (layout_it == struct_layouts_.end())
+			throw std::runtime_error("unknown struct in IR lowering: " + base->type.name);
+		auto field_layout = layout_it->second.field(access.field);
+		if (!field_layout)
+			throw std::runtime_error("unknown field in IR lowering: " + access.field);
+		return std::make_unique<ir::StructFieldValue>(
+			std::move(base), field_layout->type, field_layout->offset);
 	}
 
 	std::unique_ptr<ir::Value> lower_unary(
@@ -418,6 +917,40 @@ private:
 			lowered.kind = ir::MatchPattern::Kind::Char;
 			lowered.char_value = pattern.char_value;
 			break;
+		case ast::MatchPattern::Kind::Variant: {
+			auto variant = resolve_enum_variant(pattern.path, value_type);
+			if (!variant)
+				throw std::runtime_error("unknown enum variant in IR lowering");
+			lowered.kind = ir::MatchPattern::Kind::EnumVariant;
+			lowered.type = variant->enum_type;
+			lowered.tag = variant->variant.tag;
+			for (std::size_t i = 0; i < pattern.bindings.size(); ++i) {
+				if (pattern.bindings[i] == "_")
+					continue;
+				const auto &field = variant->variant.fields[i];
+				lowered.bindings.push_back(ir::MatchPattern::Binding{
+				    pattern.bindings[i], field.type,
+				    variant->payload_offset + field.offset});
+			}
+			break;
+		}
+		case ast::MatchPattern::Kind::Struct: {
+			if (pattern.path.empty())
+				throw std::runtime_error("empty struct pattern in IR lowering");
+			auto layout_it = struct_layouts_.find(pattern.path[0]);
+			if (layout_it == struct_layouts_.end())
+				throw std::runtime_error("unknown struct pattern in IR lowering: " +
+				                         pattern.path[0]);
+			lowered.kind = ir::MatchPattern::Kind::Struct;
+			for (std::size_t i = 0; i < pattern.bindings.size(); ++i) {
+				if (pattern.bindings[i] == "_")
+					continue;
+				const auto &field = layout_it->second.fields[i];
+				lowered.bindings.push_back(ir::MatchPattern::Binding{
+				    pattern.bindings[i], field.type, field.offset});
+			}
+			break;
+		}
 		}
 		return lowered;
 	}
@@ -426,11 +959,15 @@ private:
 	                             ir::Type function_return_type, const Locals &locals)
 	{
 		std::vector<ir::MatchPattern> patterns;
-		for (const auto &pattern : arm.patterns)
+		Locals arm_locals = locals;
+		for (const auto &pattern : arm.patterns) {
 			patterns.push_back(lower_match_pattern(pattern, value_type));
+			for (const auto &binding : patterns.back().bindings)
+				arm_locals[binding.name] = binding.type;
+		}
 		return ir::MatchArm{
 		    std::move(patterns),
-		    lower_statements(arm.body, function_return_type, locals),
+		    lower_statements(arm.body, function_return_type, arm_locals),
 		};
 	}
 
@@ -439,8 +976,27 @@ private:
 		ir::Type function_return_type, Locals locals)
 	{
 		std::vector<std::unique_ptr<ir::Statement>> lowered;
-		for (const auto &statement : statements)
-			lowered.push_back(lower_statement(*statement, function_return_type, locals));
+		for (const auto &statement : statements) {
+			// FE-013: `unsafe { ... }` is purely a sema concept; the body
+			// inlines into the surrounding statement list at IR level.
+			if (statement->kind == ast::Stmt::Kind::UnsafeBlock) {
+				const auto &block =
+				    static_cast<const ast::UnsafeBlockStmt &>(*statement);
+				auto inner =
+				    lower_statements(block.body, function_return_type, locals);
+				for (auto &s : inner)
+					lowered.push_back(std::move(s));
+				continue;
+			}
+			std::vector<std::unique_ptr<ir::Statement>> pre_statements;
+			auto *previous_pre = pending_pre_statements_;
+			pending_pre_statements_ = &pre_statements;
+			auto stmt = lower_statement(*statement, function_return_type, locals);
+			pending_pre_statements_ = previous_pre;
+			for (auto &pre : pre_statements)
+				lowered.push_back(std::move(pre));
+			lowered.push_back(std::move(stmt));
+		}
 		return lowered;
 	}
 
@@ -478,6 +1034,36 @@ private:
 				throw std::runtime_error("indirect assignment through non-pointer in IR lowering");
 			return std::make_unique<ir::IndirectAssignStatement>(
 				std::move(target), lower_expr(*assign.value, locals, *target_pointee));
+		}
+
+		if (statement.kind == ast::Stmt::Kind::FieldAssign) {
+			const auto &assign = static_cast<const ast::FieldAssignStmt &>(statement);
+			// Lower (*p).field = value to *(((p as *u8) + offset) as *FieldType) = value
+			auto pointer_value = lower_expr(*assign.base, locals);
+			auto pointee = pointee_type(pointer_value->type);
+			if (!pointee || !is_user_struct(*pointee))
+				throw std::runtime_error("field assignment on non-struct pointer in IR lowering");
+
+			auto layout_it = struct_layouts_.find(pointee->name);
+			if (layout_it == struct_layouts_.end())
+				throw std::runtime_error("unknown struct in IR lowering: " + pointee->name);
+			auto field_layout = layout_it->second.field(assign.field);
+			if (!field_layout)
+				throw std::runtime_error("unknown field in IR lowering: " + assign.field);
+
+			ir::Type field_type = field_layout->type;
+			auto offset_value = std::make_unique<ir::IntegerValue>(
+				i32_type(), std::to_string(field_layout->offset), false);
+			auto byte_ptr = std::make_unique<ir::CastValue>(
+				std::move(pointer_value), pointer_to(u8_type()));
+			auto field_byte_ptr = std::make_unique<ir::BinaryValue>(
+				"+", std::move(byte_ptr), std::move(offset_value),
+				pointer_to(u8_type()));
+			auto field_typed_ptr = std::make_unique<ir::CastValue>(
+				std::move(field_byte_ptr), pointer_to(field_type));
+			return std::make_unique<ir::IndirectAssignStatement>(
+				std::move(field_typed_ptr),
+				lower_expr(*assign.value, locals, field_type));
 		}
 
 		if (statement.kind == ast::Stmt::Kind::If) {
@@ -553,10 +1139,7 @@ private:
 			locals[parameter.name] = parameter_type;
 		}
 
-		for (const auto &statement : function.body) {
-			lowered.body.push_back(
-				lower_statement(*statement, lowered.return_type, locals));
-		}
+		lowered.body = lower_statements(function.body, lowered.return_type, locals);
 
 		current_module_path_ = nullptr;
 		return lowered;
@@ -613,7 +1196,13 @@ private:
 	std::unordered_map<std::string, FunctionInfo> functions_;
 	std::unordered_map<std::string, ImportScope> imports_;
 	std::unordered_set<std::string> modules_;
+	std::unordered_map<std::string, StructLayout> struct_layouts_;
+	std::unordered_map<std::string, EnumLayoutInfo> enum_layouts_;
+	std::unordered_map<std::string, EnumVariantLowerInfo> enum_variants_by_qualified_;
+	std::unordered_map<std::string, std::vector<EnumVariantLowerInfo>> enum_variants_by_name_;
 	const std::vector<std::string> *current_module_path_ = nullptr;
+	std::vector<std::unique_ptr<ir::Statement>> *pending_pre_statements_ = nullptr;
+	std::size_t try_temp_counter_ = 0;
 };
 
 } // namespace

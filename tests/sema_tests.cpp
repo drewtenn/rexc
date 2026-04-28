@@ -15,6 +15,21 @@ static rexc::SemanticResult analyze(const std::string &text,
                                     rexc::Diagnostics &diagnostics,
                                     rexc::SemanticOptions options = {})
 {
+	// FE-013: existing sema tests pre-date the unsafe-block rule, so the
+	// helper defaults enforcement off. Tests that target FE-013 set it
+	// back to true explicitly.
+	options.enforce_unsafe_blocks = false;
+	rexc::SourceFile source("test.rx", text);
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	return rexc::analyze_module(parsed.module(), diagnostics, options);
+}
+
+static rexc::SemanticResult analyze_strict(const std::string &text,
+                                           rexc::Diagnostics &diagnostics,
+                                           rexc::SemanticOptions options = {})
+{
+	options.enforce_unsafe_blocks = true;
 	rexc::SourceFile source("test.rx", text);
 	auto parsed = rexc::parse_source(source, diagnostics);
 	REQUIRE(parsed.ok());
@@ -487,7 +502,7 @@ TEST_CASE(sema_rejects_non_integer_string_index)
 		diagnostics);
 
 	REQUIRE(!result.ok());
-	REQUIRE(diagnostics.format().find("pointer arithmetic requires integer offset") != std::string::npos);
+	REQUIRE(diagnostics.format().find("index expression requires integer index") != std::string::npos);
 }
 
 TEST_CASE(sema_rejects_initializer_type_mismatch)
@@ -1392,4 +1407,632 @@ TEST_CASE(sema_rejects_continue_outside_loop)
 	auto result = analyze("fn main() -> i32 { if true { continue; } return 0; }\n", diagnostics);
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("continue statement outside loop") != std::string::npos);
+}
+
+// FE-002b (Phase 1): struct registration + field access type-checking.
+//
+// These tests assert that sema recognizes struct declarations as type names,
+// rejects duplicates and unknown struct uses, and resolves field accesses to
+// the declared field type. They MUST fail until sema is taught about structs.
+
+TEST_CASE(sema_accepts_struct_declared_then_used_as_param_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn read_x(p: Point) -> i32 { return p.x; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_use_of_undeclared_struct_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn read_x(p: NotDeclared) -> i32 { return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown type 'NotDeclared'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_duplicate_struct_declaration)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "struct Point { a: i32, b: i32 }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("struct 'Point' already declared") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_field_access_on_non_struct)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let n: i32 = 0; return n.x; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("field access requires struct value") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_unknown_field_on_struct)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn read_z(p: Point) -> i32 { return p.z; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("struct 'Point' has no field 'z'") != std::string::npos);
+}
+
+TEST_CASE(sema_field_access_resolves_to_declared_field_type)
+{
+	// Anti-stub: distinguishes "field exists" from "field type recorded".
+	// If sema returns the wrong type for `p.flag`, the assignment to a bool
+	// local should fail. If it correctly returns bool, the program is OK.
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Mixed { count: i32, flag: bool }\n"
+	    "fn check(m: Mixed) -> bool { let b: bool = m.flag; return b; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_field_type_mismatch_on_let_initializer)
+{
+	// `m.count` is i32 — assigning it to a bool local must be rejected.
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Mixed { count: i32, flag: bool }\n"
+	    "fn check(m: Mixed) -> bool { let b: bool = m.count; return b; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+}
+
+TEST_CASE(sema_accepts_field_access_via_deref_of_struct_pointer)
+{
+	// (*p).x where p is *Point — the existing test pattern that lets us reach
+	// codegen for FE-003 without yet having struct literals.
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn read_x(p: *Point) -> i32 { return (*p).x; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_field_assign_via_deref_of_struct_pointer)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn write_x(p: *Point) -> i32 { (*p).x = 42; return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_field_assign_value_type_mismatch)
+{
+	// Assigning a bool to an i32 field must error.
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn bad(p: *Point) -> i32 { (*p).x = true; return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("type mismatch") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_field_assign_to_unknown_field)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn bad(p: *Point) -> i32 { (*p).z = 1; return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("struct 'Point' has no field 'z'") != std::string::npos);
+}
+
+TEST_CASE(sema_accepts_struct_literal_with_named_fields)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn make() -> i32 { let p: Point = Point { x: 40, y: 2 }; return p.y; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_struct_literal_missing_field)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn bad() -> i32 { let p: Point = Point { x: 40 }; return p.x; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("missing field 'y'") != std::string::npos);
+}
+
+// FE-007 (Phase 1): tuple types, tuple expressions, and numeric field access.
+
+TEST_CASE(sema_accepts_tuple_expression_and_index_access)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> bool { let pair: (i32, bool) = (40, true); return pair.1; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_tuple_index_out_of_range)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let pair: (i32, bool) = (40, true); return pair.2; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("tuple has no field '2'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_tuple_element_type_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 { let pair: (i32, bool) = (40, 2); return pair.0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("tuple element type mismatch") != std::string::npos);
+}
+
+// FE-008 (Phase 1): first-class slice type, len(), and checked indexing.
+
+TEST_CASE(sema_accepts_first_class_slice_len_and_index)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn first(xs: &[i32]) -> i32 { return len(xs) + xs[0]; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_len_on_non_slice)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn bad(value: i32) -> i32 { return len(value); }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("len() requires slice or str argument") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_negative_slice_index_with_span)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn bad(xs: &[i32]) -> i32 { return xs[-1]; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("slice index out of bounds") != std::string::npos);
+	REQUIRE(diagnostics.format().find("test.rx:1:39") != std::string::npos);
+}
+
+// FE-011 (Phase 1/2 bridge): stdlib-shaped Option<T> and Result<T,E>.
+
+TEST_CASE(sema_accepts_prelude_option_and_result_types)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum MyErr { Bad }\n"
+	    "fn maybe() -> Option<i32> { return Some(7); }\n"
+	    "fn empty() -> Option<i32> { return None(); }\n"
+	    "fn fallible() -> Result<i32, MyErr> { return Ok(7); }\n"
+	    "fn fail() -> Result<i32, MyErr> { return Err(Bad()); }\n"
+	    "fn main() -> i32 {\n"
+	    "  let value: Option<i32> = Some(1);\n"
+	    "  let missing: Option<i32> = None();\n"
+	    "  let good: Result<i32, MyErr> = Ok(2);\n"
+	    "  let bad: Result<i32, MyErr> = Err(Bad());\n"
+	    "  return 0;\n"
+	    "}\n",
+	    diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// FE-012 (Phase 1): `?` operator for Result propagation.
+
+TEST_CASE(sema_accepts_try_operator_in_result_returning_function)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn fallible() -> Result<i32> { return Ok(7); }\n"
+	    "fn caller() -> Result<i32> {\n"
+	    "  let value: i32 = fallible()?;\n"
+	    "  return Ok(value + 1);\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_try_operator_outside_result_returning_function)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn fallible() -> Result<i32> { return Ok(7); }\n"
+	    "fn caller() -> i32 {\n"
+	    "  let value: i32 = fallible()?;\n"
+	    "  return value;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	REQUIRE(formatted.find("'?' operator requires enclosing function to return Result") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_try_operator_on_non_result_operand)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn caller() -> Result<i32> {\n"
+	    "  let value: i32 = 7?;\n"
+	    "  return Ok(value);\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	REQUIRE(formatted.find("'?' operator requires Result operand") !=
+	        std::string::npos);
+}
+
+// FE-013 (Phase 1): `unsafe` blocks gate raw pointer deref and extern fn calls.
+
+TEST_CASE(sema_strict_rejects_raw_deref_outside_unsafe)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze_strict(
+	    "fn read(p: *i32) -> i32 { return *p; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	REQUIRE(formatted.find("dereference of raw pointer requires `unsafe` block") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_strict_accepts_raw_deref_inside_unsafe_block)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze_strict(
+	    "fn read(p: *i32) -> i32 {\n"
+	    "  let mut value: i32 = 0;\n"
+	    "  unsafe { value = *p; }\n"
+	    "  return value;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_strict_accepts_raw_deref_inside_unsafe_fn)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze_strict(
+	    "unsafe fn read(p: *i32) -> i32 { return *p; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_strict_rejects_indirect_assign_outside_unsafe)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze_strict(
+	    "fn write(p: *i32, v: i32) -> i32 { *p = v; return 0; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	REQUIRE(formatted.find("indirect write through raw pointer requires `unsafe` block") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_strict_rejects_field_assign_outside_unsafe)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze_strict(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn write(p: *Point) -> i32 { (*p).x = 7; return 0; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	REQUIRE(formatted.find("field write through raw pointer requires `unsafe` block") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_strict_rejects_extern_call_outside_unsafe)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze_strict(
+	    "extern fn raw_syscall(code: i32) -> i32;\n"
+	    "fn main() -> i32 { return raw_syscall(0); }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	REQUIRE(formatted.find("call to extern function 'raw_syscall' requires `unsafe` block") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_strict_accepts_extern_call_inside_unsafe_block)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze_strict(
+	    "extern fn raw_syscall(code: i32) -> i32;\n"
+	    "fn main() -> i32 {\n"
+	    "  let mut result: i32 = 0;\n"
+	    "  unsafe { result = raw_syscall(0); }\n"
+	    "  return result;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_strict_unsafe_block_in_loop_supports_break_continue)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze_strict(
+	    "fn scan(p: *i32) -> i32 {\n"
+	    "  let mut i: i32 = 0;\n"
+	    "  while i < 10 {\n"
+	    "    unsafe {\n"
+	    "      if *p == 0 { break; }\n"
+	    "    }\n"
+	    "    i = i + 1;\n"
+	    "  }\n"
+	    "  return i;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// FE-102 (Phase 2): sema resolves generic type parameters in scope.
+
+TEST_CASE(sema_accepts_generic_identity_function)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn id<T>(x: T) -> T { return x; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_generic_let_binding_with_type_parameter)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn passthrough<T>(x: T) -> T {\n"
+	    "  let y: T = x;\n"
+	    "  return y;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_generic_struct_with_field_typed_by_parameter)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Box<T> { value: T }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_unknown_type_name_outside_generic_scope)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn use_t(x: T) -> T { return x; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown type 'T'") != std::string::npos);
+}
+
+// FE-005 (Phase 1): enum registration, constructor checking, and tags.
+//
+// These tests keep enum semantics at the type-checking boundary. Lowering and
+// codegen remain FE-006, but sema must know enum type names, constructors,
+// variant tags, and payload signatures before lowering can be trustworthy.
+
+TEST_CASE(sema_accepts_enum_declared_then_constructed_as_return_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn make() -> Option { return Some(42); }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_qualified_payloadless_enum_constructor)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn make() -> Option { return Option::None(); }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_enum_constructor_in_let_initializer)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn main() -> i32 { let value: Option = Some(7); return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_accepts_enum_match_destructuring_payload_binding)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn main() -> i32 { let value: Option = Some(7); match value { Some(x) => { return x; } _ => { return 0; } } }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_non_exhaustive_enum_match)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn main() -> i32 { let value: Option = Some(7); match value { Some(x) => { return x; } } }\n",
+	    diagnostics);
+
+	REQUIRE(!result.ok());
+	auto formatted = diagnostics.format();
+	REQUIRE(formatted.find("non-exhaustive enum match: missing variant 'None'") !=
+	        std::string::npos);
+	REQUIRE(formatted.find("test.rx:1:15") != std::string::npos);
+}
+
+TEST_CASE(sema_accepts_struct_match_destructuring_field_bindings)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32 }\n"
+	    "fn main() -> i32 { let point: Point = Point { x: 7, y: 2 }; match point { Point { x, y } => { return x + y; } } }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_rejects_enum_match_destructuring_payload_count_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn main() -> i32 { let value: Option = Some(7); match value { Some() => { return 1; } _ => { return 0; } } }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("enum variant 'Some' pattern expected 1 bindings but got 0") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_use_of_undeclared_enum_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze("fn make() -> Option { return 0; }\n", diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown type 'Option'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_duplicate_enum_declaration)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None }\n"
+	    "enum Option { Some(i32) }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("enum 'Option' already declared") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_enum_name_that_collides_with_struct_name)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Token { value: i32 }\n"
+	    "enum Token { End }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("type 'Token' already declared") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_duplicate_enum_variant)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32), Some(bool) }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("variant 'Some' already declared in enum 'Option'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_unknown_enum_payload_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Holder { Value(NotDeclared) }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown type 'NotDeclared'") != std::string::npos);
+}
+
+TEST_CASE(sema_rejects_unknown_enum_variant_for_expected_enum)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn make() -> Option { return Missing(); }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("unknown enum variant 'Missing' for enum 'Option'") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_enum_constructor_argument_count_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn make() -> Option { return Some(); }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("enum variant 'Some' expected 1 arguments but got 0") !=
+	        std::string::npos);
+}
+
+TEST_CASE(sema_rejects_enum_constructor_payload_type_mismatch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "enum Option { None, Some(i32) }\n"
+	    "fn make() -> Option { return Some(true); }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("enum payload type mismatch: expected 'i32' but got 'bool'") !=
+	        std::string::npos);
 }

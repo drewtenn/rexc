@@ -23,6 +23,7 @@ struct Frame {
 	SlotMap parameter_slots;
 	std::unordered_map<const ir::LetStatement *, int> let_slots;
 	std::unordered_map<const ir::MatchStatement *, int> match_slots;
+	std::unordered_map<const ir::MatchPattern::Binding *, int> match_binding_slots;
 	int local_bytes = 0;
 };
 
@@ -213,14 +214,20 @@ private:
 	{
 		Frame frame;
 		int slot_index = 0;
-		for (std::size_t i = 0; i < function.parameters.size(); ++i) {
-			const auto &parameter = function.parameters[i];
-			if (i < argument_registers().size()) {
+		std::size_t register_index = 0;
+		std::size_t stack_index = 0;
+		for (const auto &parameter : function.parameters) {
+			int chunks = value_chunks(parameter.type);
+			if (chunks <= 2 &&
+			    register_index + static_cast<std::size_t>(chunks) <= argument_registers().size()) {
 				++slot_index;
 				frame.parameter_slots[parameter.name] = -8 * slot_index;
+				slot_index += chunks - 1;
+				register_index += static_cast<std::size_t>(chunks);
 			} else {
 				frame.parameter_slots[parameter.name] =
-					16 + static_cast<int>(i - argument_registers().size()) * 8;
+					16 + static_cast<int>(stack_index) * 16;
+				stack_index += static_cast<std::size_t>(chunks);
 			}
 		}
 
@@ -233,8 +240,10 @@ private:
 	{
 		if (statement.kind == ir::Statement::Kind::Let) {
 			const auto &let = static_cast<const ir::LetStatement &>(statement);
+			int chunks = value_chunks(let.value->type);
 			++slot_index;
 			frame.let_slots[&let] = -8 * slot_index;
+			slot_index += chunks - 1;
 		} else if (statement.kind == ir::Statement::Kind::While) {
 			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
 			assign_local_slots(while_statement.body, frame, slot_index);
@@ -249,10 +258,21 @@ private:
 			assign_local_slots(if_statement.else_body, frame, slot_index);
 		} else if (statement.kind == ir::Statement::Kind::Match) {
 			const auto &match_statement = static_cast<const ir::MatchStatement &>(statement);
+			int chunks = value_chunks(match_statement.value->type);
 			++slot_index;
 			frame.match_slots[&match_statement] = -8 * slot_index;
-			for (const auto &arm : match_statement.arms)
+			slot_index += chunks - 1;
+			for (const auto &arm : match_statement.arms) {
+				for (const auto &pattern : arm.patterns) {
+					for (const auto &binding : pattern.bindings) {
+						int binding_chunks = value_chunks(binding.type);
+						++slot_index;
+						frame.match_binding_slots[&binding] = -8 * slot_index;
+						slot_index += binding_chunks - 1;
+					}
+				}
 				assign_local_slots(arm.body, frame, slot_index);
+			}
 		}
 	}
 
@@ -265,11 +285,18 @@ private:
 
 	void emit_parameter_spills(const ir::Function &function, const Frame &frame)
 	{
-		std::size_t register_count =
-			std::min(function.parameters.size(), argument_registers().size());
-		for (std::size_t i = 0; i < register_count; ++i)
-			out_ << "\tstr " << argument_registers()[i] << ", [x29, #"
-			     << frame.parameter_slots.at(function.parameters[i].name) << "]\n";
+		std::size_t register_index = 0;
+		for (const auto &parameter : function.parameters) {
+			int chunks = value_chunks(parameter.type);
+			if (chunks > 2 ||
+			    register_index + static_cast<std::size_t>(chunks) > argument_registers().size())
+				continue;
+			int slot = frame.parameter_slots.at(parameter.name);
+			for (int chunk = 0; chunk < chunks; ++chunk) {
+				out_ << "\tstr " << argument_registers()[register_index++]
+				     << ", [x29, #" << chunk_slot(slot, chunk) << "]\n";
+			}
+		}
 	}
 
 	void emit_statement(const ir::Statement &statement, const Frame &frame,
@@ -277,9 +304,11 @@ private:
 	{
 		if (statement.kind == ir::Statement::Kind::Let) {
 			const auto &let = static_cast<const ir::LetStatement &>(statement);
-			emit_value(*let.value, frame, slots);
 			int slot = frame.let_slots.at(&let);
-			out_ << "\tstr x0, [x29, #" << slot << "]\n";
+			for (int chunk = 0; chunk < value_chunks(let.value->type); ++chunk) {
+				emit_value_chunk(*let.value, chunk, frame, slots);
+				out_ << "\tstr x0, [x29, #" << chunk_slot(slot, chunk) << "]\n";
+			}
 			slots[let.name] = slot;
 			return;
 		}
@@ -377,8 +406,10 @@ private:
 			arm_labels.push_back(make_label("L_match_arm_"));
 
 		int match_slot = frame.match_slots.at(&match_statement);
-		emit_value(*match_statement.value, frame, slots);
-		out_ << "\tstr x0, [x29, #" << match_slot << "]\n";
+		for (int chunk = 0; chunk < value_chunks(match_statement.value->type); ++chunk) {
+			emit_value_chunk(*match_statement.value, chunk, frame, slots);
+			out_ << "\tstr x0, [x29, #" << chunk_slot(match_slot, chunk) << "]\n";
+		}
 
 		std::optional<std::size_t> default_arm;
 		for (std::size_t i = 0; i < match_statement.arms.size(); ++i) {
@@ -386,6 +417,16 @@ private:
 			for (const auto &pattern : arm.patterns) {
 				if (pattern.kind == ir::MatchPattern::Kind::Default) {
 					default_arm = i;
+					continue;
+				}
+				if (pattern.kind == ir::MatchPattern::Kind::Struct) {
+					out_ << "\tb " << arm_labels[i] << "\n";
+					continue;
+				}
+				if (pattern.kind == ir::MatchPattern::Kind::EnumVariant) {
+					out_ << "\tldr w0, [x29, #" << match_slot << "]\n";
+					out_ << "\tcmp w0, #" << pattern.tag << "\n";
+					out_ << "\tb.eq " << arm_labels[i] << "\n";
 					continue;
 				}
 				out_ << "\tldr x0, [x29, #" << match_slot << "]\n";
@@ -398,11 +439,43 @@ private:
 		for (std::size_t i = 0; i < match_statement.arms.size(); ++i) {
 			out_ << arm_labels[i] << ":\n";
 			SlotMap arm_slots = slots;
+			emit_match_pattern_bindings(match_statement.arms[i], match_slot, frame,
+			                            arm_slots);
 			for (const auto &statement : match_statement.arms[i].body)
 				emit_statement(*statement, frame, done_label, arm_slots);
 			out_ << "\tb " << end_label << "\n";
 		}
 		out_ << end_label << ":\n";
+	}
+
+	void emit_match_pattern_bindings(const ir::MatchArm &arm, int match_slot,
+	                                 const Frame &frame, SlotMap &slots)
+	{
+		for (const auto &pattern : arm.patterns) {
+			for (const auto &binding : pattern.bindings) {
+				int binding_slot = frame.match_binding_slots.at(&binding);
+				for (int chunk = 0; chunk < value_chunks(binding.type); ++chunk) {
+					emit_match_binding_chunk(binding, match_slot, chunk);
+					out_ << "\tstr x0, [x29, #" << chunk_slot(binding_slot, chunk)
+					     << "]\n";
+				}
+				slots[binding.name] = binding_slot;
+			}
+			if (!pattern.bindings.empty())
+				return;
+		}
+	}
+
+	void emit_match_binding_chunk(const ir::MatchPattern::Binding &binding,
+	                              int match_slot, int chunk)
+	{
+		std::size_t offset = binding.offset + static_cast<std::size_t>(chunk) * 8u;
+		int source_chunk = static_cast<int>(offset / 8u);
+		std::size_t source_offset = offset % 8u;
+		out_ << "\tldr x0, [x29, #" << chunk_slot(match_slot, source_chunk) << "]\n";
+		if (source_offset > 0)
+			out_ << "\tlsr x0, x0, #" << (source_offset * 8u) << "\n";
+		emit_extend_low_field(binding.type);
 	}
 
 	void emit_while_statement(const ir::WhileStatement &while_statement, const Frame &frame,
@@ -502,6 +575,18 @@ private:
 			return;
 		case ir::Value::Kind::Call:
 			emit_call(static_cast<const ir::CallValue &>(value), frame, slots);
+			return;
+		case ir::Value::Kind::StructLiteral:
+			emit_struct_literal(static_cast<const ir::StructLiteralValue &>(value),
+			                    frame, slots);
+			return;
+		case ir::Value::Kind::StructField:
+			emit_struct_field(static_cast<const ir::StructFieldValue &>(value),
+			                  frame, slots);
+			return;
+		case ir::Value::Kind::EnumLiteral:
+			emit_enum_literal(static_cast<const ir::EnumLiteralValue &>(value),
+			                  frame, slots);
 			return;
 		}
 	}
@@ -659,6 +744,117 @@ private:
 			out_ << "\tstr x1, [x0]\n";
 	}
 
+	void emit_struct_literal(const ir::StructLiteralValue &literal, const Frame &frame,
+	                         const SlotMap &slots)
+	{
+		emit_struct_literal_chunk(literal, 0, frame, slots);
+	}
+
+	void emit_struct_literal_chunk(const ir::StructLiteralValue &literal, int chunk,
+	                               const Frame &frame, const SlotMap &slots)
+	{
+		out_ << "\tmov x0, #0\n";
+		for (const auto &field : literal.fields) {
+			if (static_cast<int>(field.offset / 8) != chunk)
+				continue;
+			emit_push_accumulator();
+			emit_value(*field.value, frame, slots);
+			emit_mask_to_field_width(field.type);
+			std::size_t chunk_offset = field.offset % 8;
+			if (chunk_offset > 0)
+				out_ << "\tlsl x0, x0, #" << (chunk_offset * 8) << "\n";
+			emit_pop_to("x1");
+			out_ << "\torr x0, x1, x0\n";
+		}
+	}
+
+	void emit_struct_field(const ir::StructFieldValue &field, const Frame &frame,
+	                       const SlotMap &slots)
+	{
+		int chunk = static_cast<int>(field.offset / 8);
+		emit_value_chunk(*field.base, chunk, frame, slots);
+		std::size_t chunk_offset = field.offset % 8;
+		if (chunk_offset > 0)
+			out_ << "\tlsr x0, x0, #" << (chunk_offset * 8) << "\n";
+		emit_extend_low_field(field.type);
+	}
+
+	void emit_enum_literal(const ir::EnumLiteralValue &literal, const Frame &frame,
+	                       const SlotMap &slots)
+	{
+		emit_enum_literal_chunk(literal, 0, frame, slots);
+	}
+
+	void emit_enum_literal_chunk(const ir::EnumLiteralValue &literal, int chunk,
+	                             const Frame &frame, const SlotMap &slots)
+	{
+		out_ << "\tmov x0, #0\n";
+		emit_enum_tag_chunk(literal.tag, chunk);
+		for (const auto &payload : literal.payloads)
+			emit_enum_field_chunk(payload.type, payload.offset, payload.value, chunk,
+			                      frame, slots);
+	}
+
+	void emit_enum_tag_chunk(std::uint32_t tag, int chunk)
+	{
+		if (chunk != 0)
+			return;
+		emit_push_accumulator();
+		emit_integer_immediate(tag, 32);
+		emit_pop_to("x1");
+		out_ << "\torr x0, x1, x0\n";
+	}
+
+	void emit_enum_field_chunk(ir::Type field_type, std::size_t field_offset,
+	                           const std::unique_ptr<ir::Value> &field_value, int chunk,
+	                           const Frame &frame, const SlotMap &slots)
+	{
+		if (static_cast<int>(field_offset / 8) != chunk)
+			return;
+		emit_push_accumulator();
+		emit_value(*field_value, frame, slots);
+		emit_mask_to_field_width(field_type);
+		std::size_t chunk_offset = field_offset % 8;
+		if (chunk_offset > 0)
+			out_ << "\tlsl x0, x0, #" << (chunk_offset * 8) << "\n";
+		emit_pop_to("x1");
+		out_ << "\torr x0, x1, x0\n";
+	}
+
+	void emit_value_chunk(const ir::Value &value, int chunk, const Frame &frame,
+	                      const SlotMap &slots)
+	{
+		if (chunk == 0 && value_chunks(value.type) == 1) {
+			emit_value(value, frame, slots);
+			return;
+		}
+		if (value.kind == ir::Value::Kind::StructLiteral) {
+			emit_struct_literal_chunk(static_cast<const ir::StructLiteralValue &>(value),
+			                          chunk, frame, slots);
+			return;
+		}
+		if (value.kind == ir::Value::Kind::EnumLiteral) {
+			emit_enum_literal_chunk(static_cast<const ir::EnumLiteralValue &>(value),
+			                        chunk, frame, slots);
+			return;
+		}
+		if (value.kind == ir::Value::Kind::Local) {
+			const auto &local = static_cast<const ir::LocalValue &>(value);
+			out_ << "\tldr x0, [x29, #" << chunk_slot(slots.at(local.name), chunk)
+			     << "]\n";
+			return;
+		}
+		if (value.kind == ir::Value::Kind::StructField && chunk == 0) {
+			emit_struct_field(static_cast<const ir::StructFieldValue &>(value), frame, slots);
+			return;
+		}
+		if (chunk == 0) {
+			emit_value(value, frame, slots);
+			return;
+		}
+		out_ << "\tmov x0, #0\n";
+	}
+
 	void emit_binary(const ir::BinaryValue &binary, const Frame &frame, const SlotMap &slots)
 	{
 		if (is_logical_operator(binary.op)) {
@@ -734,22 +930,47 @@ private:
 
 	void emit_call(const ir::CallValue &call, const Frame &frame, const SlotMap &slots)
 	{
-		for (auto it = call.arguments.rbegin(); it != call.arguments.rend(); ++it) {
-			emit_value(**it, frame, slots);
-			emit_push_accumulator();
+		struct ArgumentPlan {
+			const ir::Value *value = nullptr;
+			int chunks = 1;
+			bool in_registers = false;
+		};
+		std::vector<ArgumentPlan> plans;
+		std::size_t register_chunk_count = 0;
+		std::size_t stack_argument_count = 0;
+		for (const auto &argument : call.arguments) {
+			int chunks = value_chunks(argument->type);
+			bool in_registers =
+				chunks <= 2 &&
+				register_chunk_count + static_cast<std::size_t>(chunks) <=
+					argument_registers().size();
+			if (in_registers)
+				register_chunk_count += static_cast<std::size_t>(chunks);
+			else
+				stack_argument_count += static_cast<std::size_t>(chunks);
+			plans.push_back(ArgumentPlan{argument.get(), chunks, in_registers});
+		}
+		for (auto it = plans.rbegin(); it != plans.rend(); ++it) {
+			if (it->in_registers)
+				continue;
+			for (int chunk = it->chunks - 1; chunk >= 0; --chunk) {
+				emit_value_chunk(*it->value, chunk, frame, slots);
+				emit_push_accumulator();
+			}
+		}
+		for (auto it = plans.rbegin(); it != plans.rend(); ++it) {
+			if (!it->in_registers)
+				continue;
+			for (int chunk = it->chunks - 1; chunk >= 0; --chunk) {
+				emit_value_chunk(*it->value, chunk, frame, slots);
+				emit_push_accumulator();
+			}
 		}
 
-		std::size_t register_count =
-			std::min(call.arguments.size(), argument_registers().size());
-		for (std::size_t i = 0; i < register_count; ++i)
+		for (std::size_t i = 0; i < register_chunk_count; ++i)
 			emit_pop_to(argument_registers()[i]);
 
 		out_ << "\tbl " << darwin_symbol(call.callee) << "\n";
-
-		std::size_t stack_argument_count =
-			call.arguments.size() > argument_registers().size()
-				? call.arguments.size() - argument_registers().size()
-				: 0;
 		if (stack_argument_count > 0)
 			out_ << "\tadd sp, sp, #" << stack_argument_count * 16 << "\n";
 	}
@@ -833,6 +1054,23 @@ private:
 			const auto &call = static_cast<const ir::CallValue &>(value);
 			for (const auto &argument : call.arguments)
 				collect_string_labels(*argument);
+			return;
+		}
+		case ir::Value::Kind::StructLiteral: {
+			const auto &literal = static_cast<const ir::StructLiteralValue &>(value);
+			for (const auto &field : literal.fields)
+				collect_string_labels(*field.value);
+			return;
+		}
+		case ir::Value::Kind::StructField: {
+			const auto &field = static_cast<const ir::StructFieldValue &>(value);
+			collect_string_labels(*field.base);
+			return;
+		}
+		case ir::Value::Kind::EnumLiteral: {
+			const auto &literal = static_cast<const ir::EnumLiteralValue &>(value);
+			for (const auto &payload : literal.payloads)
+				collect_string_labels(*payload.value);
 			return;
 		}
 		case ir::Value::Kind::Integer:
@@ -943,6 +1181,8 @@ private:
 		case ir::MatchPattern::Kind::Char:
 			return std::to_string(static_cast<unsigned int>(pattern.char_value));
 		case ir::MatchPattern::Kind::Default:
+		case ir::MatchPattern::Kind::EnumVariant:
+		case ir::MatchPattern::Kind::Struct:
 			return "0";
 		}
 		return "0";
@@ -1060,6 +1300,23 @@ private:
 				emit_string_literals(*argument);
 			return;
 		}
+		case ir::Value::Kind::StructLiteral: {
+			const auto &literal = static_cast<const ir::StructLiteralValue &>(value);
+			for (const auto &field : literal.fields)
+				emit_string_literals(*field.value);
+			return;
+		}
+		case ir::Value::Kind::StructField: {
+			const auto &field = static_cast<const ir::StructFieldValue &>(value);
+			emit_string_literals(*field.base);
+			return;
+		}
+		case ir::Value::Kind::EnumLiteral: {
+			const auto &literal = static_cast<const ir::EnumLiteralValue &>(value);
+			for (const auto &payload : literal.payloads)
+				emit_string_literals(*payload.value);
+			return;
+		}
 		case ir::Value::Kind::Integer:
 		case ir::Value::Kind::Bool:
 		case ir::Value::Kind::Char:
@@ -1104,11 +1361,70 @@ private:
 		throw std::runtime_error("unexpected comparison operator");
 	}
 
+	void emit_mask_to_field_width(ir::Type type)
+	{
+		switch (memory_bits(type)) {
+		case 8:
+			out_ << "\tand x0, x0, #0xff\n";
+			return;
+		case 16:
+			out_ << "\tand x0, x0, #0xffff\n";
+			return;
+		case 32:
+			out_ << "\tuxtw x0, w0\n";
+			return;
+		default:
+			return;
+		}
+	}
+
+	void emit_extend_low_field(ir::Type type)
+	{
+		switch (memory_bits(type)) {
+		case 8:
+			if (is_signed_integer(type))
+				out_ << "\tsxtb x0, w0\n";
+			else
+				out_ << "\tand x0, x0, #0xff\n";
+			return;
+		case 16:
+			if (is_signed_integer(type))
+				out_ << "\tsxth x0, w0\n";
+			else
+				out_ << "\tand x0, x0, #0xffff\n";
+			return;
+		case 32:
+			if (is_signed_integer(type))
+				out_ << "\tsxtw x0, w0\n";
+			else
+				out_ << "\tuxtw x0, w0\n";
+			return;
+		default:
+			return;
+		}
+	}
+
+	int value_chunks(ir::Type type) const
+	{
+		if (!is_user_struct(type) && !is_user_enum(type) && !is_tuple(type))
+			return 1;
+		return std::max(1, (memory_bits(type) + 63) / 64);
+	}
+
+	static int chunk_slot(int base_slot, int chunk)
+	{
+		if (base_slot > 0)
+			return base_slot + 16 * chunk;
+		return base_slot - 8 * chunk;
+	}
+
 	int memory_bits(ir::Type type) const
 	{
 		if (type.kind == PrimitiveKind::Bool || type.kind == PrimitiveKind::Char)
 			return 8;
 		if (is_integer(type))
+			return type.bits;
+		if ((is_user_struct(type) || is_user_enum(type) || is_tuple(type)) && type.bits > 0)
 			return type.bits;
 		return 64;
 	}
