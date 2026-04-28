@@ -133,6 +133,12 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	auto std_process_arg_at_path =
 		rexc::stdlib::find_stdlib_function("std::process::arg_at");
 	auto env_get = rexc::stdlib::find_stdlib_function("env_get");
+	auto std_env_len_path =
+		rexc::stdlib::find_stdlib_function("std::env::len");
+	auto std_env_at_path =
+		rexc::stdlib::find_stdlib_function("std::env::at");
+	auto std_env_get_path =
+		rexc::stdlib::find_stdlib_function("std::env::get");
 	auto file_open_read = rexc::stdlib::find_stdlib_function("file_open_read");
 	auto file_write_str = rexc::stdlib::find_stdlib_function("file_write_str");
 	auto path_join = rexc::stdlib::find_stdlib_function("path_join");
@@ -192,6 +198,9 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE(std_process_args_len_path != nullptr);
 	REQUIRE(std_process_arg_at_path != nullptr);
 	REQUIRE(env_get != nullptr);
+	REQUIRE(std_env_len_path != nullptr);
+	REQUIRE(std_env_at_path != nullptr);
+	REQUIRE(std_env_get_path != nullptr);
 	REQUIRE(file_open_read != nullptr);
 	REQUIRE(file_write_str != nullptr);
 	REQUIRE(path_join != nullptr);
@@ -363,6 +372,11 @@ TEST_CASE(stdlib_declares_all_public_functions)
 	REQUIRE_EQ(std_process_arg_at_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(env_get->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(env_get->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(std_env_len_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::SignedInteger, 32}));
+	REQUIRE_EQ(std_env_at_path->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_env_at_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
+	REQUIRE_EQ(std_env_get_path->parameters.size(), std::size_t(1));
+	REQUIRE_EQ(std_env_get_path->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));
 	REQUIRE_EQ(file_open_read->parameters.size(), std::size_t(1));
 	REQUIRE_EQ(file_write_str->parameters.size(), std::size_t(2));
 	REQUIRE_EQ(path_join->return_type, (rexc::PrimitiveType{rexc::PrimitiveKind::Str}));

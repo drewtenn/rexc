@@ -38,6 +38,22 @@ fn std_process_arg_at(index: i32) -> str {
 	return arg_at(index);
 }
 
+fn env_len() -> i32 {
+	return sys_env_len();
+}
+
+fn std_env_len() -> i32 {
+	return env_len();
+}
+
+fn env_at(index: i32) -> str {
+	return sys_env_at(index);
+}
+
+fn std_env_at(index: i32) -> str {
+	return env_at(index);
+}
+
 fn _env_entry_matches(entry: str, name: str) -> bool {
 	let mut index: i32 = 0;
 	while name[index] != 0 {
@@ -51,8 +67,8 @@ fn _env_entry_matches(entry: str, name: str) -> bool {
 
 fn env_get(name: str) -> str {
 	let mut index: i32 = 0;
-	while index < sys_env_len() {
-		let entry: str = sys_env_at(index);
+	while index < env_len() {
+		let entry: str = env_at(index);
 		if _env_entry_matches(entry, name) {
 			return (entry + strlen(name) + 1) as str;
 		}
