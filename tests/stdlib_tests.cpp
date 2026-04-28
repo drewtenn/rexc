@@ -533,6 +533,8 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386, "sys_env_at:"));
 	REQUIRE(contains(i386, "sys_kill:"));
 	REQUIRE(contains(i386, "sys_execve:"));
+	REQUIRE(contains(i386, "sys_trap_ud2:"));
+	REQUIRE(contains(i386, "sys_trap_gpfault:"));
 	REQUIRE(contains(i386, "call sys_write"));
 	REQUIRE(contains(i386, "call sys_read"));
 	REQUIRE(contains(i386, "call sys_exit"));
@@ -558,6 +560,8 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386_drunix, "sys_env_at:"));
 	REQUIRE(contains(i386_drunix, "sys_kill:"));
 	REQUIRE(contains(i386_drunix, "sys_execve:"));
+	REQUIRE(contains(i386_drunix, "sys_trap_ud2:"));
+	REQUIRE(contains(i386_drunix, "sys_trap_gpfault:"));
 	REQUIRE(contains(i386_drunix, "movl $162, %eax"));
 	REQUIRE(contains(i386_drunix, "movl $265, %eax"));
 	REQUIRE(contains(i386_drunix, ".globl __rexc_argc"));
@@ -613,6 +617,8 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(x86_64, "sys_env_at:"));
 	REQUIRE(contains(x86_64, "sys_kill:"));
 	REQUIRE(contains(x86_64, "sys_execve:"));
+	REQUIRE(contains(x86_64, "sys_trap_ud2:"));
+	REQUIRE(contains(x86_64, "sys_trap_gpfault:"));
 	REQUIRE(contains(x86_64, "call sys_write"));
 	REQUIRE(contains(x86_64, "call sys_read"));
 	REQUIRE(contains(x86_64, "call sys_exit"));
@@ -666,6 +672,8 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(arm64, "_sys_env_at:"));
 	REQUIRE(contains(arm64, "_sys_kill:"));
 	REQUIRE(contains(arm64, "_sys_execve:"));
+	REQUIRE(contains(arm64, "_sys_trap_ud2:"));
+	REQUIRE(contains(arm64, "_sys_trap_gpfault:"));
 	REQUIRE(contains(arm64, "bl _sys_write"));
 	REQUIRE(contains(arm64, "bl _sys_read"));
 	REQUIRE(contains(arm64, "bl _sys_exit"));

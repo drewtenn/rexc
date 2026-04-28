@@ -99,6 +99,15 @@ sys_execve:
 	movq $59, %rax
 	syscall
 	ret
+.globl sys_trap_ud2
+sys_trap_ud2:
+	ud2
+	ret
+.globl sys_trap_gpfault
+sys_trap_gpfault:
+	mov $0x0007, %ax
+	mov %ax, %ds
+	ret
 .globl sys_args_len
 sys_args_len:
 	movq __rexc_argc(%rip), %rax

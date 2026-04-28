@@ -103,6 +103,16 @@ _sys_execve:
 	bl _execve
 	ldp x29, x30, [sp], #16
 	ret
+.globl _sys_trap_ud2
+.p2align 2
+_sys_trap_ud2:
+	.inst 0x00000000
+	ret
+.globl _sys_trap_gpfault
+.p2align 2
+_sys_trap_gpfault:
+	.inst 0x00000000
+	ret
 .globl _sys_args_len
 .p2align 2
 _sys_args_len:
