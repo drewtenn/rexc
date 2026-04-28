@@ -82,6 +82,30 @@ grep -q ".globl main" "${tmp_dir}/add-i386-linux.s"
 test -s "${tmp_dir}/add-i386-drunix.s"
 grep -q ".globl main" "${tmp_dir}/add-i386-drunix.s"
 
+if command -v x86_64-elf-as >/dev/null 2>&1 && command -v x86_64-elf-ld >/dev/null 2>&1; then
+	mkdir -p "${tmp_dir}/drunix-root/build/user/x86/linker"
+	cat > "${tmp_dir}/drunix-root/build/user/x86/linker/user.ld" <<'LD'
+ENTRY(_start)
+SECTIONS
+{
+    . = 0x08048000;
+    .text : { *(.text) *(.text.*) }
+    . = ALIGN(4096);
+    .rodata : { *(.rodata) *(.rodata.*) }
+    . = ALIGN(4096);
+    .data : { *(.data) *(.data.*) }
+    .bss : { *(.bss) *(.bss.*) *(COMMON) }
+}
+LD
+	"${build_dir}/rexc" "${repo_dir}/examples/stdlib.rx" --target i386-drunix --drunix-root "${tmp_dir}/drunix-root" -o "${tmp_dir}/stdlib.drunix"
+	test -s "${tmp_dir}/stdlib.drunix"
+	if command -v x86_64-elf-readelf >/dev/null 2>&1; then
+		x86_64-elf-readelf -h "${tmp_dir}/stdlib.drunix" > "${tmp_dir}/stdlib.drunix.readelf"
+		grep -F -q "Class:                             ELF32" "${tmp_dir}/stdlib.drunix.readelf"
+		grep -F -q "Machine:                           Intel 80386" "${tmp_dir}/stdlib.drunix.readelf"
+	fi
+fi
+
 "${build_dir}/rexc" "${repo_dir}/examples/core.rx" --target x86_64-linux -S -o "${tmp_dir}/add-x86_64-linux.s"
 test -s "${tmp_dir}/add-x86_64-linux.s"
 grep -q ".globl main" "${tmp_dir}/add-x86_64-linux.s"

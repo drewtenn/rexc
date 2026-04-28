@@ -456,10 +456,14 @@ TEST_CASE(stdlib_emits_hosted_runtime_symbols)
 	REQUIRE(contains(i386_drunix, "sys_arg:"));
 	REQUIRE(contains(i386_drunix, "sys_env_len:"));
 	REQUIRE(contains(i386_drunix, "sys_env_at:"));
-	REQUIRE(contains(i386_drunix, ".globl environ"));
+	REQUIRE(contains(i386_drunix, ".globl __rexc_argc"));
+	REQUIRE(contains(i386_drunix, ".globl __rexc_argv"));
+	REQUIRE(contains(i386_drunix, ".globl __rexc_envp"));
+	REQUIRE(contains(i386_drunix, "movl __rexc_argc, %eax"));
+	REQUIRE(contains(i386_drunix, "movl __rexc_argv, %eax"));
+	REQUIRE(contains(i386_drunix, "movl __rexc_envp, %ecx"));
 	REQUIRE(contains(i386_drunix, "movl $8, %eax"));
 	REQUIRE(contains(i386_drunix, "int $0x80"));
-	REQUIRE(!contains(i386_drunix, "__rexc_argc"));
 
 	REQUIRE(contains(x86_64, "print:"));
 	REQUIRE(contains(x86_64, "println:"));
@@ -567,7 +571,7 @@ TEST_CASE(stdlib_runtime_dispatch_returns_different_target_assemblies)
 
 	REQUIRE(i386.find("int $0x80") != std::string::npos);
 	REQUIRE(i386_drunix.find("int $0x80") != std::string::npos);
-	REQUIRE(i386_drunix.find(".globl environ") != std::string::npos);
+	REQUIRE(i386_drunix.find(".globl __rexc_envp") != std::string::npos);
 	REQUIRE(x86_64.find("syscall") != std::string::npos);
 	REQUIRE(arm64.find("bl _write") != std::string::npos);
 	REQUIRE(i386 != i386_drunix);

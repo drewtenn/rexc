@@ -7,8 +7,14 @@ namespace rexc::stdlib {
 std::string i386_drunix_hosted_runtime_assembly()
 {
 	return R"(.data
-.globl environ
-environ:
+.globl __rexc_argc
+__rexc_argc:
+	.long 0
+.globl __rexc_argv
+__rexc_argv:
+	.long 0
+.globl __rexc_envp
+__rexc_envp:
 	.long 0
 __rexc_empty_string:
 	.asciz ""
@@ -86,15 +92,29 @@ sys_file_close:
 	ret
 .globl sys_args_len
 sys_args_len:
-	xorl %eax, %eax
+	movl __rexc_argc, %eax
 	ret
 .globl sys_arg
 sys_arg:
+	pushl %ebp
+	movl %esp, %ebp
+	movl 8(%ebp), %ecx
+	cmpl $0, %ecx
+	jl .Lsys_arg_empty
+	movl __rexc_argc, %eax
+	cmpl %eax, %ecx
+	jge .Lsys_arg_empty
+	movl __rexc_argv, %eax
+	movl (%eax,%ecx,4), %eax
+	leave
+	ret
+.Lsys_arg_empty:
 	movl $__rexc_empty_string, %eax
+	leave
 	ret
 .globl sys_env_len
 sys_env_len:
-	movl environ, %ecx
+	movl __rexc_envp, %ecx
 	xorl %eax, %eax
 	testl %ecx, %ecx
 	je .Lsys_env_len_done
@@ -112,7 +132,7 @@ sys_env_at:
 	movl 8(%ebp), %edx
 	cmpl $0, %edx
 	jl .Lsys_env_at_empty
-	movl environ, %ecx
+	movl __rexc_envp, %ecx
 	testl %ecx, %ecx
 	je .Lsys_env_at_empty
 	movl (%ecx,%edx,4), %eax

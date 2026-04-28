@@ -181,6 +181,9 @@ void require_file(const std::string &path, const std::string &description)
 		throw std::runtime_error("missing " + description + ": " + path);
 }
 
+void write_cross_elf_startup(const std::string &assembly_path,
+                             rexc::CodegenTarget target);
+
 void assemble_object(const std::string &assembly_path, const std::string &object_path,
                      rexc::TargetTriple target)
 {
@@ -239,23 +242,31 @@ void link_drunix_object(const std::string &object_path, const std::string &outpu
 	if (target != rexc::TargetTriple::I386Drunix)
 		throw std::runtime_error("Drunix linking currently supports only the i386-drunix target");
 
-	std::string user_dir = drunix_root + "/user";
-	std::string linker_script = user_dir + "/user.ld";
-	std::string crt0 = user_dir + "/lib/crt0.o";
-	std::string libc = user_dir + "/lib/libc.a";
+	std::string linker_script = drunix_root + "/build/user/x86/linker/user.ld";
 	require_file(linker_script, "Drunix linker script");
-	require_file(crt0, "Drunix startup object");
-	require_file(libc, "Drunix runtime archive");
 
 	std::string linker = find_tool("x86_64-elf-ld", "ld", "ELF linker");
-	std::string command = linker + " -m elf_i386 -T " +
-	                      shell_quote(linker_script) + " -o " +
-	                      shell_quote(output_path) + " " + shell_quote(crt0) +
-	                      " " + shell_quote(object_path);
-	if (!runtime_object_path.empty())
-		command += " " + shell_quote(runtime_object_path);
-	command += " " + shell_quote(libc);
-	run_tool(command, "Drunix link failed");
+	std::string startup_assembly = output_path + ".crt0.s.tmp";
+	std::string startup_object = output_path + ".crt0.o.tmp";
+	write_cross_elf_startup(startup_assembly, rexc::CodegenTarget::I386);
+	try {
+		assemble_object(startup_assembly, startup_object, target);
+		std::string command = linker + " -m elf_i386 -T " +
+		                      shell_quote(linker_script) + " -o " +
+		                      shell_quote(output_path) + " " +
+		                      shell_quote(startup_object) + " " +
+		                      shell_quote(object_path);
+		if (!runtime_object_path.empty())
+			command += " " + shell_quote(runtime_object_path);
+		run_tool(command, "Drunix link failed");
+	} catch (...) {
+		std::remove(startup_assembly.c_str());
+		std::remove(startup_object.c_str());
+		std::remove(output_path.c_str());
+		throw;
+	}
+	std::remove(startup_assembly.c_str());
+	std::remove(startup_object.c_str());
 }
 
 void link_darwin_arm64_object(const std::string &object_path,

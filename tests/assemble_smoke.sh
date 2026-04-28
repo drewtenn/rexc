@@ -117,17 +117,8 @@ fi
 if command -v x86_64-elf-as >/dev/null 2>&1 &&
 	command -v x86_64-elf-ld >/dev/null 2>&1; then
 	drunix_dir="${tmp_dir}/fake-drunix"
-	mkdir -p "${drunix_dir}/user/lib"
-	cat > "${tmp_dir}/crt0.s" <<'ASM'
-.globl _start
-_start:
-	call main
-.Lhalt:
-	jmp .Lhalt
-ASM
-	x86_64-elf-as --32 -o "${drunix_dir}/user/lib/crt0.o" "${tmp_dir}/crt0.s"
-	printf '!<arch>\n' > "${drunix_dir}/user/lib/libc.a"
-	cat > "${drunix_dir}/user/user.ld" <<'LDS'
+	mkdir -p "${drunix_dir}/build/user/x86/linker"
+	cat > "${drunix_dir}/build/user/x86/linker/user.ld" <<'LDS'
 ENTRY(_start)
 SECTIONS
 {
