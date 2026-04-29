@@ -777,3 +777,51 @@ TEST_CASE(stdlib_runtime_dispatch_returns_different_target_assemblies)
 	REQUIRE(i386 != x86_64);
 	REQUIRE(x86_64 != arm64);
 }
+
+// FE-105: Arena struct + arena_* explicit-allocator API are visible in
+// alloc.rx and compile into the portable stdlib assembly. The
+// `find_stdlib_function` lookup surface is currently keyed off
+// PrimitiveType-resolvable signatures (see resolve_source_type in
+// src/stdlib/stdlib.cpp), which doesn't yet recognize user-struct names
+// like *Arena, so the registry skips the arena_* declarations. This
+// test pins both the textual presence in alloc.rx and the codegen
+// presence in the emitted runtime assembly. A follow-up (FE-106 or
+// later) is expected to extend stdlib registration so user-struct
+// signatures show through find_stdlib_function and a future
+// find_stdlib_struct.
+TEST_CASE(stdlib_exposes_arena_struct_and_arena_alloc_function)
+{
+	const std::string source_dir = REXC_SOURCE_DIR;
+	std::ifstream alloc_file(source_dir + "/src/stdlib/alloc/alloc.rx");
+	REQUIRE(alloc_file.is_open());
+	std::ostringstream alloc_text;
+	alloc_text << alloc_file.rdbuf();
+	const std::string alloc_source = alloc_text.str();
+
+	REQUIRE(contains(alloc_source, "struct Arena {"));
+	REQUIRE(contains(alloc_source, "fn arena_init(arena: *Arena"));
+	REQUIRE(contains(alloc_source, "fn arena_alloc(arena: *Arena"));
+	REQUIRE(contains(alloc_source, "fn arena_remaining(arena: *Arena)"));
+	REQUIRE(contains(alloc_source, "fn arena_used(arena: *Arena)"));
+	REQUIRE(contains(alloc_source, "fn arena_capacity(arena: *Arena)"));
+	REQUIRE(contains(alloc_source, "fn arena_can_allocate(arena: *Arena"));
+	REQUIRE(contains(alloc_source, "fn arena_reset(arena: *Arena)"));
+
+	auto arm64 = rexc::stdlib::hosted_runtime_assembly(rexc::TargetTriple::ARM64Macos);
+	REQUIRE(contains(arm64, "_arena_init:"));
+	REQUIRE(contains(arm64, "_arena_alloc:"));
+	REQUIRE(contains(arm64, "_arena_remaining:"));
+	REQUIRE(contains(arm64, "_arena_used:"));
+	REQUIRE(contains(arm64, "_arena_capacity:"));
+	REQUIRE(contains(arm64, "_arena_can_allocate:"));
+	REQUIRE(contains(arm64, "_arena_reset:"));
+
+	// Document the current registration gap: arena_* takes/returns
+	// *Arena, which parse_primitive_type does not yet recognize, so
+	// these symbols are intentionally absent from find_stdlib_function
+	// today even though the names are reserved through
+	// reserved_runtime_symbols and the bodies are compiled into the
+	// stdlib assembly above.
+	auto arena_alloc = rexc::stdlib::find_stdlib_function("arena_alloc");
+	REQUIRE(arena_alloc == nullptr);
+}

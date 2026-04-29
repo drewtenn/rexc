@@ -2105,3 +2105,40 @@ TEST_CASE(sema_rejects_enum_constructor_payload_type_mismatch)
 	REQUIRE(diagnostics.format().find("enum payload type mismatch: expected 'i32' but got 'bool'") !=
 	        std::string::npos);
 }
+
+// FE-105: an explicit allocator-as-value parameter — `*Arena` — must
+// type-check, including assigning through `(*arena).field` and reading
+// fields from the pointed-to struct. Mirrors the shape of the new
+// arena_* API in src/stdlib/alloc/alloc.rx. The test redeclares an
+// Arena-shaped struct under a unique name and uses a unique `allocate_block`
+// helper because the stdlib reserves `Arena` and `arena_*` symbols
+// globally even when (today) it cannot register them through
+// find_stdlib_function — see stdlib::reserved_runtime_symbols.
+TEST_CASE(sema_accepts_explicit_arena_parameter)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct LocalArena {\n"
+	    "    storage: *u8,\n"
+	    "    capacity: i32,\n"
+	    "    offset: i32,\n"
+	    "}\n"
+	    "fn local_arena_remaining(arena: *LocalArena) -> i32 {\n"
+	    "    return (*arena).capacity - (*arena).offset;\n"
+	    "}\n"
+	    "fn local_arena_alloc(arena: *LocalArena, len: i32) -> *u8 {\n"
+	    "    if len > local_arena_remaining(arena) {\n"
+	    "        return (*arena).storage + 0;\n"
+	    "    }\n"
+	    "    let start: i32 = (*arena).offset;\n"
+	    "    (*arena).offset = (*arena).offset + len;\n"
+	    "    return (*arena).storage + start;\n"
+	    "}\n"
+	    "fn allocate_block(arena: *LocalArena, n: i32) -> *u8 {\n"
+	    "    return local_arena_alloc(arena, n);\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}

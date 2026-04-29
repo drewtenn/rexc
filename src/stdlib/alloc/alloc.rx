@@ -338,3 +338,57 @@ fn alloc_char_to_str(value: char) -> str {
 	*(dest + 1) = 0 as u8;
 	return dest as str;
 }
+
+// FE-105: explicit allocator-as-value API. The functions below take an
+// `*Arena` parameter and operate on caller-supplied storage. The static
+// `alloc_*` API above continues to coexist; FE-106 will route it through
+// a default Arena value.
+
+struct Arena {
+	storage: *u8,
+	capacity: i32,
+	offset: i32,
+}
+
+fn arena_init(arena: *Arena, storage: *u8, capacity: i32) -> i32 {
+	(*arena).storage = storage;
+	(*arena).capacity = capacity;
+	(*arena).offset = 0;
+	return 0;
+}
+
+fn arena_remaining(arena: *Arena) -> i32 {
+	return (*arena).capacity - (*arena).offset;
+}
+
+fn arena_used(arena: *Arena) -> i32 {
+	return (*arena).offset;
+}
+
+fn arena_capacity(arena: *Arena) -> i32 {
+	return (*arena).capacity;
+}
+
+fn arena_can_allocate(arena: *Arena, len: i32) -> bool {
+	if len <= 0 {
+		return true;
+	}
+	return len <= arena_remaining(arena);
+}
+
+fn arena_reset(arena: *Arena) -> i32 {
+	(*arena).offset = 0;
+	return 0;
+}
+
+fn arena_alloc(arena: *Arena, len: i32) -> *u8 {
+	if len <= 0 {
+		return (*arena).storage + (*arena).offset;
+	}
+	if len > arena_remaining(arena) {
+		return (*arena).storage + 0;
+	}
+	let start: i32 = (*arena).offset;
+	(*arena).offset = (*arena).offset + len;
+	return (*arena).storage + start;
+}
