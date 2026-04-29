@@ -220,9 +220,12 @@ private:
 			int chunks = value_chunks(parameter.type);
 			if (chunks <= 2 &&
 			    register_index + static_cast<std::size_t>(chunks) <= argument_registers().size()) {
-				++slot_index;
+				// Reserve `chunks` slots and point at the LOWEST
+				// address (the most-negative offset). Chunk 0 lives
+				// at frame.parameter_slots[name]; chunk N lives at
+				// that base + 8 * N. See chunk_slot.
+				slot_index += chunks;
 				frame.parameter_slots[parameter.name] = -8 * slot_index;
-				slot_index += chunks - 1;
 				register_index += static_cast<std::size_t>(chunks);
 			} else {
 				frame.parameter_slots[parameter.name] =
@@ -241,9 +244,11 @@ private:
 		if (statement.kind == ir::Statement::Kind::Let) {
 			const auto &let = static_cast<const ir::LetStatement &>(statement);
 			int chunks = value_chunks(let.value->type);
-			++slot_index;
+			// Reserve `chunks` slots and point at the LOWEST address.
+			// Chunk 0 lives at frame.let_slots[&let]; chunk N lives at
+			// that base + 8 * N. This makes &v + 8 step UP into chunk 1.
+			slot_index += chunks;
 			frame.let_slots[&let] = -8 * slot_index;
-			slot_index += chunks - 1;
 		} else if (statement.kind == ir::Statement::Kind::While) {
 			const auto &while_statement = static_cast<const ir::WhileStatement &>(statement);
 			assign_local_slots(while_statement.body, frame, slot_index);
@@ -259,16 +264,17 @@ private:
 		} else if (statement.kind == ir::Statement::Kind::Match) {
 			const auto &match_statement = static_cast<const ir::MatchStatement &>(statement);
 			int chunks = value_chunks(match_statement.value->type);
-			++slot_index;
+			// Match scrutinee and pattern bindings follow the same
+			// layout convention as let_slots: lowest address first,
+			// chunk N at base + 8 * N. See chunk_slot.
+			slot_index += chunks;
 			frame.match_slots[&match_statement] = -8 * slot_index;
-			slot_index += chunks - 1;
 			for (const auto &arm : match_statement.arms) {
 				for (const auto &pattern : arm.patterns) {
 					for (const auto &binding : pattern.bindings) {
 						int binding_chunks = value_chunks(binding.type);
-						++slot_index;
+						slot_index += binding_chunks;
 						frame.match_binding_slots[&binding] = -8 * slot_index;
-						slot_index += binding_chunks - 1;
 					}
 				}
 				assign_local_slots(arm.body, frame, slot_index);
@@ -1464,11 +1470,23 @@ private:
 		return std::max(1, (memory_bits(type) + 63) / 64);
 	}
 
+	// Negative (frame-local) slots: chunks of a multi-chunk local sit
+	// at consecutive INCREASING addresses, with chunk 0 at the LOWEST
+	// (most-negative) address. The slot allocators store the lowest
+	// address in let_slots / parameter_slots / match_slots /
+	// match_binding_slots, so chunk N lives at base + 8 * N. This
+	// matches the user's mental model: `&v` returns chunk 0's address;
+	// `&v + 8` reaches chunk 1.
+	//
+	// Positive (caller-stack) slots: stack arguments are pushed by the
+	// caller in chunk order N-1, N-2, ..., 0 (see emit_call). Each
+	// push consumes 16 bytes for AAPCS alignment, so chunk 0 ends up
+	// at the smallest positive offset and chunk N at base + 16 * N.
 	static int chunk_slot(int base_slot, int chunk)
 	{
 		if (base_slot > 0)
 			return base_slot + 16 * chunk;
-		return base_slot - 8 * chunk;
+		return base_slot + 8 * chunk;
 	}
 
 	int memory_bits(ir::Type type) const

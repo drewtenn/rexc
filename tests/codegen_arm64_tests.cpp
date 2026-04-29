@@ -400,8 +400,11 @@ TEST_CASE(codegen_arm64_macos_passes_two_register_struct_by_value)
 		"fn main() -> i32 { return read_d(Quad { a: 1, b: 2, c: 3, d: 4 }); }\n");
 
 	REQUIRE(assembly.find("_read_d:") != std::string::npos);
-	REQUIRE(assembly.find("str x0, [x29, #-8]") != std::string::npos);
-	REQUIRE(assembly.find("str x1, [x29, #-16]") != std::string::npos);
+	// Parameter `q` is a 2-chunk struct passed in x0:x1. The frame
+	// reserves two slots laid out at increasing addresses, so chunk 0
+	// (x0) spills to #-16 (the lowest address) and chunk 1 (x1) to #-8.
+	REQUIRE(assembly.find("str x0, [x29, #-16]") != std::string::npos);
+	REQUIRE(assembly.find("str x1, [x29, #-8]") != std::string::npos);
 	REQUIRE(assembly.find("lsr x0, x0, #32") != std::string::npos);
 }
 
@@ -493,16 +496,52 @@ TEST_CASE(codegen_arm64_macos_returns_multi_chunk_struct_in_x0_x1)
 	REQUIRE(assembly.find("mov x1, x0") != std::string::npos);
 
 	// Caller side: after `bl _make_triplet`, both x0 and x1 must be spilled
-	// into the receiving local's slots. With negative-offset frame locals
-	// the slots for a 2-chunk value are #-8 (chunk 0) and #-16 (chunk 1).
+	// into the receiving local's slots. The 2-chunk value `t` reserves
+	// two 8-byte slots laid out at consecutive INCREASING addresses, so
+	// chunk 0 (x0) lands at #-16 (the lowest address) and chunk 1 (x1)
+	// at #-8. See chunk_slot: pointer arithmetic on `&t` walks UP.
 	// Match on the leading tab so we only see real branch instructions
 	// (the symbol also appears inside `.globl _make_triplet`).
 	auto call_pos = assembly.find("\tbl _make_triplet");
 	REQUIRE(call_pos != std::string::npos);
-	auto store_x0 = assembly.find("str x0, [x29, #-8]", call_pos);
-	auto store_x1 = assembly.find("str x1, [x29, #-16]", call_pos);
+	auto store_x0 = assembly.find("str x0, [x29, #-16]", call_pos);
+	auto store_x1 = assembly.find("str x1, [x29, #-8]", call_pos);
 	REQUIRE(store_x0 != std::string::npos);
 	REQUIRE(store_x1 != std::string::npos);
 	// And the call must only happen once for this let-binding.
 	REQUIRE(assembly.find("\tbl _make_triplet", call_pos + 1) == std::string::npos);
+}
+
+// Regression: pointer arithmetic on `&v` for a multi-chunk local must
+// step UPWARD in memory across chunks. Pre-fix, chunk 0 of a multi-chunk
+// local sat at the HIGHEST address and chunks 1..N at descending
+// addresses, so reading `(*p).fieldN` for any N>0 through a `*Local`
+// pointer would silently read stale stack memory belonging to a
+// neighbouring local (or the saved frame pointer / a parameter slot).
+//
+// Layout invariant after the fix: for an N-chunk local, chunk 0 lives
+// at the LOWEST address (most-negative offset) and let_slots[v] points
+// there. Chunks 1..N-1 live at let_slots[v] + 8, +16, etc.
+TEST_CASE(codegen_arm64_macos_addr_of_local_then_chunk_one_field)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"struct Triplet { a: i32, b: i32, c: i32 }\n"
+		"unsafe fn read_b_via_pointer(p: *Triplet) -> i32 { return (*p).b; }\n"
+		"unsafe fn read_c_via_pointer(p: *Triplet) -> i32 { return (*p).c; }\n"
+		"unsafe fn main() -> i32 {\n"
+		"  let mut v: Triplet = Triplet { a: 10, b: 20, c: 30 };\n"
+		"  return read_b_via_pointer(&v) + read_c_via_pointer(&v);\n"
+		"}\n");
+
+	// `let v: Triplet` reserves two 8-byte chunks. Post-fix, chunk 0
+	// lives at #-16 (the lowest address) and chunk 1 at #-8. The
+	// chunk-0 store happens during the struct literal materialisation;
+	// match on the leading tab to avoid accidentally hitting unrelated
+	// negative offsets.
+	REQUIRE(assembly.find("\tstr x0, [x29, #-16]") != std::string::npos);
+	REQUIRE(assembly.find("\tstr x0, [x29, #-8]") != std::string::npos);
+
+	// `&v` in main must materialise the LOWEST address (#-16) so that
+	// `&v + 8` reaches chunk 1 inside the callee.
+	REQUIRE(assembly.find("sub x0, x29, #16") != std::string::npos);
 }
