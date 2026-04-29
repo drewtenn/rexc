@@ -753,3 +753,58 @@ TEST_CASE(lowering_monomorphizes_pointer_pattern_correctly)
 		if (f.name == "read__i32") found = true;
 	REQUIRE(found);
 }
+
+// FE-103 (Phase 2, recursive): template Tree<T> with self-referential
+// pointer fields parses + checks + lowers without infinite recursion or
+// diagnostics, even when the template is never instantiated.
+TEST_CASE(lowering_supports_recursive_generic_struct_template)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Tree<T> { value: T, left: *Tree<T>, right: *Tree<T> }\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	// Lowering must not hang or crash even though Tree<T> is recursive.
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	// The generic Tree template itself produces no concrete IR symbols. The
+	// observable artifact for an un-instantiated template is the absence of
+	// monomorphs — main returns an i32 literal.
+	const rexc::ir::Function *main_fn = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "main") main_fn = &f;
+	REQUIRE(main_fn != nullptr);
+	REQUIRE_EQ(main_fn->return_type.kind, rexc::PrimitiveKind::SignedInteger);
+}
+
+// FE-103 (Phase 2, recursive): instantiating Tree<i32> through a function
+// signature produces the mangled struct identity once and terminates.
+TEST_CASE(lowering_instantiates_recursive_generic_struct_once)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Tree<T> { value: T, left: *Tree<T>, right: *Tree<T> }\n"
+	    "fn make(p: *Tree<i32>) -> *Tree<i32> { return p; }\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	// `make` returns *Tree<i32>; the pointee carries the mangled name.
+	const rexc::ir::Function *make_fn = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "make") make_fn = &f;
+	REQUIRE(make_fn != nullptr);
+	REQUIRE_EQ(make_fn->return_type.kind, rexc::PrimitiveKind::Pointer);
+	REQUIRE(make_fn->return_type.pointee != nullptr);
+	REQUIRE_EQ(make_fn->return_type.pointee->kind,
+	    rexc::PrimitiveKind::UserStruct);
+	REQUIRE_EQ(make_fn->return_type.pointee->name, std::string("Tree__i32"));
+}

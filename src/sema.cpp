@@ -322,8 +322,15 @@ private:
 				                   "struct '" + decl.name + "' already declared");
 				continue;
 			}
-			structs_[decl.name] = StructInfo{decl.location, decl.module_path,
-			                                 decl.visibility, {}, 0, 1};
+			// FE-103: populate generic_parameters/is_generic during the
+			// name-registration pass so that recursive field types like
+			// `*Tree<T>` resolved during the field-walking pass below find
+			// a real generic template instead of an empty placeholder.
+			StructInfo info{decl.location, decl.module_path, decl.visibility,
+			                {}, 0, 1};
+			info.generic_parameters = decl.generic_parameters;
+			info.is_generic = !decl.generic_parameters.empty();
+			structs_[decl.name] = std::move(info);
 		}
 
 		for (const auto &decl : module_.enums) {

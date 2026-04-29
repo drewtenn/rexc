@@ -304,6 +304,14 @@ private:
 		    tpl.name + mangle_generic_suffix(tpl.generic_parameters, bindings);
 		if (struct_layouts_.find(mangled) != struct_layouts_.end())
 			return mangled;
+		// FE-103: pre-register an empty layout under the mangled name so a
+		// recursive lookup of the same instantiation (e.g. *Tree<T> field
+		// inside Tree<T>) finds the in-progress entry and terminates rather
+		// than recursing infinitely. The final assignment at the end of
+		// this function overwrites the placeholder with the computed layout.
+		// Pointer self-references resolve fine because pointer codegen only
+		// needs the pointee's name, not its size.
+		struct_layouts_[mangled] = StructLayout{};
 		StructLayout layout;
 		std::size_t offset = 0;
 		std::size_t struct_alignment = 1;
