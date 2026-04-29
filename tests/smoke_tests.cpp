@@ -73,14 +73,11 @@ TEST_CASE(smoke_arena_as_value_end_to_end_assembly)
 	REQUIRE(assembly.find("_main:") != std::string::npos);
 	REQUIRE(assembly.find("Lstatic_USER_BUF") != std::string::npos);
 
-	// The Arena explicit-allocator API must be linked in by lowering.
-	REQUIRE(assembly.find("_arena_init:") != std::string::npos);
-	REQUIRE(assembly.find("_arena_alloc:") != std::string::npos);
-	REQUIRE(assembly.find("_arena_used:") != std::string::npos);
-
-	// And user main must actually call into them (proving the call sites
-	// went through sema + lower + codegen, not just that the helpers got
-	// emitted as dead code).
+	// The mangled `_arena_*` symbols must be referenced from user main.
+	// (The bodies themselves live in the separately-emitted stdlib
+	// assembly that the CLI concatenates at link time; the user-module
+	// assembly only carries the call sites — which is what proves
+	// sema + lower + codegen wired the references through.)
 	REQUIRE(assembly.find("bl _arena_init") != std::string::npos);
 	REQUIRE(assembly.find("bl _arena_alloc") != std::string::npos);
 	REQUIRE(assembly.find("bl _arena_used") != std::string::npos);
