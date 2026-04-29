@@ -3,6 +3,6 @@
 ```{=html}
 <div class="epub-copyright-page">
   <p>Copyright &copy; 2026 Drew Tennenbaum. All rights reserved.</p>
-  <p>This book documents Rexy, a systems language for Drunix userland, and rexc, its compiler. It is written for readers who are technical but have not previously built a compiler that feeds an operating-system runtime.</p>
+  <p>This book teaches Rexy, a systems language for Drunix userland. It is written for programmers who already know at least one language and want to learn how to read and write Rexy.</p>
 </div>
 ```

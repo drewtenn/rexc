@@ -1,7 +1,7 @@
 # Convenience make targets for building, testing, and rendering the Rexy book.
 PYTHON ?= python3
 
-.PHONY: build test build-macos-arm64 test-macos-arm64 package-macos-arm64
+.PHONY: build test build-macos-arm64 test-macos-arm64 package-macos-arm64 clean
 
 build:
 	cmake -S . -B build
@@ -9,6 +9,9 @@ build:
 
 test: build
 	ctest --test-dir build --output-on-failure
+
+clean: clean-docs
+	rm -rf build
 
 build-macos-arm64:
 	cmake --preset macos-arm64-release
