@@ -134,3 +134,107 @@ TEST_CASE(smoke_arena_and_alloc_under_default_prelude)
 	REQUIRE(assembly.find("bl _arena_alloc") != std::string::npos);
 	REQUIRE(assembly.find("bl _arena_used") != std::string::npos);
 }
+
+// FE-105 closure: the `Vec::with_alloc(arena)` pattern named in the
+// FE-105 exit test.
+//
+// The verification gap flagged in commit `5411799` was that the
+// pattern wording — "Vec::with_alloc(arena) pattern works" — was not
+// directly demonstrated. This smoke closes that gap: a vector type
+// (`ArenaVec_i32`) with a constructor (`arena_vec_i32_with_alloc`)
+// that takes `*Arena` as an explicit parameter, allocates both its
+// header and its backing storage from the supplied arena via
+// `arena_alloc`, and supports `push` + `get` round-trip.
+//
+// We compile under `StdlibSymbolPolicy::DefaultPrelude` and
+// `enforce_unsafe_blocks = true` — the exact policy the CLI uses —
+// to prove the demo also works under default user-facing settings.
+//
+// This is an assembly-content smoke (no execute). The accompanying
+// fixture `examples/arena_vec_demo.rx` is the same source the CLI
+// exercises end-to-end; the `assemble_smoke.sh` shell harness
+// extends that to assemble + link + run with `exit 60` (10+20+30).
+//
+// This is NOT FE-109a (real generic `Vec<T>` parameterized by
+// allocator). It is the verification fixture for the FE-105 exit
+// test wording.
+TEST_CASE(smoke_vec_with_alloc_round_trip)
+{
+	const std::string source =
+		"struct ArenaVec_i32 {\n"
+		"    data: *i32,\n"
+		"    len: i32,\n"
+		"    capacity: i32,\n"
+		"}\n"
+		"unsafe fn arena_vec_i32_with_alloc(arena: *Arena, capacity: i32) -> *ArenaVec_i32 {\n"
+		"    let header_bytes: *u8 = arena_alloc(arena, 16);\n"
+		"    let data_bytes: *u8 = arena_alloc(arena, capacity * 4);\n"
+		"    let v: *ArenaVec_i32 = header_bytes as *ArenaVec_i32;\n"
+		"    (*v).data = data_bytes as *i32;\n"
+		"    (*v).len = 0;\n"
+		"    (*v).capacity = capacity;\n"
+		"    return v;\n"
+		"}\n"
+		"unsafe fn arena_vec_i32_push(v: *ArenaVec_i32, value: i32) -> i32 {\n"
+		"    if (*v).len >= (*v).capacity { return 0; }\n"
+		"    let slot: *i32 = (*v).data + (*v).len;\n"
+		"    *slot = value;\n"
+		"    (*v).len = (*v).len + 1;\n"
+		"    return 1;\n"
+		"}\n"
+		"unsafe fn arena_vec_i32_get(v: *ArenaVec_i32, index: i32) -> i32 {\n"
+		"    return *((*v).data + index);\n"
+		"}\n"
+		"static mut USER_BUF: [u8; 256];\n"
+		"unsafe fn main() -> i32 {\n"
+		"    let mut a: Arena = Arena { storage: USER_BUF + 0, capacity: 256, offset: 0 };\n"
+		"    arena_init(&a, USER_BUF + 0, 256);\n"
+		"    let v: *ArenaVec_i32 = arena_vec_i32_with_alloc(&a, 4);\n"
+		"    arena_vec_i32_push(v, 10);\n"
+		"    arena_vec_i32_push(v, 20);\n"
+		"    arena_vec_i32_push(v, 30);\n"
+		"    return arena_vec_i32_get(v, 0)\n"
+		"         + arena_vec_i32_get(v, 1)\n"
+		"         + arena_vec_i32_get(v, 2);\n"
+		"}\n";
+
+	rexc::SourceFile file("smoke_arena_vec.rx", source);
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(file, diagnostics);
+	REQUIRE(parsed.ok());
+
+	rexc::SemanticOptions semantic_options;
+	// Match the CLI's user-facing defaults exactly.
+	semantic_options.stdlib_symbols = rexc::StdlibSymbolPolicy::DefaultPrelude;
+	semantic_options.enforce_unsafe_blocks = true;
+	auto sema = rexc::analyze_module(parsed.module(), diagnostics, semantic_options);
+	REQUIRE(sema.ok());
+	REQUIRE(!diagnostics.has_errors());
+
+	rexc::LowerOptions lower_options;
+	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::DefaultPrelude;
+	auto ir = rexc::lower_to_ir(parsed.module(), lower_options);
+	auto result = rexc::emit_arm64_macos_assembly(ir, diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+
+	const std::string assembly = result.assembly();
+
+	// User module's `_main` and the static buffer it owns.
+	REQUIRE(assembly.find("_main:") != std::string::npos);
+	REQUIRE(assembly.find("Lstatic_USER_BUF") != std::string::npos);
+
+	// The vector functions must be defined in the user module.
+	REQUIRE(assembly.find("_arena_vec_i32_with_alloc:") != std::string::npos);
+	REQUIRE(assembly.find("_arena_vec_i32_push:") != std::string::npos);
+	REQUIRE(assembly.find("_arena_vec_i32_get:") != std::string::npos);
+
+	// Main must call the constructor (with the *Arena), and the
+	// constructor in turn must reach `arena_alloc` — that is the FE-105
+	// pattern under test.
+	REQUIRE(assembly.find("bl _arena_init") != std::string::npos);
+	REQUIRE(assembly.find("bl _arena_alloc") != std::string::npos);
+	REQUIRE(assembly.find("bl _arena_vec_i32_with_alloc") != std::string::npos);
+	REQUIRE(assembly.find("bl _arena_vec_i32_push") != std::string::npos);
+	REQUIRE(assembly.find("bl _arena_vec_i32_get") != std::string::npos);
+}

@@ -99,6 +99,17 @@ if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	set -e
 	test "$default_exit_code" -eq 42
 	test "$exit_code" -eq 42
+
+	# FE-105 closure: the `Vec::with_alloc(arena)` pattern fixture.
+	# Push 3 ints (10, 20, 30) through a user-owned arena and read
+	# them back. Exit code is the sum, proving the round-trip.
+	"${build_dir}/rexc" "${repo_dir}/examples/arena_vec_demo.rx" --target arm64-macos -o "${tmp_dir}/arena-vec-demo-arm64"
+	test -x "${tmp_dir}/arena-vec-demo-arm64"
+	set +e
+	"${tmp_dir}/arena-vec-demo-arm64"
+	arena_vec_exit=$?
+	set -e
+	test "$arena_vec_exit" -eq 60
 	"${build_dir}/rexc" "${repo_dir}/examples/stdlib.rx" -o "${tmp_dir}/stdlib-arm64"
 	test -x "${tmp_dir}/stdlib-arm64"
 	printf 'friend\nsecond\n21\n' | "${tmp_dir}/stdlib-arm64" > "${tmp_dir}/stdlib-arm64.out"
