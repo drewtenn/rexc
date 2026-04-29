@@ -1930,6 +1930,24 @@ TEST_CASE(sema_resolves_generic_struct_field_through_pointer_in_generic_body)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+// Turbofish 'Vec::<i32> { ... }' makes the explicit-args form usable in
+// context-free expression positions where FE-103.1's expected-type
+// adoption can't reach. The literal must instantiate the generic struct
+// using the explicit args without relying on an annotated let.
+TEST_CASE(sema_accepts_turbofish_struct_literal_for_generic_struct)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Vec<T> { data: *T, len: i32, capacity: i32 }\n"
+	    "fn main() -> i32 {\n"
+	    "    let v: Vec<i32> = Vec::<i32> { data: 0 as *i32, len: 0, capacity: 4 };\n"
+	    "    return v.len;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 // FE-005 (Phase 1): enum registration, constructor checking, and tags.
 //
 // These tests keep enum semantics at the type-checking boundary. Lowering and

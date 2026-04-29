@@ -297,7 +297,7 @@ tupleExpression
 	;
 
 structLiteral
-	: IDENT '{' (structLiteralField (',' structLiteralField)* ','?)? '}'
+	: IDENT ('::' '<' type (',' type)* ','? '>')? '{' (structLiteralField (',' structLiteralField)* ','?)? '}'
 	;
 
 structLiteralField

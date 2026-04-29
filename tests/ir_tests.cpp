@@ -731,6 +731,33 @@ TEST_CASE(lowering_monomorphizes_generic_struct_per_type_argument)
 	REQUIRE_EQ(make_i32->return_type.name, std::string("Box__i32"));
 }
 
+// Turbofish 'Vec::<i32> { ... }' must instantiate the same Vec__i32
+// monomorph that `let v: Vec<i32> = Vec { ... }` already produces via
+// FE-103.1's expected-type adoption.
+TEST_CASE(lowering_monomorphizes_turbofish_struct_literal)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Vec<T> { data: *T, len: i32, capacity: i32 }\n"
+	    "fn make() -> Vec<i32> {\n"
+	    "    return Vec::<i32> { data: 0 as *i32, len: 0, capacity: 4 };\n"
+	    "}\n"
+	    "fn main() -> i32 { let v: Vec<i32> = make(); return v.len; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+
+	const rexc::ir::Function *make_fn = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "make") make_fn = &f;
+	REQUIRE(make_fn != nullptr);
+	REQUIRE_EQ(make_fn->return_type.kind, rexc::PrimitiveKind::UserStruct);
+	REQUIRE_EQ(make_fn->return_type.name, std::string("Vec__i32"));
+}
+
 TEST_CASE(lowering_monomorphizes_pointer_pattern_correctly)
 {
 	rexc::SourceFile source(

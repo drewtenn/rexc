@@ -834,7 +834,22 @@ private:
 	std::unique_ptr<ast::Expr> build_struct_literal(RexyParser::StructLiteralContext *context)
 	{
 		auto *name = context->IDENT();
-		ast::TypeName type{name->getText(), location(name)};
+		// If the literal carries explicit turbofish type args
+		// (e.g. `Vec::<i32> { ... }`), encode them in TypeName.name as
+		// `Vec<i32>` so the same FE-103 mangling path that handles
+		// parameter types like `*Vec<i32>` resolves the monomorph.
+		auto type_args = context->type();
+		std::string type_text = name->getText();
+		if (!type_args.empty()) {
+			type_text.push_back('<');
+			for (std::size_t i = 0; i < type_args.size(); ++i) {
+				if (i > 0)
+					type_text.push_back(',');
+				type_text += type_args[i]->getText();
+			}
+			type_text.push_back('>');
+		}
+		ast::TypeName type{std::move(type_text), location(name)};
 		auto literal = std::make_unique<ast::StructLiteralExpr>(location(context), type);
 		for (auto *field : context->structLiteralField()) {
 			auto *field_name = field->IDENT();
