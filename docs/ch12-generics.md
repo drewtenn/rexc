@@ -168,6 +168,75 @@ and returns the `Err` from the enclosing function on failure. You
 will see it sparingly in the book, but it is the standard idiom for
 chaining fallible calls.
 
+### Vec Of Anything
+
+Generics carry their weight in the standard collections. A generic
+`Vec<T>` lays out a backing array of `T`s and exposes the usual
+push/get operations:
+
+```rust
+struct Vec<T> {
+    data: *T,
+    len: i32,
+    capacity: i32,
+}
+
+unsafe fn vec_push<T>(v: *Vec<T>, value: T) -> i32 {
+    if (*v).len >= (*v).capacity { return 0; }
+    let slot: *T = (*v).data + (*v).len;
+    *slot = value;
+    (*v).len = (*v).len + 1;
+    return 1;
+}
+
+unsafe fn vec_get<T>(v: *Vec<T>, index: i32) -> T {
+    return *((*v).data + index);
+}
+```
+
+The same template instantiates separately for every concrete element
+type the program names. `Vec<i32>` and `Vec<Pair>` produce two
+distinct mangled symbols at link time — neither knows the other
+exists, neither can be passed where the other is expected. The body
+inside `vec_push` reads as if it were written for one specific type;
+the compiler stamps out one specialised copy per use.
+
+Pointer arithmetic on `*T` scales by the size of `T`. Inside a
+generic body, the compiler does not know the size up front, so each
+monomorph is laid out and emitted with the size it needs. The same
+source produces an `i32`-sized stride for `Vec<i32>` and an
+8-byte stride for `Vec<Pair>` (where `Pair` is a two-`i32` struct on
+arm64).
+
+### Two Type Parameters: HashMap
+
+A generic struct may take more than one type parameter. The plan is
+the same; the layout has more fields:
+
+```rust
+struct HashMap<K, V> {
+    keys: *K,
+    values: *V,
+    occupied: *u8,
+    len: i32,
+    capacity: i32,
+}
+```
+
+Instantiation joins the type arguments at the link layer. `HashMap<i32,
+str>` mangles as `HashMap__i32__str`. `HashMap<i32, bool>` and
+`HashMap<u8, str>` are independent types; the compiler emits one
+struct identity per concrete pair you actually use.
+
+Operations on `HashMap<K, V>` cannot be fully generic in v1 because
+the language has no way to ask "how do I hash a `K`?" or "how do I
+compare two `K`s?" without a trait system or first-class function
+values. So the operations ship as concrete per-type helpers:
+`hashmap_i32_str_insert`, `hashmap_i32_str_lookup`, and so on. A
+later release will revisit this when the language grows the dispatch
+mechanism that lets generic ops call into the right hash and equality
+functions for their type parameters.
+
 ### What Monomorphization Costs
 
 Each instantiation of a generic produces a separate compiled function.
@@ -195,6 +264,10 @@ You know:
   explicitly.
 - `Option<T>` and `Result<T, E>` are generic enums in the standard
   library.
+- `Vec<T>` and `HashMap<K, V>` are generic structs that ship as
+  templates. Their concrete operations are emitted per type
+  combination: `Vec<i32>` and `Vec<bool>` are independent symbols at
+  link time.
 
 Part VI takes everything you have built and turns it outward. The
 standard library gives you I/O, parsing, and string helpers. The final

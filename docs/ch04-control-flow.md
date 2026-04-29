@@ -209,6 +209,97 @@ counting, and then `break` ends the loop the moment `value` hits `7`.
 `break` and `continue` only make sense inside a loop. Using them
 outside one is a compiler diagnostic, not a runtime error.
 
+### Cleanup With `defer`
+
+Some operations need a paired cleanup: open a resource, do work, then
+release it. Writing the release call by hand at every exit point is
+tedious and easy to forget when an early `return` slips in. Rexy's
+`defer` statement registers a cleanup call that runs whenever the
+enclosing block exits, on every path:
+
+```rust
+static mut LOG: i32 = 0;
+
+fn cleanup() -> i32 {
+    LOG = LOG + 1;
+    return 0;
+}
+
+fn run(early: bool) -> i32 {
+    defer cleanup();
+    if early {
+        return 7;
+    }
+    return 8;
+}
+
+fn main() -> i32 {
+    run(true);
+    run(false);
+    return LOG;
+}
+```
+
+```text
+2
+```
+
+Each `run` call schedules `cleanup` to run when the function exits,
+no matter which `return` it takes. After both calls, `LOG` is `2` —
+the cleanup fired once per call.
+
+Three rules govern `defer`:
+
+- **Block-scoped.** A `defer` registered inside an `if`-arm fires
+  when that arm exits, not when the surrounding function exits.
+- **LIFO.** Multiple defers in the same block run in reverse
+  registration order. The last `defer` runs first.
+- **Fires on every exit path.** `return`, `break`, `continue`, and
+  the `?` propagation operator all run the deferred cleanups before
+  leaving the block.
+
+A worked example combining all three:
+
+```rust
+static mut RESULT: i32 = 0;
+
+fn add_a() -> i32 { RESULT = RESULT * 10 + 1; return 0; }
+fn add_b() -> i32 { RESULT = RESULT * 10 + 2; return 0; }
+
+fn run(go: bool) -> i32 {
+    defer add_a();
+    if go {
+        defer add_b();
+        return 7;
+    }
+    return 8;
+}
+
+fn main() -> i32 {
+    run(true);
+    run(false);
+    return RESULT;
+}
+```
+
+```text
+211
+```
+
+Trace `run(true)` first. `defer add_a()` is registered in the
+function-body scope. Inside the `if` block, `defer add_b()` is
+registered in the if-then scope. The early `return 7` exits both
+scopes, innermost first: `add_b` runs (last-in, first-out), then
+`add_a`. `RESULT` advances `0 → 2 → 21`. Now `run(false)`. Only
+`add_a` is registered (the if-then was never entered). The trailing
+`return 8` runs it: `RESULT` advances `21 → 211`. The exit code is
+`211`.
+
+The body of a `defer` is a single function call. That keeps the
+ordering rules simple — there is no nested control flow inside a
+deferred call to reason about. For more elaborate cleanup, write a
+helper function and `defer` that.
+
 ### Conditions Stay Boolean
 
 It is worth saying once more, because it is the most common surprise
@@ -231,6 +322,8 @@ You know:
 - `&&` and `||` short-circuit; `!` negates.
 - `while` and `for` repeat. `break` exits, `continue` skips to the
   next iteration.
+- `defer call();` schedules a cleanup that runs when the enclosing
+  block exits — on every path, in LIFO order.
 
 When the data you are choosing over has shape rather than a single
 boolean condition, plain `if` chains start getting awkward. Chapter 5

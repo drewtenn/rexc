@@ -92,6 +92,90 @@ fn main() -> i32 {
 You will use these inside loops where they read smoothly. They only
 work on `mut` integer bindings.
 
+### `let mut` Without An Initializer
+
+So far every binding has had a value at the point it was declared.
+Sometimes the value depends on a branch, and forcing a placeholder up
+front reads worse than the program you actually meant to write. Rexy
+lets you declare a `let mut` binding without an initializer, and then
+assign to it on every path before reading it:
+
+```rust
+fn pick(c: bool) -> i32 {
+    let mut x: i32;
+    if c {
+        x = 30;
+    } else {
+        x = -1;
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    return pick(true);
+}
+```
+
+```text
+30
+```
+
+Two things matter here. The form is `let mut name: type;` — the type
+annotation is still required, the `=` and initializer drop. And the
+binding **must** be `mut`; an immutable uninitialized local could
+never be assigned later, so the compiler rejects it as unobservably
+useless.
+
+The compiler tracks which paths assign the binding before it is read.
+This is called **definite-assignment analysis**. Try reading `x`
+before assigning it on every path:
+
+```rust
+fn pick(c: bool) -> i32 {
+    let mut x: i32;
+    if c {
+        x = 30;
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    return pick(false);
+}
+```
+
+The compiler refuses, with a diagnostic that points at the `return x`
+and says `x` may be uninitialized — the `else` branch did not assign
+it. Rounding out the `if` with an `else` fixes the program.
+
+A diverging branch — one that ends with `return`, `break`, or
+`continue` — does not need to assign the binding. The compiler knows
+the branch never reaches the post-merge:
+
+```rust
+fn pick(c: bool) -> i32 {
+    let mut x: i32;
+    if c {
+        x = 5;
+    } else {
+        return 0;
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    return pick(true);
+}
+```
+
+```text
+5
+```
+
+`while` and `for` bodies do not propagate definite-assignment forward
+— the body may not execute at all. A binding assigned only inside a
+loop body is still possibly-uninitialized after the loop.
+
 ### Functions
 
 You have been writing one function the whole time: `main`. Adding more
@@ -204,6 +288,9 @@ You know:
 - `let` introduces a binding; `let mut` makes it reassignable.
 - Type annotations are required. Rexy does not infer them.
 - `++` and `--` mutate integer bindings by one.
+- `let mut name: type;` (no initializer) declares a slot whose value
+  must be assigned on every path before any read. The compiler
+  rejects use-before-init.
 - A function's signature names every parameter type and the return
   type.
 - Every path through a function must end in a `return`.

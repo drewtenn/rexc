@@ -224,6 +224,99 @@ for compatibility with expression contexts, but the program does not
 continue past the call. The trailing `return 0;` in the example is
 unreachable; it is there so the compiler accepts the function shape.
 
+### Allocating With An Arena
+
+Long-lived programs need somewhere to put values whose lifetime
+outlives a single function. Rexy's standard allocator is an **arena**:
+a chunk of memory the program owns, allocated linearly, freed all at
+once. The prelude exposes the `Arena` struct and a small set of
+operations on it:
+
+```rust
+static mut USER_BUF: [u8; 256];
+
+fn main() -> i32 {
+    let mut a: Arena = Arena {
+        storage: USER_BUF + 0,
+        capacity: 256,
+        offset: 0,
+    };
+    arena_init(&a, USER_BUF + 0, 256);
+
+    let block: *u8 = arena_alloc(&a, 12);
+    return arena_used(&a);
+}
+```
+
+```text
+12
+```
+
+`arena_init` points the arena at a caller-supplied byte buffer.
+`arena_alloc` carves `n` bytes off the front and returns a `*u8`
+pointer into the buffer. `arena_used` reports how many bytes have
+been handed out so far. `arena_remaining`, `arena_capacity`,
+`arena_can_allocate`, and `arena_reset` round out the API.
+
+The arena does not free individual allocations. Calling `arena_reset`
+returns every byte at once, which is the entire point — for a phase
+of a program that allocates many short-lived values, an arena is
+faster than per-allocation tracking and never fragments.
+
+For programs that want a single global allocator, the prelude exposes
+`alloc_bytes`, `alloc_remaining`, and `alloc_reset` that operate on
+an implicit static arena. These are the same operations against a
+default-supplied buffer; a program that wants to route all of its
+allocations through one place can use them without writing the
+arena setup boilerplate.
+
+### Hashing And Equality
+
+For collections that key on values, the standard library provides a
+small set of hash helpers under the prelude:
+
+```rust
+fn main() -> i32 {
+    let h: u32 = hash_combine(2166136261, hash_i32(7));
+    return h as i32;
+}
+```
+
+`hash_combine` mixes a running hash seed with one new value.
+Per-primitive helpers — `hash_i32`, `hash_u32`, `hash_bool`,
+`hash_char`, `hash_str` — produce a `u32` hash for one value of that
+type. To hash a struct of primitives, write a per-struct helper that
+threads `hash_combine` through the fields:
+
+```rust
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn point_hash(p: Point) -> u32 {
+    let mut h: u32 = 2166136261;
+    h = hash_combine(h, hash_i32(p.x));
+    h = hash_combine(h, hash_i32(p.y));
+    return h;
+}
+
+fn main() -> u32 {
+    return point_hash(Point { x: 7, y: 3 });
+}
+```
+
+Equal `Point` values produce equal hashes; unequal values produce
+different hashes (with extremely high probability). The exit code
+will be a moderately large `u32`; what matters is that running the
+program a second time on the same input gives the same result.
+
+Equality on primitives is the language's `==` and `!=` operators.
+For structs, write a per-struct equality function comparing fields,
+the same shape as `point_hash`. A future release will let you derive
+both functions from the struct declaration; until then, writing them
+out makes the contract explicit.
+
 ### Beyond The Prelude
 
 Names outside the default prelude are reachable through fully
@@ -247,6 +340,15 @@ You know:
 - `parse_i32`, `parse_bool` parse strings.
 - `str_eq`, `str_starts_with`, `str_ends_with`, `str_contains`,
   `str_find`, `str_is_empty`, `strlen` cover string inspection.
+- `Arena` plus `arena_init`, `arena_alloc`, `arena_used`,
+  `arena_remaining`, `arena_capacity`, `arena_can_allocate`,
+  `arena_reset` are the explicit allocator. `alloc_bytes`,
+  `alloc_remaining`, and `alloc_reset` route through an implicit
+  static arena.
+- `hash_combine` plus `hash_i32`, `hash_u32`, `hash_bool`,
+  `hash_char`, `hash_str` are the hash contract. Equality on
+  primitives is the language's `==`; struct equality is a
+  user-written field-wise comparison.
 - `panic` terminates the program with a message and exit status `101`.
 
 The last thing you have not done is take a Rexy program and turn it
