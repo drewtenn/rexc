@@ -2391,6 +2391,55 @@ TEST_CASE(sema_rejects_uninit_after_non_exhaustive_integer_match)
 	        std::string::npos);
 }
 
+// FE-109b: hash_combine and hash_<type> functions type-check end to
+// end against a struct of primitives composed via hash_combine. The
+// struct's user-written hash function must compile cleanly under the
+// default prelude.
+TEST_CASE(sema_accepts_user_struct_hash_via_hash_combine)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Point { x: i32, y: i32, flag: bool }\n"
+	    "fn point_hash(p: Point) -> u32 {\n"
+	    "    let mut h: u32 = 2166136261;\n"
+	    "    h = hash_combine(h, hash_i32(p.x));\n"
+	    "    h = hash_combine(h, hash_i32(p.y));\n"
+	    "    h = hash_combine(h, hash_bool(p.flag));\n"
+	    "    return h;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// FE-109b: passing the wrong primitive type to a hash function must
+// be a sema error — `hash_i32` cannot accept a `bool`.
+TEST_CASE(sema_rejects_hash_i32_with_wrong_argument_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> u32 { return hash_i32(true); }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("argument type mismatch") !=
+	        std::string::npos);
+}
+
+// FE-109b: `hash_str` accepts a `str` and returns `u32`. The demo
+// exercises hash on integer/bool fields only, so this test pins the
+// string path — without it, hash_str could regress silently. The
+// review of FE-109b flagged this gap.
+TEST_CASE(sema_accepts_hash_str_returns_u32)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> u32 { return hash_str(\"hello\"); }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 // All match arms assign before reading: must accept. Uses an integer
 // match with a default arm so the analyzer can confirm exhaustiveness.
 TEST_CASE(sema_accepts_uninit_assigned_in_all_match_arms)

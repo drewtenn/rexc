@@ -145,6 +145,33 @@ if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	generic_vec_exit=$?
 	set -e
 	test "$generic_vec_exit" -eq 70
+
+	# FE-109b: hash + equality contract for primitives + struct of
+	# primitives. The fixture builds three Points, runs point_eq +
+	# point_hash on them, and packs the per-check pass/fail results
+	# into a single observable exit code (21). See examples/hash_demo.rx
+	# for the score breakdown.
+	"${build_dir}/rexc" "${repo_dir}/examples/hash_demo.rx" --target arm64-macos -o "${tmp_dir}/hash-demo-arm64"
+	test -x "${tmp_dir}/hash-demo-arm64"
+	set +e
+	"${tmp_dir}/hash-demo-arm64"
+	hash_exit=$?
+	set -e
+	test "$hash_exit" -eq 21
+
+	# FE-109c: generic HashMap<K, V> with concrete ops for
+	# HashMap<i32, str>. The fixture inserts three (key, value) pairs,
+	# verifies len + lookup-present + value-at-slot + lookup-missing +
+	# iter walks all occupied slots, packing the per-check signals
+	# into a single exit code (31). See examples/hashmap_demo.rx for
+	# the score breakdown.
+	"${build_dir}/rexc" "${repo_dir}/examples/hashmap_demo.rx" --target arm64-macos -o "${tmp_dir}/hashmap-demo-arm64"
+	test -x "${tmp_dir}/hashmap-demo-arm64"
+	set +e
+	"${tmp_dir}/hashmap-demo-arm64"
+	hashmap_exit=$?
+	set -e
+	test "$hashmap_exit" -eq 31
 	"${build_dir}/rexc" "${repo_dir}/examples/stdlib.rx" -o "${tmp_dir}/stdlib-arm64"
 	test -x "${tmp_dir}/stdlib-arm64"
 	printf 'friend\nsecond\n21\n' | "${tmp_dir}/stdlib-arm64" > "${tmp_dir}/stdlib-arm64.out"
@@ -183,4 +210,43 @@ LDS
 	test -s "${tmp_dir}/add.drunix"
 else
 	echo "SKIP: no x86_64-elf-as/x86_64-elf-ld pair found for Drunix link smoke"
+fi
+
+# arm64-drunix cross-compile smoke. Verifies the new ARM64Drunix
+# target end-to-end: codegen produces ELF-flavoured aarch64 assembly,
+# the cross assembler accepts it, and the cross linker produces an
+# AArch64 ELF executable against a Drunix-shaped linker script. We
+# don't run the binary — it would need a Drunix arm64 kernel to
+# execute. The kernel-side integration is responsible for the
+# runtime smoke once the binary lands in a rootfs.
+if command -v aarch64-elf-as >/dev/null 2>&1 &&
+	command -v aarch64-elf-ld >/dev/null 2>&1; then
+	drunix_arm64_dir="${tmp_dir}/fake-drunix-arm64"
+	mkdir -p "${drunix_arm64_dir}/build/user/arm64/linker"
+	cat > "${drunix_arm64_dir}/build/user/arm64/linker/user.ld" <<'LDS'
+ENTRY(_start)
+SECTIONS
+{
+	. = 0x400000;
+	.text : { *(.text*) }
+	.rodata : { *(.rodata*) }
+	.data : { *(.data*) }
+	.bss : { *(.bss*) }
+}
+LDS
+
+	for demo in core.rx defer_demo.rx arena_vec_demo.rx \
+	            generic_vec_demo.rx hash_demo.rx hashmap_demo.rx \
+	            uninit_let_demo.rx; do
+		out="${tmp_dir}/$(basename "${demo}" .rx).arm64-drunix.elf"
+		"${build_dir}/rexc" "${repo_dir}/examples/${demo}" \
+			--target arm64-drunix \
+			--drunix-root "${drunix_arm64_dir}" \
+			-o "${out}"
+		test -x "${out}"
+		file "${out}" | grep -F -q 'ELF 64-bit'
+		file "${out}" | grep -F -q 'aarch64'
+	done
+else
+	echo "SKIP: no aarch64-elf-as/aarch64-elf-ld pair found for arm64-drunix link smoke"
 fi

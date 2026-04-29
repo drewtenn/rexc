@@ -71,6 +71,7 @@ set(REXC_STDLIB_RX_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/num.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/option.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/result.rx"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/core/hash.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/alloc/alloc.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/io.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/process.rx"
@@ -127,6 +128,7 @@ add_library(rexc_core
 	src/stdlib/sys/runtime_i386_drunix.cpp
 	src/stdlib/sys/runtime_x86_64_linux.cpp
 	src/stdlib/sys/runtime_arm64_macos.cpp
+	src/stdlib/sys/runtime_arm64_drunix.cpp
 	${REXC_ANTLR_GENERATED_SOURCES}
 )
 

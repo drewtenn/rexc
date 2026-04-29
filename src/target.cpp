@@ -19,6 +19,8 @@ std::optional<TargetTriple> parse_target_triple(const std::string &target)
 	if (target == "arm64-macos" || target == "arm64-apple-darwin" ||
 	    target == "aarch64-apple-darwin")
 		return TargetTriple::ARM64Macos;
+	if (target == "arm64-drunix" || target == "aarch64-drunix")
+		return TargetTriple::ARM64Drunix;
 	return std::nullopt;
 }
 
@@ -34,6 +36,8 @@ CodegenTarget codegen_target(TargetTriple target)
 		return CodegenTarget::X86_64;
 	case TargetTriple::ARM64Macos:
 		return CodegenTarget::ARM64_MACOS;
+	case TargetTriple::ARM64Drunix:
+		return CodegenTarget::ARM64_DRUNIX;
 	}
 	return CodegenTarget::I386;
 }
@@ -45,7 +49,8 @@ bool is_darwin_target(TargetTriple target)
 
 bool is_drunix_target(TargetTriple target)
 {
-	return target == TargetTriple::I386Drunix;
+	return target == TargetTriple::I386Drunix ||
+	       target == TargetTriple::ARM64Drunix;
 }
 
 const char *target_triple_name(TargetTriple target)
@@ -63,6 +68,8 @@ const char *target_triple_name(TargetTriple target)
 		return "arm64-macos";
 	case TargetTriple::I386Drunix:
 		return "i386-drunix";
+	case TargetTriple::ARM64Drunix:
+		return "arm64-drunix";
 	}
 	return "unknown";
 }

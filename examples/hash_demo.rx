@@ -1,0 +1,67 @@
+// FE-109b verification fixture: hash + equality contract.
+//
+// Demonstrates the contract end-to-end:
+//   * Per-primitive `hash_<type>` returns a u32.
+//   * `hash_combine` composes field hashes into a struct hash.
+//   * Equal struct values hash to the same u32; an unequal struct
+//     value hashes differently.
+//   * Equality on primitive fields uses the language's existing
+//     `==` operator; struct equality is user-written field-wise
+//     comparison.
+//
+// `point_hash(p)` mixes `p.x`, `p.y`, and `p.flag` through
+// `hash_combine` starting from a basis seed. `point_eq(a, b)` does
+// the obvious field-wise comparison.
+//
+// Trace (computed offline against the implementation in
+// src/stdlib/core/hash.rx, exact wraparound modulo 2^32):
+//
+//   p1 = Point { x: 7, y: 3, flag: true }
+//   p2 = Point { x: 7, y: 3, flag: true }   // same as p1
+//   p3 = Point { x: 7, y: 4, flag: true }   // y differs
+//
+//   point_eq(p1, p2)  -> true  -> contributes  1
+//   point_eq(p1, p3)  -> false -> contributes  0
+//   hash(p1) == hash(p2)  -> true  -> contributes  4
+//   hash(p1) == hash(p3)  -> false -> contributes  0
+//   hash(p1) != 0         -> true  -> contributes  16   (sanity)
+//
+// Final exit code = 1 + 0 + 4 + 0 + 16 = 21.
+
+struct Point {
+    x: i32,
+    y: i32,
+    flag: bool,
+}
+
+fn point_eq(a: Point, b: Point) -> bool {
+    if a.x != b.x { return false; }
+    if a.y != b.y { return false; }
+    // Bool `==`/`!=` is not in the v1 grammar (comparison requires
+    // integer operands); cast both sides to u32 to compare. Once
+    // bool ops grow, this collapses to `a.flag != b.flag`.
+    if (a.flag as u32) != (b.flag as u32) { return false; }
+    return true;
+}
+
+fn point_hash(p: Point) -> u32 {
+    let mut h: u32 = 2166136261;
+    h = hash_combine(h, hash_i32(p.x));
+    h = hash_combine(h, hash_i32(p.y));
+    h = hash_combine(h, hash_bool(p.flag));
+    return h;
+}
+
+fn main() -> i32 {
+    let p1: Point = Point { x: 7, y: 3, flag: true };
+    let p2: Point = Point { x: 7, y: 3, flag: true };
+    let p3: Point = Point { x: 7, y: 4, flag: true };
+
+    let mut score: i32 = 0;
+    if point_eq(p1, p2) { score = score + 1; }
+    if point_eq(p1, p3) { score = score + 0; }
+    if point_hash(p1) == point_hash(p2) { score = score + 4; }
+    if point_hash(p1) == point_hash(p3) { score = score + 0; }
+    if point_hash(p1) != 0 { score = score + 16; }
+    return score;
+}

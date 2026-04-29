@@ -207,6 +207,30 @@ void assemble_object(const std::string &assembly_path, const std::string &object
 		return;
 	}
 
+	if (machine == rexc::CodegenTarget::ARM64_DRUNIX) {
+		// arm64-drunix produces ELF; use a cross GNU assembler if one
+		// is on PATH. `aarch64-elf-as` is the typical name on Apple
+		// Silicon hosts (via `brew install aarch64-elf-gcc`); on Linux
+		// hosts the same assembler ships as `aarch64-linux-gnu-as` or
+		// the system `as` when running natively on AArch64.
+		std::string assembler;
+		if (command_exists("aarch64-elf-as"))
+			assembler = "aarch64-elf-as";
+		else if (command_exists("aarch64-linux-gnu-as"))
+			assembler = "aarch64-linux-gnu-as";
+		else if (command_succeeds("uname -m | grep -q aarch64") &&
+		         command_succeeds("as --version 2>/dev/null | grep -qi 'gnu assembler'"))
+			assembler = "as";
+		else
+			throw std::runtime_error(
+			    "no aarch64 GNU assembler found "
+			    "(install aarch64-elf-binutils or aarch64-linux-gnu-binutils)");
+		std::string command = assembler + " -o " + shell_quote(object_path) +
+		                      " " + shell_quote(assembly_path);
+		run_tool(command, "assembler failed");
+		return;
+	}
+
 	std::string assembler;
 	if (command_exists("x86_64-elf-as")) {
 		assembler = "x86_64-elf-as";
@@ -249,19 +273,48 @@ void link_drunix_object(const std::string &object_path, const std::string &outpu
                         const std::string &runtime_object_path,
                         const std::string &drunix_root, rexc::TargetTriple target)
 {
-	if (target != rexc::TargetTriple::I386Drunix)
-		throw std::runtime_error("Drunix linking currently supports only the i386-drunix target");
+	if (!rexc::is_drunix_target(target))
+		throw std::runtime_error(
+		    "internal error: link_drunix_object called with non-Drunix target");
 
-	std::string linker_script = drunix_root + "/build/user/x86/linker/user.ld";
+	bool is_arm64 = target == rexc::TargetTriple::ARM64Drunix;
+	std::string arch_dir = is_arm64 ? "arm64" : "x86";
+	std::string linker_script =
+	    drunix_root + "/build/user/" + arch_dir + "/linker/user.ld";
 	require_file(linker_script, "Drunix linker script");
 
-	std::string linker = find_tool("x86_64-elf-ld", "ld", "ELF linker");
+	std::string linker;
+	std::string linker_mode;
+	rexc::CodegenTarget startup_machine;
+	if (is_arm64) {
+		// Cross linkers for AArch64: prefer aarch64-elf-ld, fall back
+		// to aarch64-linux-gnu-ld, then host `ld` if running on
+		// aarch64. Same install-path advice as the assembler above.
+		if (command_exists("aarch64-elf-ld"))
+			linker = "aarch64-elf-ld";
+		else if (command_exists("aarch64-linux-gnu-ld"))
+			linker = "aarch64-linux-gnu-ld";
+		else if (command_succeeds("uname -m | grep -q aarch64") &&
+		         command_exists("ld"))
+			linker = "ld";
+		else
+			throw std::runtime_error(
+			    "no aarch64 ELF linker found "
+			    "(install aarch64-elf-binutils or aarch64-linux-gnu-binutils)");
+		linker_mode = "aarch64elf";
+		startup_machine = rexc::CodegenTarget::ARM64_DRUNIX;
+	} else {
+		linker = find_tool("x86_64-elf-ld", "ld", "ELF linker");
+		linker_mode = "elf_i386";
+		startup_machine = rexc::CodegenTarget::I386;
+	}
+
 	std::string startup_assembly = output_path + ".crt0.s.tmp";
 	std::string startup_object = output_path + ".crt0.o.tmp";
-	write_cross_elf_startup(startup_assembly, rexc::CodegenTarget::I386);
+	write_cross_elf_startup(startup_assembly, startup_machine);
 	try {
 		assemble_object(startup_assembly, startup_object, target);
-		std::string command = linker + " -m elf_i386 -T " +
+		std::string command = linker + " -m " + linker_mode + " -T " +
 		                      shell_quote(linker_script) + " -o " +
 		                      shell_quote(output_path) + " " +
 		                      shell_quote(startup_object) + " " +
@@ -312,6 +365,34 @@ void write_cross_elf_startup(const std::string &assembly_path, rexc::CodegenTarg
 		           "\tmovl %eax, %ebx\n"
 		           "\tmovl $1, %eax\n"
 		           "\tint $0x80\n");
+		return;
+	}
+
+	if (target == rexc::CodegenTarget::ARM64_DRUNIX) {
+		// AArch64 ELF entry: the kernel hands us the auxiliary vector
+		// shape on the initial stack — argc at sp+0, argv at sp+8,
+		// envp begins at sp + 8 + argc*8 + 8 (NULL terminator slot for
+		// argv). After populating __rexc_argc/argv/envp, branch into
+		// `main` and trap into `exit(rc)` via syscall #93.
+		write_file(assembly_path,
+		           ".globl _start\n"
+		           "_start:\n"
+		           "\tldr x0, [sp]\n"
+		           "\tadrp x1, __rexc_argc\n"
+		           "\tadd x1, x1, :lo12:__rexc_argc\n"
+		           "\tstr x0, [x1]\n"
+		           "\tadd x2, sp, #8\n"
+		           "\tadrp x1, __rexc_argv\n"
+		           "\tadd x1, x1, :lo12:__rexc_argv\n"
+		           "\tstr x2, [x1]\n"
+		           "\tadd x2, x2, x0, lsl #3\n"
+		           "\tadd x2, x2, #8\n"
+		           "\tadrp x1, __rexc_envp\n"
+		           "\tadd x1, x1, :lo12:__rexc_envp\n"
+		           "\tstr x2, [x1]\n"
+		           "\tbl main\n"
+		           "\tmov x8, #93\n"
+		           "\tsvc #0\n");
 		return;
 	}
 
@@ -395,7 +476,9 @@ void link_executable_object(const std::string &object_path,
                             rexc::TargetTriple target)
 {
 	if (rexc::is_drunix_target(target))
-		throw std::runtime_error("i386-drunix executable links require --drunix-root");
+		throw std::runtime_error(
+		    std::string(rexc::target_triple_name(target)) +
+		    " executable links require --drunix-root");
 	if (rexc::is_darwin_target(target)) {
 		link_darwin_arm64_object(object_path, runtime_object_path, output_path,
 		                         target);
@@ -445,10 +528,16 @@ int main(int argc, char **argv)
 
 		auto ir = rexc::lower_to_ir(parsed.module());
 		auto machine = rexc::codegen_target(options.target);
-		rexc::CodegenResult codegen =
-			machine == rexc::CodegenTarget::ARM64_MACOS
-				? rexc::emit_arm64_macos_assembly(ir, diagnostics)
-				: rexc::emit_x86_assembly(ir, diagnostics, machine);
+		rexc::CodegenResult codegen = [&]() {
+			switch (machine) {
+			case rexc::CodegenTarget::ARM64_MACOS:
+				return rexc::emit_arm64_macos_assembly(ir, diagnostics);
+			case rexc::CodegenTarget::ARM64_DRUNIX:
+				return rexc::emit_arm64_drunix_assembly(ir, diagnostics);
+			default:
+				return rexc::emit_x86_assembly(ir, diagnostics, machine);
+			}
+		}();
 		if (!codegen.ok()) {
 			std::cerr << format_diagnostics(diagnostics, options.diagnostic_mode);
 			return 1;

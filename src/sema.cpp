@@ -1578,7 +1578,8 @@ private:
 					if (expected) {
 						(void)unify_call_pattern(function->return_type,
 						                         *expected,
-						                         generic_names, bindings);
+						                         generic_names, bindings,
+						                         call.location);
 					}
 					for (std::size_t i = 0; i < call.arguments.size(); ++i) {
 						if (!argument_types[i] || i >= expected_count) {
@@ -1587,7 +1588,8 @@ private:
 						}
 						if (!unify_call_pattern(
 						        function->parameter_types[i], *argument_types[i],
-						        generic_names, bindings)) {
+						        generic_names, bindings,
+						        call.arguments[i]->location)) {
 							diagnostics_.error(
 							    call.arguments[i]->location,
 							    "cannot infer generic type for parameter " +
@@ -2187,10 +2189,18 @@ private:
 	// form, used inside generic function signatures) and the actual is a
 	// monomorph `Base__t1__t2` of the same template, decompose using the
 	// monomorph's `monomorph_args` and unify pairwise.
+	//
+	// `loc` is plumbed through so the recursive `check_type_name` call
+	// for non-generic-param pattern args reports a meaningful span if a
+	// malformed template arg fails name resolution. (Earlier drafts
+	// passed a default-constructed SourceLocation here, which would
+	// have produced 0:0-anchored diagnostics — flagged in the FE-109a
+	// review.)
 	bool unify_call_pattern(
 	    const PrimitiveType &pattern, const PrimitiveType &actual,
 	    const std::unordered_set<std::string> &generic_names,
-	    std::unordered_map<std::string, PrimitiveType> &bindings)
+	    std::unordered_map<std::string, PrimitiveType> &bindings,
+	    const SourceLocation &loc)
 	{
 		// Naked generic param: `T` matched against any actual.
 		if (pattern.kind == PrimitiveKind::UserStruct &&
@@ -2214,7 +2224,7 @@ private:
 			if (!pattern.pointee || !actual.pointee)
 				return pattern.pointee == actual.pointee;
 			return unify_call_pattern(*pattern.pointee, *actual.pointee,
-			                          generic_names, bindings);
+			                          generic_names, bindings, loc);
 		case PrimitiveKind::Result: {
 			if (pattern.elements && actual.elements) {
 				if (pattern.elements->size() != actual.elements->size())
@@ -2222,14 +2232,14 @@ private:
 				for (std::size_t i = 0; i < pattern.elements->size(); ++i) {
 					if (!unify_call_pattern((*pattern.elements)[i],
 					                        (*actual.elements)[i],
-					                        generic_names, bindings))
+					                        generic_names, bindings, loc))
 						return false;
 				}
 				return true;
 			}
 			if (pattern.pointee && actual.pointee)
 				return unify_call_pattern(*pattern.pointee, *actual.pointee,
-				                          generic_names, bindings);
+				                          generic_names, bindings, loc);
 			return pattern.pointee == actual.pointee &&
 			       pattern.elements == actual.elements;
 		}
@@ -2241,7 +2251,7 @@ private:
 			for (std::size_t i = 0; i < pattern.elements->size(); ++i) {
 				if (!unify_call_pattern((*pattern.elements)[i],
 				                        (*actual.elements)[i],
-				                        generic_names, bindings))
+				                        generic_names, bindings, loc))
 					return false;
 			}
 			return true;
@@ -2272,7 +2282,6 @@ private:
 			if (actual_info->second.monomorph_args.size() !=
 			    pattern_args->size())
 				return false;
-			SourceLocation dummy{};
 			for (std::size_t i = 0; i < pattern_args->size(); ++i) {
 				const std::string &arg_name = (*pattern_args)[i];
 				PrimitiveType pattern_arg;
@@ -2285,11 +2294,11 @@ private:
 				if (generic_names.count(arg_name) > 0) {
 					pattern_arg = user_struct_type(arg_name, 0);
 				} else {
-					pattern_arg = check_type_name(arg_name, dummy);
+					pattern_arg = check_type_name(arg_name, loc);
 				}
 				if (!unify_call_pattern(
 				        pattern_arg, actual_info->second.monomorph_args[i],
-				        generic_names, bindings))
+				        generic_names, bindings, loc))
 					return false;
 			}
 			return true;

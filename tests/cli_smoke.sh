@@ -98,6 +98,15 @@ grep -q ".globl main" "${tmp_dir}/add-i386-linux.s"
 test -s "${tmp_dir}/add-i386-drunix.s"
 grep -q ".globl main" "${tmp_dir}/add-i386-drunix.s"
 
+"${build_dir}/rexc" "${repo_dir}/examples/core.rx" --target arm64-drunix -S -o "${tmp_dir}/add-arm64-drunix.s"
+test -s "${tmp_dir}/add-arm64-drunix.s"
+grep -q ".globl main" "${tmp_dir}/add-arm64-drunix.s"
+# arm64-drunix must produce ELF-flavoured assembly: no Mach-O `_main`,
+# no `@PAGE`/`@PAGEOFF`, no `.cstring`. Catches any regression that
+# leaks Apple syntax into the ELF path.
+! grep -q "@PAGE\|@PAGEOFF\|\.cstring\|\.zerofill" "${tmp_dir}/add-arm64-drunix.s"
+! grep -q "^\s*\.globl _main$" "${tmp_dir}/add-arm64-drunix.s"
+
 if command -v x86_64-elf-as >/dev/null 2>&1 && command -v x86_64-elf-ld >/dev/null 2>&1; then
 	mkdir -p "${tmp_dir}/drunix-root/build/user/x86/linker"
 	cat > "${tmp_dir}/drunix-root/build/user/x86/linker/user.ld" <<'LD'

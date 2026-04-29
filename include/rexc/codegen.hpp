@@ -21,6 +21,7 @@ enum class CodegenTarget {
 	I386,
 	X86_64,
 	ARM64_MACOS,
+	ARM64_DRUNIX,
 };
 
 } // namespace rexc

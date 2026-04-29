@@ -1,0 +1,66 @@
+// FE-109b: hash + equality contract for primitives and struct-of-primitives.
+//
+// Concrete `hash_<type>` functions per primitive return `u32`, plus a
+// `hash_combine` mixer for composing field hashes into a struct hash.
+// There is no trait system in v1 (PRD OQ-1), so generic hashing is not
+// exposed; users write a per-struct `hash_StructName` that calls these
+// primitives and combines the results.
+//
+// `==` for primitives is already provided by the language. Struct
+// equality is user-written field-by-field comparison; once derive
+// macros land (FE-207) we can synthesize both `hash_X` and `eq_X` from
+// the struct declaration.
+//
+// Algorithm: a multiply-then-add linear-congruential mixer using the
+// FNV 32-bit prime as the multiplier. The classic FNV-1a uses XOR,
+// but bitwise operators are not in the v1 grammar (deferred). The
+// fallback `seed * prime + value` still wraps modulo 2^32 and
+// preserves order-sensitive composition for struct hashing. Output is
+// `u32` because the i386 backend does not yet support 64-bit integer
+// codegen; promoting to u64 is a tracked follow-up.
+//
+// When bitwise ops + u64-on-i386 land we'll switch to true FNV-1a 64;
+// the API (function names) is stable.
+//
+// Constants:
+//   offset_basis = 2166136261   (FNV-1a 32-bit offset basis, 0x811c9dc5)
+//   prime        = 16777619     (FNV 32-bit prime, 0x01000193)
+
+fn hash_combine(seed: u32, value: u32) -> u32 {
+	return seed * 16777619 + value;
+}
+
+fn hash_u32(value: u32) -> u32 {
+	let basis: u32 = 2166136261;
+	return hash_combine(basis, value);
+}
+
+fn hash_i32(value: i32) -> u32 {
+	return hash_u32(value as u32);
+}
+
+fn hash_bool(value: bool) -> u32 {
+	if value {
+		return hash_u32(1);
+	}
+	return hash_u32(0);
+}
+
+fn hash_char(value: char) -> u32 {
+	return hash_u32(value as u32);
+}
+
+// Byte stream over a NUL-terminated string. Each byte goes through
+// the same mixer as field-by-field struct hashing, so two identical
+// byte sequences hash to the same value regardless of how the caller
+// constructed the string.
+fn hash_str(s: str) -> u32 {
+	let mut hash: u32 = 2166136261;
+	let mut i: i32 = 0;
+	while s[i] != 0 {
+		let byte: u8 = s[i];
+		hash = hash_combine(hash, byte as u32);
+		i = i + 1;
+	}
+	return hash;
+}

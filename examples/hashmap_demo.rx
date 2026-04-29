@@ -1,0 +1,195 @@
+// FE-109c verification fixture: generic `HashMap<K, V>` parameterized by
+// an explicit `*Arena` allocator. Open-addressing with linear probing,
+// no tombstones, fixed capacity at construction, no rehash. The ops
+// are concrete for `HashMap<i32, str>` because the v1 language has no
+// function pointers or traits and so cannot dispatch hash/eq
+// polymorphically; once those features land, the generic-ops promotion
+// follows the same path as FE-109a's `Vec<T>` (also concrete-ops in
+// fixtures until the stdlib resolver grows generic support).
+//
+// The exit gate is "HashMap<i32, str> insert/lookup/iter passes
+// tests". This fixture demonstrates each by composing the per-check
+// pass/fail signals into a single observable exit code:
+//
+//   +1   len after 3 inserts == 3
+//   +2   lookup of a present key returns a non-negative slot
+//   +4   value at that slot str_eq's the inserted value
+//   +8   lookup of a missing key returns -1
+//   +16  iter_next walks all 3 occupied slots and stops at -1
+//
+//   total: 1 + 2 + 4 + 8 + 16 = 31
+
+struct HashMap<K, V> {
+    keys: *K,
+    values: *V,
+    occupied: *u8,
+    len: i32,
+    capacity: i32,
+}
+
+unsafe fn hashmap_i32_str_with_alloc(arena: *Arena, capacity: i32) -> *HashMap<i32, str> {
+    // 3 * sizeof(*T) + 2 * sizeof(i32) = 24 + 8 = 32 bytes on arm64.
+    let header_bytes: *u8 = arena_alloc(arena, 32);
+    let map: *HashMap<i32, str> = header_bytes as *HashMap<i32, str>;
+
+    let key_bytes: *u8 = arena_alloc(arena, capacity * 4);
+    let value_bytes: *u8 = arena_alloc(arena, capacity * 8);
+    let occ_bytes: *u8 = arena_alloc(arena, capacity);
+
+    (*map).keys = key_bytes as *i32;
+    (*map).values = value_bytes as *str;
+    (*map).occupied = occ_bytes;
+    (*map).len = 0;
+    (*map).capacity = capacity;
+
+    // Zero the occupied slots. arena_alloc happens to return zeroed
+    // memory under the current FE-105 implementation, but this loop is
+    // load-bearing — if FE-106 (or its successor) ever relaxes that
+    // contract, this is what keeps `lookup` from reading garbage out
+    // of stale arena bytes.
+    let mut i: i32 = 0;
+    while i < capacity {
+        let slot: *u8 = (*map).occupied + i;
+        *slot = 0 as u8;
+        i = i + 1;
+    }
+    return map;
+}
+
+unsafe fn hashmap_i32_str_bucket(map: *HashMap<i32, str>, key: i32) -> i32 {
+    let h: u32 = hash_i32(key);
+    let cap: u32 = (*map).capacity as u32;
+    return (h % cap) as i32;
+}
+
+// Returns 1 on success, 0 if the table is full (no resize in v1).
+//
+// Known limitation (FE-109d follow-up, surfaced in code review): when
+// `len >= capacity` this returns 0 *before* the same-key replace probe
+// runs, so calling insert on an existing key in a saturated table
+// fails instead of replacing the value. Folding the full-check into
+// the main probe loop would fix this; deferred until the FE-109d
+// collections test suite pins the desired semantics.
+unsafe fn hashmap_i32_str_insert(map: *HashMap<i32, str>, key: i32, value: str) -> i32 {
+    if (*map).len >= (*map).capacity {
+        return 0;
+    }
+    let mut slot: i32 = hashmap_i32_str_bucket(map, key);
+    let mut steps: i32 = 0;
+    while steps < (*map).capacity {
+        let occ: *u8 = (*map).occupied + slot;
+        if *occ == (0 as u8) {
+            let key_slot: *i32 = (*map).keys + slot;
+            *key_slot = key;
+            let value_slot: *str = (*map).values + slot;
+            *value_slot = value;
+            *occ = 1 as u8;
+            (*map).len = (*map).len + 1;
+            return 1;
+        }
+        // Replace existing entry with same key (idempotent insert).
+        let key_slot: *i32 = (*map).keys + slot;
+        if *key_slot == key {
+            let value_slot: *str = (*map).values + slot;
+            *value_slot = value;
+            return 1;
+        }
+        slot = slot + 1;
+        if slot >= (*map).capacity {
+            slot = 0;
+        }
+        steps = steps + 1;
+    }
+    return 0;
+}
+
+// Returns the slot index for `key`, or -1 if not present.
+unsafe fn hashmap_i32_str_lookup(map: *HashMap<i32, str>, key: i32) -> i32 {
+    let mut slot: i32 = hashmap_i32_str_bucket(map, key);
+    let mut steps: i32 = 0;
+    while steps < (*map).capacity {
+        let occ: *u8 = (*map).occupied + slot;
+        if *occ == (0 as u8) {
+            return -1;
+        }
+        let key_slot: *i32 = (*map).keys + slot;
+        if *key_slot == key {
+            return slot;
+        }
+        slot = slot + 1;
+        if slot >= (*map).capacity {
+            slot = 0;
+        }
+        steps = steps + 1;
+    }
+    return -1;
+}
+
+unsafe fn hashmap_i32_str_value_at(map: *HashMap<i32, str>, slot: i32) -> str {
+    return *((*map).values + slot);
+}
+
+// Returns the next occupied slot strictly greater than `prev`, or -1
+// at the end. Pass `-1` to start iteration. With no tombstones, every
+// occupied slot is reachable in one linear pass.
+unsafe fn hashmap_i32_str_iter_next(map: *HashMap<i32, str>, prev: i32) -> i32 {
+    let mut i: i32 = prev + 1;
+    while i < (*map).capacity {
+        let occ: *u8 = (*map).occupied + i;
+        if *occ != (0 as u8) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+static mut USER_BUF: [u8; 512];
+
+unsafe fn main() -> i32 {
+    let mut a: Arena = Arena { storage: USER_BUF + 0, capacity: 512, offset: 0 };
+    arena_init(&a, USER_BUF + 0, 512);
+
+    let map: *HashMap<i32, str> = hashmap_i32_str_with_alloc(&a, 8);
+
+    hashmap_i32_str_insert(map, 1, "one");
+    hashmap_i32_str_insert(map, 2, "two");
+    hashmap_i32_str_insert(map, 3, "three");
+
+    let mut score: i32 = 0;
+
+    // (1) len after three inserts is 3
+    if (*map).len == 3 {
+        score = score + 1;
+    }
+
+    // (2) lookup of a present key returns a non-negative slot
+    let slot_two: i32 = hashmap_i32_str_lookup(map, 2);
+    if slot_two >= 0 {
+        score = score + 2;
+        // (3) value at that slot str_eq's the inserted value
+        let v: str = hashmap_i32_str_value_at(map, slot_two);
+        if str_eq(v, "two") {
+            score = score + 4;
+        }
+    }
+
+    // (4) lookup of a missing key returns -1
+    if hashmap_i32_str_lookup(map, 99) < 0 {
+        score = score + 8;
+    }
+
+    // (5) iter_next walks all 3 occupied slots and stops at -1
+    let mut count: i32 = 0;
+    let mut cursor: i32 = -1;
+    cursor = hashmap_i32_str_iter_next(map, cursor);
+    while cursor >= 0 {
+        count = count + 1;
+        cursor = hashmap_i32_str_iter_next(map, cursor);
+    }
+    if count == 3 {
+        score = score + 16;
+    }
+
+    return score;
+}

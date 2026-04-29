@@ -256,7 +256,15 @@ const std::unordered_set<std::string> &default_prelude_names()
 	    "alloc_bytes", "alloc_remaining", "alloc_used", "alloc_capacity",
 	    "alloc_can_allocate", "alloc_reset",
 	    "arena_init", "arena_alloc", "arena_remaining", "arena_used",
-	    "arena_capacity", "arena_can_allocate", "arena_reset"};
+	    "arena_capacity", "arena_can_allocate", "arena_reset",
+	    // FE-109b: hash + equality contract. The `==` operator is
+	    // already provided by the language for primitives; the names
+	    // below expose the per-primitive `hash_<type>` helpers and the
+	    // `hash_combine` mixer to user code under the default prelude.
+	    // Output is `u32` (not u64) until i386 codegen grows 64-bit
+	    // integer support — see hash.rx for the rationale.
+	    "hash_combine", "hash_i32", "hash_u32",
+	    "hash_bool", "hash_char", "hash_str"};
 	return names;
 }
 
@@ -299,10 +307,16 @@ std::string portable_stdlib_assembly(CodegenTarget target)
 	lower_options.stdlib_symbols = LowerStdlibSymbolPolicy::None;
 	auto lowered = lower_to_ir(parsed.module(), lower_options);
 
-	CodegenResult emitted =
-		target == CodegenTarget::ARM64_MACOS
-			? emit_arm64_macos_assembly(lowered, diagnostics)
-			: emit_x86_assembly(lowered, diagnostics, target);
+	CodegenResult emitted = [&]() {
+		switch (target) {
+		case CodegenTarget::ARM64_MACOS:
+			return emit_arm64_macos_assembly(lowered, diagnostics);
+		case CodegenTarget::ARM64_DRUNIX:
+			return emit_arm64_drunix_assembly(lowered, diagnostics);
+		default:
+			return emit_x86_assembly(lowered, diagnostics, target);
+		}
+	}();
 	if (!emitted.ok())
 		return "# failed to emit stdlib.rx\n# " + diagnostics.format() + "\n";
 	return emitted.assembly();
@@ -321,6 +335,8 @@ std::string sys_runtime_assembly(TargetTriple target)
 		return x86_64_linux_hosted_runtime_assembly();
 	case TargetTriple::ARM64Macos:
 		return arm64_macos_hosted_runtime_assembly();
+	case TargetTriple::ARM64Drunix:
+		return arm64_drunix_hosted_runtime_assembly();
 	}
 	return "";
 }

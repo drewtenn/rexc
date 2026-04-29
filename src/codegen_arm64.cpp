@@ -81,9 +81,20 @@ std::string escape_asciz_payload(const std::string &payload)
 	return escaped.str();
 }
 
-std::string darwin_symbol(const std::string &name)
+// Platform selector for the arm64 backend. Mach-O (Apple) and ELF
+// (Drunix) share the AAPCS calling convention but differ on symbol
+// prefix, PC-relative addressing relocations, and the read-only-string
+// section directive. The Emitter routes all three through helpers below.
+enum class Arm64Platform {
+	Macos,
+	Drunix,
+};
+
+std::string platform_symbol(const std::string &name, Arm64Platform platform)
 {
-	return "_" + name;
+	if (platform == Arm64Platform::Macos)
+		return "_" + name;
+	return name;
 }
 
 int count_local_statement(const ir::Statement &statement);
@@ -131,9 +142,37 @@ int align16(int bytes)
 
 class Arm64Emitter {
 public:
-	explicit Arm64Emitter(Diagnostics &diagnostics)
-		: diagnostics_(diagnostics)
+	Arm64Emitter(Diagnostics &diagnostics, Arm64Platform platform)
+		: diagnostics_(diagnostics), platform_(platform)
 	{
+	}
+
+	std::string sym(const std::string &name) const
+	{
+		return platform_symbol(name, platform_);
+	}
+
+	const char *page_hi() const
+	{
+		// Mach-O: `adrp x0, label@PAGE`. ELF: `adrp x0, label`.
+		return platform_ == Arm64Platform::Macos ? "@PAGE" : "";
+	}
+
+	std::string page_lo(const std::string &label) const
+	{
+		// Mach-O: `add x0, x0, label@PAGEOFF`. ELF: `add x0, x0, :lo12:label`.
+		return platform_ == Arm64Platform::Macos
+		           ? label + "@PAGEOFF"
+		           : ":lo12:" + label;
+	}
+
+	const char *rodata_section() const
+	{
+		// Mach-O has a dedicated `.cstring` section for NUL-terminated
+		// strings. On ELF we use the conventional read-only-data section.
+		return platform_ == Arm64Platform::Macos
+		           ? ".cstring"
+		           : ".section .rodata, \"a\"";
 	}
 
 	CodegenResult emit(const ir::Module &module)
@@ -188,7 +227,7 @@ private:
 	void emit_function(const ir::Function &function)
 	{
 		Frame frame = build_frame(function);
-		std::string symbol = darwin_symbol(function.name);
+		std::string symbol = sym(function.name);
 		std::string done_label = "L_return_" + function.name;
 
 		out_ << ".globl " << symbol << '\n';
@@ -567,8 +606,9 @@ private:
 		}
 		case ir::Value::Kind::String: {
 			const auto &string = static_cast<const ir::StringValue &>(value);
-			out_ << "\tadrp x0, " << string_labels_.at(&string) << "@PAGE\n";
-			out_ << "\tadd x0, x0, " << string_labels_.at(&string) << "@PAGEOFF\n";
+			const std::string &label = string_labels_.at(&string);
+			out_ << "\tadrp x0, " << label << page_hi() << "\n";
+			out_ << "\tadd x0, x0, " << page_lo(label) << "\n";
 			return;
 		}
 		case ir::Value::Kind::Global: {
@@ -577,8 +617,9 @@ private:
 				emit_static_scalar_load(global.name);
 				return;
 			}
-			out_ << "\tadrp x0, " << static_buffer_label(global.name) << "@PAGE\n";
-			out_ << "\tadd x0, x0, " << static_buffer_label(global.name) << "@PAGEOFF\n";
+			std::string label = static_buffer_label(global.name);
+			out_ << "\tadrp x0, " << label << page_hi() << "\n";
+			out_ << "\tadd x0, x0, " << page_lo(label) << "\n";
 			return;
 		}
 		case ir::Value::Kind::Local: {
@@ -1029,7 +1070,7 @@ private:
 		for (std::size_t i = 0; i < register_chunk_count; ++i)
 			emit_pop_to(argument_registers()[i]);
 
-		out_ << "\tbl " << darwin_symbol(call.callee) << "\n";
+		out_ << "\tbl " << sym(call.callee) << "\n";
 		if (stack_argument_count > 0)
 			out_ << "\tadd sp, sp, #" << stack_argument_count * 16 << "\n";
 	}
@@ -1145,7 +1186,7 @@ private:
 	{
 		if (string_labels_.empty() && !has_static_string_initializers(module))
 			return;
-		out_ << ".cstring\n";
+		out_ << rodata_section() << "\n";
 		for (const auto &buffer : module.static_buffers)
 			emit_static_initializer_string_literals(buffer);
 		for (const auto &function : module.functions) {
@@ -1161,8 +1202,20 @@ private:
 				emit_static_array(buffer);
 				continue;
 			}
-			out_ << ".zerofill __DATA,__bss," << static_buffer_label(buffer.name) << ","
-			     << static_buffer_size_bytes(buffer) << ",4\n";
+			std::string label = static_buffer_label(buffer.name);
+			std::size_t bytes = static_buffer_size_bytes(buffer);
+			if (platform_ == Arm64Platform::Macos) {
+				out_ << ".zerofill __DATA,__bss," << label << ","
+				     << bytes << ",4\n";
+			} else {
+				// ELF/Drunix: emit a regular .bss-style reservation. We
+				// keep the symbol private (no `.globl`) — same scope as
+				// Mach-O's `.zerofill` produces.
+				out_ << ".section .bss, \"aw\", %nobits\n";
+				out_ << ".p2align 4\n";
+				out_ << label << ":\n";
+				out_ << "\t.skip " << bytes << "\n";
+			}
 		}
 	}
 
@@ -1276,15 +1329,17 @@ private:
 
 	void emit_static_scalar_load(const std::string &name)
 	{
-		out_ << "\tadrp x8, " << static_scalar_label(name) << "@PAGE\n";
-		out_ << "\tadd x8, x8, " << static_scalar_label(name) << "@PAGEOFF\n";
+		std::string label = static_scalar_label(name);
+		out_ << "\tadrp x8, " << label << page_hi() << "\n";
+		out_ << "\tadd x8, x8, " << page_lo(label) << "\n";
 		out_ << "\tldr w0, [x8]\n";
 	}
 
 	void emit_static_scalar_store(const std::string &name)
 	{
-		out_ << "\tadrp x8, " << static_scalar_label(name) << "@PAGE\n";
-		out_ << "\tadd x8, x8, " << static_scalar_label(name) << "@PAGEOFF\n";
+		std::string label = static_scalar_label(name);
+		out_ << "\tadrp x8, " << label << page_hi() << "\n";
+		out_ << "\tadd x8, x8, " << page_lo(label) << "\n";
 		out_ << "\tstr w0, [x8]\n";
 	}
 
@@ -1536,6 +1591,7 @@ private:
 	}
 
 	Diagnostics &diagnostics_;
+	Arm64Platform platform_;
 	std::ostringstream out_;
 	std::unordered_map<const ir::StringValue *, std::string> string_labels_;
 	std::unordered_set<std::string> static_buffer_names_;
@@ -1549,7 +1605,13 @@ private:
 CodegenResult emit_arm64_macos_assembly(const ir::Module &module,
                                         Diagnostics &diagnostics)
 {
-	return Arm64Emitter(diagnostics).emit(module);
+	return Arm64Emitter(diagnostics, Arm64Platform::Macos).emit(module);
+}
+
+CodegenResult emit_arm64_drunix_assembly(const ir::Module &module,
+                                         Diagnostics &diagnostics)
+{
+	return Arm64Emitter(diagnostics, Arm64Platform::Drunix).emit(module);
 }
 
 } // namespace rexc

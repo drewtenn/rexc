@@ -14,6 +14,7 @@ enum class TargetTriple {
 	X86_64Elf,
 	ARM64Macos,
 	I386Drunix,
+	ARM64Drunix,
 };
 
 std::optional<TargetTriple> parse_target_triple(const std::string &target);

@@ -547,6 +547,15 @@ TEST_CASE(stdlib_default_prelude_contains_only_user_facing_names)
 	REQUIRE(rexc::stdlib::find_prelude_function("arena_used") != nullptr);
 	REQUIRE(rexc::stdlib::find_prelude_function("arena_remaining") != nullptr);
 
+	// FE-109b: the hash-contract helpers are user-facing — they must be
+	// reachable under the default prelude.
+	REQUIRE(rexc::stdlib::find_prelude_function("hash_combine") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("hash_i32") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("hash_u32") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("hash_bool") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("hash_char") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("hash_str") != nullptr);
+
 	// Internal / non-user-facing helpers stay out of the prelude. Users
 	// who need them must reach them via their `std::*` canonical paths.
 	REQUIRE(rexc::stdlib::find_prelude_function("memset_u8") == nullptr);
