@@ -1,0 +1,93 @@
+// FE-109a verification fixture: generic `Vec<T>` parameterized by an
+// explicit `*Arena` allocator.
+//
+// This demo exercises the Phase 2 contract end-to-end:
+//   * `Vec<T>` instantiates over both a primitive (`i32`) and a
+//     user-defined struct (`Pair`),
+//   * push/get round-trip values through both monomorphs,
+//   * the constructor takes an explicit `*Arena` parameter — no
+//     implicit-static state — closing the FE-105 exit-test wording at
+//     the generic layer.
+//
+// The same struct + functions are mirrored in `src/stdlib/std/vec.rx`
+// as the canonical API. They live in `examples/` for now because the
+// stdlib resolver (`src/stdlib/stdlib.cpp::resolve_source_unit`) does
+// not yet expose generic templates; that lift is a tracked follow-up.
+//
+// Trace: vec_push(vi, 10), 20, 30 → sum 60.
+//        vec_push(vp, Pair{1,2}), Pair{3,4} → sum_pairs returns 1+2+3+4 = 10.
+// Final exit code: 60 + 10 = 70.
+
+struct Vec<T> {
+    data: *T,
+    len: i32,
+    capacity: i32,
+}
+
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+unsafe fn vec_with_alloc<T>(arena: *Arena, capacity: i32, slot_bytes: i32) -> *Vec<T> {
+    let mut actual_capacity: i32 = capacity;
+    if actual_capacity < 0 {
+        actual_capacity = 0;
+    }
+    let header_bytes: *u8 = arena_alloc(arena, 16);
+    let v: *Vec<T> = header_bytes as *Vec<T>;
+    let data_bytes: *u8 = arena_alloc(arena, actual_capacity * slot_bytes);
+    (*v).data = data_bytes as *T;
+    (*v).len = 0;
+    (*v).capacity = actual_capacity;
+    return v;
+}
+
+unsafe fn vec_len<T>(v: *Vec<T>) -> i32 {
+    return (*v).len;
+}
+
+unsafe fn vec_push<T>(v: *Vec<T>, value: T) -> i32 {
+    if (*v).len >= (*v).capacity {
+        return 0;
+    }
+    let slot: *T = (*v).data + (*v).len;
+    *slot = value;
+    (*v).len = (*v).len + 1;
+    return 1;
+}
+
+unsafe fn vec_get<T>(v: *Vec<T>, index: i32) -> T {
+    return *((*v).data + index);
+}
+
+unsafe fn sum_pairs(v: *Vec<Pair>) -> i32 {
+    let mut total: i32 = 0;
+    let mut i: i32 = 0;
+    while i < vec_len(v) {
+        let p: Pair = vec_get(v, i);
+        total = total + p.a + p.b;
+        i = i + 1;
+    }
+    return total;
+}
+
+static mut USER_BUF: [u8; 512];
+
+unsafe fn main() -> i32 {
+    let mut a: Arena = Arena { storage: USER_BUF + 0, capacity: 512, offset: 0 };
+    arena_init(&a, USER_BUF + 0, 512);
+
+    let vi: *Vec<i32> = vec_with_alloc(&a, 4, 4);
+    vec_push(vi, 10);
+    vec_push(vi, 20);
+    vec_push(vi, 30);
+    let int_sum: i32 = vec_get(vi, 0) + vec_get(vi, 1) + vec_get(vi, 2);
+
+    let vp: *Vec<Pair> = vec_with_alloc(&a, 2, 8);
+    vec_push(vp, Pair { a: 1, b: 2 });
+    vec_push(vp, Pair { a: 3, b: 4 });
+    let pair_sum: i32 = sum_pairs(vp);
+
+    return int_sum + pair_sum;
+}

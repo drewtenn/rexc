@@ -170,6 +170,13 @@ private:
 		std::vector<StructFieldLayout> fields;
 		std::size_t total_size = 0;
 		std::size_t alignment = 1;
+		// FE-109a: for monomorphs, the original generic struct name and
+		// the concrete type args used at instantiation. Lets call-site
+		// inference (lower_ir's `unify_with_monomorphs`) demangle a
+		// monomorph actual against an angle-bracket pattern without
+		// reverse-mangling.
+		std::string template_name;
+		std::vector<ir::Type> monomorph_args;
 		std::optional<StructFieldLayout> field(const std::string &name) const
 		{
 			for (const auto &f : fields)
@@ -373,6 +380,12 @@ private:
 		}
 		layout.total_size = align_up(offset, struct_alignment);
 		layout.alignment = struct_alignment;
+		// FE-109a: record the template name + concrete args so call-site
+		// inference can demangle this monomorph back to its template.
+		layout.template_name = tpl.name;
+		layout.monomorph_args.reserve(tpl.generic_parameters.size());
+		for (const auto &name : tpl.generic_parameters)
+			layout.monomorph_args.push_back(bindings.at(name));
 		current_type_substitutions_ = std::move(saved);
 		struct_layouts_[mangled] = std::move(layout);
 		return mangled;
@@ -791,7 +804,8 @@ private:
 				for (const auto &arg : call_expr.arguments)
 					lowered_args.push_back(lower_expr(*arg, locals));
 				std::unordered_map<std::string, ir::Type> bindings;
-				if (!infer_call_bindings(*function, lowered_args, bindings))
+				if (!infer_call_bindings(*function, lowered_args, bindings,
+				                         expected))
 					throw std::runtime_error(
 					    "failed to infer generic types for call to '" +
 					    call_expr.callee + "' in IR lowering");
@@ -1550,16 +1564,128 @@ private:
 	// FE-103: re-run unification at the call site to derive the type
 	// bindings (sema already validated this; we trust). Returns true on
 	// success and fills `bindings`.
+	//
+	// FE-109a: also unify the return-type pattern against the call's
+	// expected type so we can infer `T` for constructors like
+	// `vec_new<T>(*Arena, i32) -> *Vec<T>` whose args don't carry T.
+	// Plus the unifier here must demangle monomorph names like
+	// `Vec__i32` back to the template `Vec` and unify pairwise — same
+	// pattern as the sema-side `unify_call_pattern`.
+	bool unify_with_monomorphs(
+	    const ir::Type &pattern, const ir::Type &actual,
+	    const std::unordered_set<std::string> &generic_names,
+	    std::unordered_map<std::string, ir::Type> &bindings)
+	{
+		if (pattern.kind == PrimitiveKind::UserStruct &&
+		    generic_names.count(pattern.name) > 0) {
+			auto existing = bindings.find(pattern.name);
+			if (existing != bindings.end())
+				return existing->second == actual;
+			bindings[pattern.name] = actual;
+			return true;
+		}
+		if (pattern.kind != actual.kind)
+			return false;
+		switch (pattern.kind) {
+		case PrimitiveKind::Pointer:
+		case PrimitiveKind::Slice:
+		case PrimitiveKind::Vector:
+		case PrimitiveKind::Option:
+			if (!pattern.pointee || !actual.pointee)
+				return pattern.pointee == actual.pointee;
+			return unify_with_monomorphs(*pattern.pointee, *actual.pointee,
+			                             generic_names, bindings);
+		case PrimitiveKind::Result: {
+			if (pattern.elements && actual.elements) {
+				if (pattern.elements->size() != actual.elements->size())
+					return false;
+				for (std::size_t i = 0; i < pattern.elements->size(); ++i) {
+					if (!unify_with_monomorphs((*pattern.elements)[i],
+					                           (*actual.elements)[i],
+					                           generic_names, bindings))
+						return false;
+				}
+				return true;
+			}
+			if (pattern.pointee && actual.pointee)
+				return unify_with_monomorphs(*pattern.pointee, *actual.pointee,
+				                             generic_names, bindings);
+			return pattern.pointee == actual.pointee &&
+			       pattern.elements == actual.elements;
+		}
+		case PrimitiveKind::Tuple: {
+			if (!pattern.elements || !actual.elements)
+				return pattern.elements == actual.elements;
+			if (pattern.elements->size() != actual.elements->size())
+				return false;
+			for (std::size_t i = 0; i < pattern.elements->size(); ++i) {
+				if (!unify_with_monomorphs((*pattern.elements)[i],
+				                           (*actual.elements)[i],
+				                           generic_names, bindings))
+					return false;
+			}
+			return true;
+		}
+		case PrimitiveKind::UserStruct: {
+			if (pattern.name == actual.name)
+				return true;
+			auto open = pattern.name.find('<');
+			if (open == std::string::npos ||
+			    pattern.name.empty() || pattern.name.back() != '>')
+				return false;
+			std::string pattern_base = pattern.name.substr(0, open);
+			auto pattern_args =
+			    consume_generic_type_arguments(pattern.name, pattern_base);
+			if (!pattern_args)
+				return false;
+			auto layout_it = struct_layouts_.find(actual.name);
+			if (layout_it == struct_layouts_.end())
+				return false;
+			if (layout_it->second.template_name != pattern_base)
+				return false;
+			if (layout_it->second.monomorph_args.size() !=
+			    pattern_args->size())
+				return false;
+			for (std::size_t i = 0; i < pattern_args->size(); ++i) {
+				const std::string &arg_name = (*pattern_args)[i];
+				ir::Type pattern_arg;
+				if (generic_names.count(arg_name) > 0) {
+					pattern_arg = user_struct_type(arg_name, 0);
+				} else {
+					pattern_arg = lower_type_name(arg_name);
+				}
+				if (!unify_with_monomorphs(
+				        pattern_arg, layout_it->second.monomorph_args[i],
+				        generic_names, bindings))
+					return false;
+			}
+			return true;
+		}
+		case PrimitiveKind::UserEnum:
+			return pattern.name == actual.name;
+		default:
+			return pattern == actual;
+		}
+	}
+
 	bool infer_call_bindings(const FunctionInfo &info,
 	                         const std::vector<std::unique_ptr<ir::Value>> &args,
-	                         std::unordered_map<std::string, ir::Type> &bindings)
+	                         std::unordered_map<std::string, ir::Type> &bindings,
+	                         std::optional<ir::Type> expected = std::nullopt)
 	{
 		if (info.parameter_types.size() != args.size())
 			return false;
 		std::unordered_set<std::string> generic_names(
 		    info.generic_parameters.begin(), info.generic_parameters.end());
+		// FE-109a: prime bindings from the expected return type when the
+		// call is consumed in a typed position (e.g. let-init). Args
+		// alone may not carry T (e.g. `vec_new(arena, capacity)`).
+		if (expected) {
+			(void)unify_with_monomorphs(info.return_type, *expected,
+			                            generic_names, bindings);
+		}
 		for (std::size_t i = 0; i < args.size(); ++i) {
-			if (!unify_generic_pattern(info.parameter_types[i], args[i]->type,
+			if (!unify_with_monomorphs(info.parameter_types[i], args[i]->type,
 			                           generic_names, bindings))
 				return false;
 		}

@@ -134,6 +134,17 @@ if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	uninit_exit=$?
 	set -e
 	test "$uninit_exit" -eq 42
+
+	# FE-109a: generic Vec<T> over a primitive (i32) and a user struct
+	# (Pair). The fixture pushes 10/20/30 into Vec<i32> (sum 60) and
+	# {1,2}/{3,4} into Vec<Pair> (sum 10), exit code is 70.
+	"${build_dir}/rexc" "${repo_dir}/examples/generic_vec_demo.rx" --target arm64-macos -o "${tmp_dir}/generic-vec-demo-arm64"
+	test -x "${tmp_dir}/generic-vec-demo-arm64"
+	set +e
+	"${tmp_dir}/generic-vec-demo-arm64"
+	generic_vec_exit=$?
+	set -e
+	test "$generic_vec_exit" -eq 70
 	"${build_dir}/rexc" "${repo_dir}/examples/stdlib.rx" -o "${tmp_dir}/stdlib-arm64"
 	test -x "${tmp_dir}/stdlib-arm64"
 	printf 'friend\nsecond\n21\n' | "${tmp_dir}/stdlib-arm64" > "${tmp_dir}/stdlib-arm64.out"

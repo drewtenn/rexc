@@ -1019,3 +1019,80 @@ TEST_CASE(lowering_emits_lifo_defer_order)
 	REQUIRE_EQ(order[0], std::string("second"));
 	REQUIRE_EQ(order[1], std::string("first"));
 }
+
+// FE-109a: a generic constructor whose only generic-anchor is in the
+// return type (`vec_new<T>(*Arena, i32) -> *Vec<T>`) must infer T from
+// the consumer's expected type when the call is in a let-init position.
+// This regression-pins the return-type-driven inference path.
+TEST_CASE(lowering_infers_generic_from_let_init_expected_type)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Vec<T> { data: *T, len: i32, capacity: i32 }\n"
+	    "unsafe fn vec_new<T>(arena: *Arena, capacity: i32) -> *Vec<T> {\n"
+	    "    let header_bytes: *u8 = arena_alloc(arena, 16);\n"
+	    "    let v: *Vec<T> = header_bytes as *Vec<T>;\n"
+	    "    return v;\n"
+	    "}\n"
+	    "static mut BUF: [u8; 64];\n"
+	    "unsafe fn main() -> i32 {\n"
+	    "    let mut a: Arena = Arena { storage: BUF + 0, capacity: 64, offset: 0 };\n"
+	    "    arena_init(&a, BUF + 0, 64);\n"
+	    "    let v: *Vec<i32> = vec_new(&a, 4);\n"
+	    "    return 0;\n"
+	    "}\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	rexc::SemanticOptions sema_options;
+	sema_options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
+	sema_options.enforce_unsafe_blocks = false;
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics, sema_options).ok());
+
+	rexc::LowerOptions lower_options;
+	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::All;
+	auto module = rexc::lower_to_ir(parsed.module(), lower_options);
+	// The monomorph `vec_new__i32` must have been queued and emitted.
+	bool found = false;
+	for (const auto &f : module.functions)
+		if (f.name == "vec_new__i32")
+			found = true;
+	REQUIRE(found);
+}
+
+// FE-109a: pattern `*Vec<T>` must unify against actual `*Vec__i32`
+// (mangled monomorph). This test pins the sema-side
+// `unify_call_pattern` UserStruct decomposition: a function takes
+// `*Vec<T>` and is called with a `*Vec<i32>`-typed local, and inference
+// recovers T=i32 from the monomorph args list.
+TEST_CASE(lowering_unifies_pattern_against_mangled_monomorph)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "struct Vec<T> { data: *T, len: i32, capacity: i32 }\n"
+	    "unsafe fn vec_len<T>(v: *Vec<T>) -> i32 { return (*v).len; }\n"
+	    "static mut BUF: [u8; 64];\n"
+	    "unsafe fn main() -> i32 {\n"
+	    "    let mut a: Arena = Arena { storage: BUF + 0, capacity: 64, offset: 0 };\n"
+	    "    arena_init(&a, BUF + 0, 64);\n"
+	    "    let header: *u8 = arena_alloc(&a, 16);\n"
+	    "    let v: *Vec<i32> = header as *Vec<i32>;\n"
+	    "    return vec_len(v);\n"
+	    "}\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	rexc::SemanticOptions sema_options;
+	sema_options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
+	sema_options.enforce_unsafe_blocks = false;
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics, sema_options).ok());
+
+	rexc::LowerOptions lower_options;
+	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::All;
+	auto module = rexc::lower_to_ir(parsed.module(), lower_options);
+	bool found = false;
+	for (const auto &f : module.functions)
+		if (f.name == "vec_len__i32")
+			found = true;
+	REQUIRE(found);
+}

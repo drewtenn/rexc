@@ -146,6 +146,11 @@ struct StructInfo {
 	bool is_generic = false;
 	std::vector<std::string> generic_parameters; // FE-103
 	std::string template_name; // FE-103: for monomorphs, the original generic struct name
+	// FE-109a: for monomorphs, the concrete type arguments used at
+	// instantiation, in template-parameter order. Lets the unify pass
+	// recover Vec<i32> from a Vec__i32 actual without relying on
+	// reverse-mangling.
+	std::vector<PrimitiveType> monomorph_args;
 	std::optional<PrimitiveType> field_type(const std::string &name) const
 	{
 		for (const auto &field : fields)
@@ -946,6 +951,14 @@ private:
 					return false;
 			return true;
 		}
+		if (statement.kind == ast::Stmt::Kind::UnsafeBlock) {
+			// `unsafe { return … }` is a common idiom — peek through the
+			// block so divergence-aware merging treats it like the bare
+			// return it wraps.
+			const auto &block =
+			    static_cast<const ast::UnsafeBlockStmt &>(statement);
+			return body_diverges(block.body);
+		}
 		return false;
 	}
 
@@ -1215,13 +1228,22 @@ private:
 				}
 			}
 			// FE-108: merge converging arms' uninit state. FE-010 enforces
-			// match exhaustiveness, so we do not need to add an implicit
-			// fall-through branch.
+			// match exhaustiveness for *enum* matches, but integer/bool
+			// matches without a default arm fall through silently — on
+			// that path, no arm runs, so the pre-state must participate
+			// in the merge.
+			bool exhaustive = saw_default;
+			if (matched_enum && !exhaustive) {
+				exhaustive = covered_enum_variants.size() ==
+				             matched_enum->variants.size();
+			}
 			std::vector<const std::unordered_map<std::string, LocalInfo> *> branches;
 			for (std::size_t i = 0; i < match_stmt.arms.size(); ++i) {
 				if (!body_diverges(match_stmt.arms[i].body))
 					branches.push_back(&arm_locals_snapshots[i]);
 			}
+			if (!exhaustive)
+				branches.push_back(&locals);
 			merge_uninit_state(locals, branches);
 			return;
 		}
@@ -1536,15 +1558,35 @@ private:
 					    function->generic_parameters.end());
 					std::unordered_map<std::string, PrimitiveType> bindings;
 					bool inference_ok = true;
+					std::vector<std::optional<PrimitiveType>> argument_types;
+					argument_types.reserve(call.arguments.size());
+					// First pass: gather actual argument types (no
+					// per-argument unification yet — we may need
+					// return-type-driven inference to bind some params
+					// before the args themselves are checked against the
+					// monomorph patterns).
+					for (std::size_t i = 0; i < call.arguments.size(); ++i)
+						argument_types.push_back(
+						    check_expr(locals, *call.arguments[i]));
+					// FE-109a: if the call expression's expected type is
+					// known (e.g. `let v: *Vec<i32> = vec_new(...)`),
+					// pre-bind generic params by unifying the function's
+					// return-type pattern against the expected type. This
+					// closes the inference gap where args alone don't
+					// carry T (constructors like `vec_new<T>(*Arena, i32)
+					// -> *Vec<T>`).
+					if (expected) {
+						(void)unify_call_pattern(function->return_type,
+						                         *expected,
+						                         generic_names, bindings);
+					}
 					for (std::size_t i = 0; i < call.arguments.size(); ++i) {
-						auto argument_type =
-						    check_expr(locals, *call.arguments[i]);
-						if (!argument_type || i >= expected_count) {
+						if (!argument_types[i] || i >= expected_count) {
 							inference_ok = false;
 							continue;
 						}
-						if (!unify_generic_pattern(
-						        function->parameter_types[i], *argument_type,
+						if (!unify_call_pattern(
+						        function->parameter_types[i], *argument_types[i],
 						        generic_names, bindings)) {
 							diagnostics_.error(
 							    call.arguments[i]->location,
@@ -1552,7 +1594,7 @@ private:
 							        std::to_string(i) + ": pattern '" +
 							        format_type(function->parameter_types[i]) +
 							        "' does not match argument type '" +
-							        format_type(*argument_type) + "'");
+							        format_type(*argument_types[i]) + "'");
 							inference_ok = false;
 						}
 					}
@@ -1953,6 +1995,15 @@ private:
 				diagnostics_.error(unary.location,
 				                   "increment requires integer operand");
 			}
+			// FE-108: `++x` reads x before writing it back. An
+			// uninitialized local cannot be incremented — it has no
+			// previous value to add to. Emit the same diagnostic as a
+			// plain read.
+			if (it->second.is_uninit) {
+				diagnostics_.error(name.location,
+				                   "use of possibly-uninitialized local '" +
+				                       name.name + "'");
+			}
 			return it->second.type;
 		}
 
@@ -2130,6 +2181,126 @@ private:
 		return check_type_name(type.name, type.location);
 	}
 
+	// FE-109a: structural unification with monomorph awareness. Wraps
+	// `unify_generic_pattern` (which does pure structural matching) with
+	// a UserStruct rule: when the pattern is `Base<T,...>` (angle-bracket
+	// form, used inside generic function signatures) and the actual is a
+	// monomorph `Base__t1__t2` of the same template, decompose using the
+	// monomorph's `monomorph_args` and unify pairwise.
+	bool unify_call_pattern(
+	    const PrimitiveType &pattern, const PrimitiveType &actual,
+	    const std::unordered_set<std::string> &generic_names,
+	    std::unordered_map<std::string, PrimitiveType> &bindings)
+	{
+		// Naked generic param: `T` matched against any actual.
+		if (pattern.kind == PrimitiveKind::UserStruct &&
+		    generic_names.count(pattern.name) > 0) {
+			auto existing = bindings.find(pattern.name);
+			if (existing != bindings.end())
+				return existing->second == actual;
+			bindings[pattern.name] = actual;
+			return true;
+		}
+
+		if (pattern.kind != actual.kind)
+			return false;
+
+		// Structural recursion through pointer/slice/option/result/tuple.
+		switch (pattern.kind) {
+		case PrimitiveKind::Pointer:
+		case PrimitiveKind::Slice:
+		case PrimitiveKind::Vector:
+		case PrimitiveKind::Option:
+			if (!pattern.pointee || !actual.pointee)
+				return pattern.pointee == actual.pointee;
+			return unify_call_pattern(*pattern.pointee, *actual.pointee,
+			                          generic_names, bindings);
+		case PrimitiveKind::Result: {
+			if (pattern.elements && actual.elements) {
+				if (pattern.elements->size() != actual.elements->size())
+					return false;
+				for (std::size_t i = 0; i < pattern.elements->size(); ++i) {
+					if (!unify_call_pattern((*pattern.elements)[i],
+					                        (*actual.elements)[i],
+					                        generic_names, bindings))
+						return false;
+				}
+				return true;
+			}
+			if (pattern.pointee && actual.pointee)
+				return unify_call_pattern(*pattern.pointee, *actual.pointee,
+				                          generic_names, bindings);
+			return pattern.pointee == actual.pointee &&
+			       pattern.elements == actual.elements;
+		}
+		case PrimitiveKind::Tuple: {
+			if (!pattern.elements || !actual.elements)
+				return pattern.elements == actual.elements;
+			if (pattern.elements->size() != actual.elements->size())
+				return false;
+			for (std::size_t i = 0; i < pattern.elements->size(); ++i) {
+				if (!unify_call_pattern((*pattern.elements)[i],
+				                        (*actual.elements)[i],
+				                        generic_names, bindings))
+					return false;
+			}
+			return true;
+		}
+		case PrimitiveKind::UserStruct: {
+			// Fast path: identical names (covers concrete-vs-concrete and
+			// pre-mangled monomorph-vs-monomorph).
+			if (pattern.name == actual.name)
+				return true;
+			// FE-109a: pattern is `Base<T,...>` (still angle-bracket
+			// because it came from inside a generic function body) and
+			// actual is a monomorph `Base__...` (mangled). Decompose by
+			// looking up the actual's StructInfo and unifying pairwise.
+			auto open = pattern.name.find('<');
+			if (open == std::string::npos ||
+			    pattern.name.empty() || pattern.name.back() != '>')
+				return false;
+			std::string pattern_base = pattern.name.substr(0, open);
+			auto pattern_args =
+			    consume_generic_type_arguments(pattern.name, pattern_base);
+			if (!pattern_args)
+				return false;
+			auto actual_info = structs_.find(actual.name);
+			if (actual_info == structs_.end())
+				return false;
+			if (actual_info->second.template_name != pattern_base)
+				return false;
+			if (actual_info->second.monomorph_args.size() !=
+			    pattern_args->size())
+				return false;
+			SourceLocation dummy{};
+			for (std::size_t i = 0; i < pattern_args->size(); ++i) {
+				const std::string &arg_name = (*pattern_args)[i];
+				PrimitiveType pattern_arg;
+				// FE-109a: a pattern arg that is itself a generic
+				// parameter (e.g. `T` in `Vec<T>`) is modelled as a
+				// UserStruct sentinel — matching the convention
+				// `check_type_name` uses for unbound type variables.
+				// Bypass `check_type_name` for these so we don't trip
+				// the "unknown type" diagnostic on the bare `T` token.
+				if (generic_names.count(arg_name) > 0) {
+					pattern_arg = user_struct_type(arg_name, 0);
+				} else {
+					pattern_arg = check_type_name(arg_name, dummy);
+				}
+				if (!unify_call_pattern(
+				        pattern_arg, actual_info->second.monomorph_args[i],
+				        generic_names, bindings))
+					return false;
+			}
+			return true;
+		}
+		case PrimitiveKind::UserEnum:
+			return pattern.name == actual.name;
+		default:
+			return pattern == actual;
+		}
+	}
+
 	// FE-103.1: re-route a post-`substitute_generics` UserStruct that may
 	// carry an unmangled angle-bracket name like "Box<i32>" through
 	// check_type_name so the nested generic instantiation gets mangled
@@ -2138,11 +2309,50 @@ private:
 	PrimitiveType resolve_substituted_type(PrimitiveType type,
 	                                       const SourceLocation &loc)
 	{
-		if (type.kind != PrimitiveKind::UserStruct)
+		// FE-109a: a substituted return type like `*Vec<i32>` lands as a
+		// Pointer wrapping a UserStruct still in angle-bracket form. The
+		// consumer's annotation has already been routed through
+		// check_type_name and stores the mangled `*Vec__i32`, so we have
+		// to recurse through pointers/slices/options/etc. here too —
+		// otherwise the let-init type-compat check fires.
+		switch (type.kind) {
+		case PrimitiveKind::UserStruct:
+			if (type.name.find('<') == std::string::npos)
+				return type;
+			return check_type_name(type.name, loc);
+		case PrimitiveKind::Pointer:
+			if (!type.pointee)
+				return type;
+			return pointer_to(resolve_substituted_type(*type.pointee, loc));
+		case PrimitiveKind::Slice:
+			if (!type.pointee)
+				return type;
+			return slice_of(resolve_substituted_type(*type.pointee, loc));
+		case PrimitiveKind::Option:
+			if (!type.pointee)
+				return type;
+			return option_of(resolve_substituted_type(*type.pointee, loc));
+		case PrimitiveKind::Result:
+			if (type.elements && type.elements->size() == 2) {
+				return result_of(
+				    resolve_substituted_type((*type.elements)[0], loc),
+				    resolve_substituted_type((*type.elements)[1], loc));
+			}
+			if (type.pointee)
+				return result_of(resolve_substituted_type(*type.pointee, loc));
 			return type;
-		if (type.name.find('<') == std::string::npos)
+		case PrimitiveKind::Tuple: {
+			if (!type.elements)
+				return type;
+			std::vector<PrimitiveType> resolved;
+			resolved.reserve(type.elements->size());
+			for (const auto &element : *type.elements)
+				resolved.push_back(resolve_substituted_type(element, loc));
+			return tuple_type(std::move(resolved));
+		}
+		default:
 			return type;
-		return check_type_name(type.name, loc);
+		}
 	}
 
 	// FE-103: monomorphize a generic struct instantiation like `Box<i32>`.
@@ -2179,12 +2389,28 @@ private:
 		    base + mangle_generic_suffix(tpl.generic_parameters, bindings);
 		if (auto existing = structs_.find(mangled); existing != structs_.end())
 			return struct_type(mangled, existing->second);
+		// FE-109a: pre-register an empty StructInfo placeholder under the
+		// mangled name BEFORE walking fields. A recursive self-referential
+		// field like `*Tree<T>` would otherwise re-enter this function
+		// for `Tree<i32>` and recurse forever; the placeholder lets the
+		// nested call short-circuit at the existing-find above. The
+		// terminal assignment further below replaces the placeholder
+		// with the fully-computed layout. (The IR-side
+		// `instantiate_generic_struct_layout` uses the same trick.)
+		StructInfo placeholder;
+		placeholder.template_name = base;
+		placeholder.is_generic = false;
+		placeholder.monomorph_args.reserve(tpl.generic_parameters.size());
+		for (const auto &name : tpl.generic_parameters)
+			placeholder.monomorph_args.push_back(bindings.at(name));
+		structs_[mangled] = placeholder;
 		StructInfo info;
 		info.location = tpl.location;
 		info.module_path = tpl.module_path;
 		info.visibility = tpl.visibility;
 		info.template_name = base;
 		info.is_generic = false;
+		info.monomorph_args = placeholder.monomorph_args;
 		for (const auto &field : tpl.fields) {
 			PrimitiveType field_type =
 			    substitute_generics(field.second, bindings);

@@ -77,6 +77,15 @@ set(REXC_STDLIB_RX_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/fs.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/path.rx"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/stdlib/std/time.rx"
+	# FE-109a: src/stdlib/std/vec.rx is intentionally NOT included here
+	# yet. The stdlib parser (src/stdlib/stdlib.cpp::resolve_source_unit)
+	# skips generic structs and generic functions, so registering vec.rx
+	# would have no user-visible effect. Once that resolver grows
+	# generic-template support, add this entry. In the meantime the
+	# generic Vec<T> contract is exercised end-to-end by
+	# `examples/generic_vec_demo.rx`, which declares the same shape
+	# inline. The vec.rx file is kept in-tree as the canonical API
+	# reference.
 )
 
 set(REXC_STDLIB_GENERATED_SOURCE

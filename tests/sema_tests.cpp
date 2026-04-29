@@ -1917,9 +1917,13 @@ TEST_CASE(sema_substitutes_nested_generic_in_struct_field)
 TEST_CASE(sema_resolves_generic_struct_field_through_pointer_in_generic_body)
 {
 	rexc::Diagnostics diagnostics;
+	// FE-109a: name the test struct distinctly from the stdlib's `Vec<T>`
+	// so the regression test stays focused on the sema feature it
+	// pins (field lookup through `*MyVec<T>` inside a generic body) and
+	// doesn't tangle with the new stdlib symbol.
 	auto result = analyze(
-	    "struct Vec<T> { data: *T, len: i32, capacity: i32 }\n"
-	    "fn vec_push<T>(v: *Vec<T>, value: T) -> i32 {\n"
+	    "struct MyVec<T> { data: *T, len: i32, capacity: i32 }\n"
+	    "fn my_vec_push<T>(v: *MyVec<T>, value: T) -> i32 {\n"
 	    "    if (*v).len >= (*v).capacity { return 0; }\n"
 	    "    (*v).len = (*v).len + 1;\n"
 	    "    return 1;\n"
@@ -1930,7 +1934,7 @@ TEST_CASE(sema_resolves_generic_struct_field_through_pointer_in_generic_body)
 	REQUIRE(!diagnostics.has_errors());
 }
 
-// Turbofish 'Vec::<i32> { ... }' makes the explicit-args form usable in
+// Turbofish 'MyVec::<i32> { ... }' makes the explicit-args form usable in
 // context-free expression positions where FE-103.1's expected-type
 // adoption can't reach. The literal must instantiate the generic struct
 // using the explicit args without relying on an annotated let.
@@ -1938,9 +1942,9 @@ TEST_CASE(sema_accepts_turbofish_struct_literal_for_generic_struct)
 {
 	rexc::Diagnostics diagnostics;
 	auto result = analyze(
-	    "struct Vec<T> { data: *T, len: i32, capacity: i32 }\n"
+	    "struct MyVec<T> { data: *T, len: i32, capacity: i32 }\n"
 	    "fn main() -> i32 {\n"
-	    "    let v: Vec<i32> = Vec::<i32> { data: 0 as *i32, len: 0, capacity: 4 };\n"
+	    "    let v: MyVec<i32> = MyVec::<i32> { data: 0 as *i32, len: 0, capacity: 4 };\n"
 	    "    return v.len;\n"
 	    "}\n",
 	    diagnostics);
@@ -2327,6 +2331,64 @@ TEST_CASE(sema_accepts_function_parameter_read)
 	    diagnostics);
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
+}
+
+// FE-108: `unsafe { return …; }` is a common idiom and should count as
+// a diverging branch. The else branch alone supplies the only
+// converging assignment to x; the analyzer must accept the post-if
+// read.
+TEST_CASE(sema_accepts_uninit_via_unsafe_return_in_branch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run(c: bool) -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    if c { x = 5; } else { unsafe { return 0; } }\n"
+	    "    return x;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// FE-108: `++x` on an uninitialized local must be rejected — increment
+// reads x before writing it.
+TEST_CASE(sema_rejects_increment_of_uninitialized_local)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    ++x;\n"
+	    "    return x;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("possibly-uninitialized local 'x'") !=
+	        std::string::npos);
+}
+
+// FE-108: a non-exhaustive integer match (no default arm) does NOT make
+// the local definitely-assigned, even if every present arm assigns it
+// — the fall-through path skips all arms.
+TEST_CASE(sema_rejects_uninit_after_non_exhaustive_integer_match)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run(tag: i32) -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    match tag {\n"
+	    "        0 => { x = 1; },\n"
+	    "        1 => { x = 2; },\n"
+	    "    }\n"
+	    "    return x;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("possibly-uninitialized local 'x'") !=
+	        std::string::npos);
 }
 
 // All match arms assign before reading: must accept. Uses an integer
