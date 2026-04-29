@@ -835,3 +835,187 @@ TEST_CASE(lowering_instantiates_recursive_generic_struct_once)
 	    rexc::PrimitiveKind::UserStruct);
 	REQUIRE_EQ(make_fn->return_type.pointee->name, std::string("Tree__i32"));
 }
+
+// FE-107: defer cleanup is materialized as IR statements at scope-exit.
+// `defer call();` itself produces no IR statement at its source line —
+// instead the cleanup body is duplicated before each early exit and at
+// the end of the enclosing block.
+//
+// This test wires a function with two defers and an early `return` and
+// inspects how many ExprStatement+Call("cleanup") pairs land in the
+// lowered body. There must be:
+//   * at least 1 cleanup before the early return (inside the if-then),
+//   * at least 1 cleanup at end-of-function for the normal exit path.
+namespace {
+std::size_t count_defer_calls(
+    const std::vector<std::unique_ptr<rexc::ir::Statement>> &body,
+    const std::string &callee)
+{
+	std::size_t count = 0;
+	for (const auto &stmt : body) {
+		if (!stmt)
+			continue;
+		if (stmt->kind == rexc::ir::Statement::Kind::Expr) {
+			const auto &expr = static_cast<const rexc::ir::ExprStatement &>(*stmt);
+			if (expr.value && expr.value->kind == rexc::ir::Value::Kind::Call) {
+				const auto &call =
+				    static_cast<const rexc::ir::CallValue &>(*expr.value);
+				if (call.callee == callee)
+					++count;
+			}
+		}
+		if (stmt->kind == rexc::ir::Statement::Kind::If) {
+			const auto &if_stmt = static_cast<const rexc::ir::IfStatement &>(*stmt);
+			count += count_defer_calls(if_stmt.then_body, callee);
+			count += count_defer_calls(if_stmt.else_body, callee);
+		}
+		if (stmt->kind == rexc::ir::Statement::Kind::While) {
+			const auto &while_stmt =
+			    static_cast<const rexc::ir::WhileStatement &>(*stmt);
+			count += count_defer_calls(while_stmt.body, callee);
+		}
+		if (stmt->kind == rexc::ir::Statement::Kind::For) {
+			const auto &for_stmt =
+			    static_cast<const rexc::ir::ForStatement &>(*stmt);
+			count += count_defer_calls(for_stmt.body, callee);
+		}
+		if (stmt->kind == rexc::ir::Statement::Kind::Match) {
+			const auto &match_stmt =
+			    static_cast<const rexc::ir::MatchStatement &>(*stmt);
+			for (const auto &arm : match_stmt.arms)
+				count += count_defer_calls(arm.body, callee);
+		}
+	}
+	return count;
+}
+} // namespace
+
+TEST_CASE(lowering_emits_defer_cleanup_at_block_end)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn cleanup() -> i32 { return 0; }\n"
+	    "fn run() -> i32 {\n"
+	    "    defer cleanup();\n"
+	    "    return 7;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const rexc::ir::Function *run = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "run") run = &f;
+	REQUIRE(run != nullptr);
+	// `defer cleanup();` materializes as an ExprStatement(Call("cleanup"))
+	// emitted *before* the return. (End-of-block cleanup is unreachable
+	// after the return, so the lowering may emit either one or two
+	// instances depending on how it threads the LIFO queue — the
+	// invariant is "at least one".)
+	REQUIRE(count_defer_calls(run->body, "cleanup") >= 1);
+}
+
+TEST_CASE(lowering_emits_defer_cleanup_before_each_early_exit)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn cleanup() -> i32 { return 0; }\n"
+	    "fn run(x: i32) -> i32 {\n"
+	    "    defer cleanup();\n"
+	    "    if x == 1 { return 11; }\n"
+	    "    return 22;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const rexc::ir::Function *run = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "run") run = &f;
+	REQUIRE(run != nullptr);
+	// One cleanup before the early return inside the `if`, one before
+	// the trailing return — both reachable code paths must run cleanup.
+	REQUIRE(count_defer_calls(run->body, "cleanup") >= 2);
+}
+
+// FE-107 + FE-012: defer must fire on the early-return path injected by
+// the `?` operator. The cleanup lands inside the if-then-body that `?`
+// expands to, so it only runs on the Err propagation path.
+TEST_CASE(lowering_emits_defer_cleanup_for_try_operator_early_return)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn cleanup() -> i32 { return 0; }\n"
+	    "fn fallible() -> Result<i32> { return result_i32_ok(7); }\n"
+	    "fn caller() -> Result<i32> {\n"
+	    "    defer cleanup();\n"
+	    "    let v: i32 = fallible()?;\n"
+	    "    return result_i32_ok(v);\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	rexc::SemanticOptions options;
+	options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics, options).ok());
+
+	rexc::LowerOptions lower_options;
+	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::All;
+	auto module = rexc::lower_to_ir(parsed.module(), lower_options);
+	const rexc::ir::Function *caller = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "caller") caller = &f;
+	REQUIRE(caller != nullptr);
+	// Cleanup must appear: (a) inside the if-then-body emitted by the
+	// `?` lowering for the Err early-return, and (b) at least one more
+	// site for the trailing `return result_i32_ok(v)` cleanup. Counting
+	// total cleanup() call sites must therefore be >= 2.
+	REQUIRE(count_defer_calls(caller->body, "cleanup") >= 2);
+}
+
+TEST_CASE(lowering_emits_lifo_defer_order)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn first() -> i32 { return 0; }\n"
+	    "fn second() -> i32 { return 0; }\n"
+	    "fn run() -> i32 {\n"
+	    "    defer first();\n"
+	    "    defer second();\n"
+	    "    return 0;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n");
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(source, diagnostics);
+	REQUIRE(parsed.ok());
+	REQUIRE(rexc::analyze_module(parsed.module(), diagnostics).ok());
+
+	auto module = rexc::lower_to_ir(parsed.module());
+	const rexc::ir::Function *run = nullptr;
+	for (const auto &f : module.functions)
+		if (f.name == "run") run = &f;
+	REQUIRE(run != nullptr);
+	// Walk the IR statements in order; the first cleanup callee
+	// emitted must be `second` (last-registered), then `first`.
+	std::vector<std::string> order;
+	for (const auto &stmt : run->body) {
+		if (!stmt || stmt->kind != rexc::ir::Statement::Kind::Expr)
+			continue;
+		const auto &expr = static_cast<const rexc::ir::ExprStatement &>(*stmt);
+		if (!expr.value || expr.value->kind != rexc::ir::Value::Kind::Call)
+			continue;
+		const auto &call = static_cast<const rexc::ir::CallValue &>(*expr.value);
+		if (call.callee == "first" || call.callee == "second")
+			order.push_back(call.callee);
+	}
+	REQUIRE(order.size() >= 2u);
+	REQUIRE_EQ(order[0], std::string("second"));
+	REQUIRE_EQ(order[1], std::string("first"));
+}

@@ -1158,6 +1158,16 @@ private:
 			return;
 		}
 
+		// FE-107: `defer call();` — type-check the call expression in the
+		// current lexical context (so unsafe-call rules and name resolution
+		// apply at the registration site). Cleanup ordering is handled in IR
+		// lowering.
+		if (statement.kind == ast::Stmt::Kind::Defer) {
+			const auto &defer = static_cast<const ast::DeferStmt &>(statement);
+			check_expr(locals, *defer.call);
+			return;
+		}
+
 		if (statement.kind == ast::Stmt::Kind::Expr) {
 			const auto &expr_statement = static_cast<const ast::ExprStmt &>(statement);
 			check_expr(locals, *expr_statement.value);

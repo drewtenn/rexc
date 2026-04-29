@@ -137,7 +137,7 @@ struct TryExpr final : Expr {
 };
 
 struct Stmt {
-	enum class Kind { Let, Assign, IndirectAssign, FieldAssign, Expr, Return, If, Match, While, For, Break, Continue, UnsafeBlock };
+	enum class Kind { Let, Assign, IndirectAssign, FieldAssign, Expr, Return, If, Match, While, For, Break, Continue, UnsafeBlock, Defer };
 
 	Stmt(Kind kind, SourceLocation location);
 	virtual ~Stmt() = default;
@@ -259,6 +259,15 @@ struct UnsafeBlockStmt final : Stmt {
 	UnsafeBlockStmt(SourceLocation location, std::vector<std::unique_ptr<Stmt>> body);
 
 	std::vector<std::unique_ptr<Stmt>> body;
+};
+
+// FE-107: `defer call();` registers a cleanup that runs at end of the
+// containing block, including before early exits (return, break, continue,
+// `?` propagation). The body must be a single call expression.
+struct DeferStmt final : Stmt {
+	DeferStmt(SourceLocation location, std::unique_ptr<Expr> call);
+
+	std::unique_ptr<Expr> call;
 };
 
 struct Function {

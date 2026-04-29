@@ -110,6 +110,18 @@ if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	arena_vec_exit=$?
 	set -e
 	test "$arena_vec_exit" -eq 60
+
+	# FE-107: defer fires on early return AND on normal exit, in LIFO
+	# order, with block-scoped registration. The fixture composes both
+	# code paths into a single observable exit code (211). See
+	# examples/defer_demo.rx for the trace derivation.
+	"${build_dir}/rexc" "${repo_dir}/examples/defer_demo.rx" --target arm64-macos -o "${tmp_dir}/defer-demo-arm64"
+	test -x "${tmp_dir}/defer-demo-arm64"
+	set +e
+	"${tmp_dir}/defer-demo-arm64"
+	defer_exit=$?
+	set -e
+	test "$defer_exit" -eq 211
 	"${build_dir}/rexc" "${repo_dir}/examples/stdlib.rx" -o "${tmp_dir}/stdlib-arm64"
 	test -x "${tmp_dir}/stdlib-arm64"
 	printf 'friend\nsecond\n21\n' | "${tmp_dir}/stdlib-arm64" > "${tmp_dir}/stdlib-arm64.out"

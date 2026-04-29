@@ -140,6 +140,16 @@ private:
 	using Locals = std::unordered_map<std::string, ir::Type>;
 	using ImportScope = std::unordered_map<std::string, ImportInfo>;
 
+	// FE-107: defer scope stack. Each entry records the deferred call AST
+	// nodes registered in one block, plus whether that block is the body of
+	// a `for`/`while` loop (the boundary at which `break`/`continue`
+	// cleanup stops). Entries are pushed by lower_statements as it enters a
+	// new block and popped on exit; cleanup is emitted in LIFO order.
+	struct DeferScope {
+		std::vector<const ast::Expr *> calls;
+		bool is_loop_body = false;
+	};
+
 	// FE-103: a deferred generic-function instantiation queued by a call
 	// site. The Lowerer drains a queue of these after the main lowering
 	// pass, emitting one mangled ir::Function per (template, bindings) pair.
@@ -865,7 +875,14 @@ private:
 		is_err_call->arguments.push_back(
 		    std::make_unique<ir::LocalValue>(tmp_name, result_type));
 
+		// FE-107: the `?` early-return path leaves the enclosing function,
+		// so it must run all active defer scopes (LIFO within each, from
+		// innermost outward). The cleanup is wrapped inside the if-then so
+		// it only runs when propagating an `Err`.
 		std::vector<std::unique_ptr<ir::Statement>> then_body;
+		Locals try_locals = locals;
+		try_locals[tmp_name] = result_type;
+		emit_return_cleanup(then_body, try_locals);
 		then_body.push_back(std::make_unique<ir::ReturnStatement>(
 		    std::make_unique<ir::LocalValue>(tmp_name, result_type)));
 		pending_pre_statements_->push_back(std::make_unique<ir::IfStatement>(
@@ -1204,14 +1221,66 @@ private:
 		};
 	}
 
+	// FE-107: lower one deferred call AST as a single ExprStatement using
+	// the locals state at the emission site (lazy capture).
+	std::unique_ptr<ir::Statement> lower_defer_call(const ast::Expr &call,
+	                                                const Locals &locals)
+	{
+		return std::make_unique<ir::ExprStatement>(lower_expr(call, locals));
+	}
+
+	// FE-107: emit one scope's deferred calls in LIFO order into `out`.
+	void emit_scope_cleanup(std::vector<std::unique_ptr<ir::Statement>> &out,
+	                        const DeferScope &scope, const Locals &locals)
+	{
+		for (auto it = scope.calls.rbegin(); it != scope.calls.rend(); ++it)
+			out.push_back(lower_defer_call(**it, locals));
+	}
+
+	// FE-107: emit cleanup chain for a `return` (or `?` early-return). Walks
+	// every active scope from innermost to outermost, LIFO within each.
+	void emit_return_cleanup(std::vector<std::unique_ptr<ir::Statement>> &out,
+	                         const Locals &locals)
+	{
+		for (auto it = defer_scopes_.rbegin(); it != defer_scopes_.rend(); ++it)
+			emit_scope_cleanup(out, *it, locals);
+	}
+
+	// FE-107: emit cleanup chain for `break`/`continue`. Walks scopes from
+	// innermost up to and including the nearest enclosing loop body.
+	void emit_loop_exit_cleanup(std::vector<std::unique_ptr<ir::Statement>> &out,
+	                            const Locals &locals)
+	{
+		for (auto it = defer_scopes_.rbegin(); it != defer_scopes_.rend(); ++it) {
+			emit_scope_cleanup(out, *it, locals);
+			if (it->is_loop_body)
+				break;
+		}
+	}
+
 	std::vector<std::unique_ptr<ir::Statement>> lower_statements(
 		const std::vector<std::unique_ptr<ast::Stmt>> &statements,
 		ir::Type function_return_type, Locals locals)
 	{
+		return lower_statements_in_scope(statements, function_return_type,
+		                                 std::move(locals), false);
+	}
+
+	std::vector<std::unique_ptr<ir::Statement>> lower_statements_in_scope(
+		const std::vector<std::unique_ptr<ast::Stmt>> &statements,
+		ir::Type function_return_type, Locals locals, bool is_loop_body)
+	{
+		// FE-107: every block pushes its own DeferScope. Cleanup for this
+		// scope is appended at the end of `lowered` in LIFO order; early
+		// exits (return, break, continue, `?` propagation) emit cleanup as
+		// pre-statements before the exit statement.
+		defer_scopes_.push_back(DeferScope{{}, is_loop_body});
 		std::vector<std::unique_ptr<ir::Statement>> lowered;
 		for (const auto &statement : statements) {
 			// FE-013: `unsafe { ... }` is purely a sema concept; the body
-			// inlines into the surrounding statement list at IR level.
+			// inlines into the surrounding statement list at IR level. The
+			// inner lower_statements call pushes its own DeferScope so
+			// defers inside an unsafe block fire at end-of-unsafe-block.
 			if (statement->kind == ast::Stmt::Kind::UnsafeBlock) {
 				const auto &block =
 				    static_cast<const ast::UnsafeBlockStmt &>(*statement);
@@ -1219,6 +1288,16 @@ private:
 				    lower_statements(block.body, function_return_type, locals);
 				for (auto &s : inner)
 					lowered.push_back(std::move(s));
+				continue;
+			}
+			// FE-107: `defer call();` is not lowered into a runtime IR
+			// statement at its source position. It registers the call in
+			// the current DeferScope; the call is re-lowered (lazy capture)
+			// at each scope-exit point.
+			if (statement->kind == ast::Stmt::Kind::Defer) {
+				const auto &defer =
+				    static_cast<const ast::DeferStmt &>(*statement);
+				defer_scopes_.back().calls.push_back(defer.call.get());
 				continue;
 			}
 			std::vector<std::unique_ptr<ir::Statement>> pre_statements;
@@ -1230,6 +1309,10 @@ private:
 				lowered.push_back(std::move(pre));
 			lowered.push_back(std::move(stmt));
 		}
+		// FE-107: emit this scope's deferred calls (LIFO) at normal block
+		// end, after the last statement.
+		emit_scope_cleanup(lowered, defer_scopes_.back(), locals);
+		defer_scopes_.pop_back();
 		return lowered;
 	}
 
@@ -1322,9 +1405,12 @@ private:
 		if (statement.kind == ast::Stmt::Kind::While) {
 			const auto &while_stmt = static_cast<const ast::WhileStmt &>(statement);
 			auto condition = lower_expr(*while_stmt.condition, locals, bool_type());
+			// FE-107: while body is a loop-body scope (boundary for
+			// break/continue cleanup).
 			return std::make_unique<ir::WhileStatement>(
 				std::move(condition),
-				lower_statements(while_stmt.body, function_return_type, locals));
+				lower_statements_in_scope(while_stmt.body, function_return_type,
+				                          locals, true));
 		}
 
 		if (statement.kind == ast::Stmt::Kind::For) {
@@ -1335,16 +1421,28 @@ private:
 			auto condition = lower_expr(*for_stmt.condition, for_locals, bool_type());
 			auto increment =
 				lower_statement(*for_stmt.increment, function_return_type, for_locals);
+			// FE-107: for body is a loop-body scope.
 			return std::make_unique<ir::ForStatement>(
 				std::move(initializer), std::move(condition), std::move(increment),
-				lower_statements(for_stmt.body, function_return_type, for_locals));
+				lower_statements_in_scope(for_stmt.body, function_return_type,
+				                          for_locals, true));
 		}
 
-		if (statement.kind == ast::Stmt::Kind::Break)
+		if (statement.kind == ast::Stmt::Kind::Break) {
+			// FE-107: emit cleanup for scopes up to and including the
+			// enclosing loop body before the actual break.
+			if (pending_pre_statements_)
+				emit_loop_exit_cleanup(*pending_pre_statements_, locals);
 			return std::make_unique<ir::BreakStatement>();
+		}
 
-		if (statement.kind == ast::Stmt::Kind::Continue)
+		if (statement.kind == ast::Stmt::Kind::Continue) {
+			// FE-107: same cleanup chain as `break`. The `for` loop's
+			// increment runs before the next iteration regardless.
+			if (pending_pre_statements_)
+				emit_loop_exit_cleanup(*pending_pre_statements_, locals);
 			return std::make_unique<ir::ContinueStatement>();
+		}
 
 		if (statement.kind == ast::Stmt::Kind::Expr) {
 			const auto &expr_statement = static_cast<const ast::ExprStmt &>(statement);
@@ -1353,8 +1451,13 @@ private:
 		}
 
 		const auto &ret = static_cast<const ast::ReturnStmt &>(statement);
-		return std::make_unique<ir::ReturnStatement>(
-			lower_expr(*ret.value, locals, function_return_type));
+		// FE-107: lower the return value first (so any `?`-induced
+		// pre-statements land before cleanup), then emit cleanup for every
+		// active defer scope, then the return itself.
+		auto value = lower_expr(*ret.value, locals, function_return_type);
+		if (pending_pre_statements_)
+			emit_return_cleanup(*pending_pre_statements_, locals);
+		return std::make_unique<ir::ReturnStatement>(std::move(value));
 	}
 
 	ir::Function lower_function(const ast::Function &function)
@@ -1491,6 +1594,7 @@ private:
 	const std::vector<std::string> *current_module_path_ = nullptr;
 	std::vector<std::unique_ptr<ir::Statement>> *pending_pre_statements_ = nullptr;
 	std::size_t try_temp_counter_ = 0;
+	std::vector<DeferScope> defer_scopes_;
 	// FE-103: type-variable substitutions active while lowering a generic
 	// monomorph (e.g. {"T" -> i32}). lower_type_name consults this first.
 	std::unordered_map<std::string, ir::Type> current_type_substitutions_;

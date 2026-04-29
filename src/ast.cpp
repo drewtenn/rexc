@@ -206,4 +206,9 @@ UnsafeBlockStmt::UnsafeBlockStmt(SourceLocation location,
 {
 }
 
+DeferStmt::DeferStmt(SourceLocation location, std::unique_ptr<Expr> call)
+	: Stmt(Kind::Defer, std::move(location)), call(std::move(call))
+{
+}
+
 } // namespace rexc::ast

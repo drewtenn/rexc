@@ -135,11 +135,16 @@ statement
 	| forStatement
 	| breakStatement
 	| continueStatement
+	| deferStatement
 	| unsafeBlock
 	;
 
 unsafeBlock
 	: 'unsafe' '{' statement* '}'
+	;
+
+deferStatement
+	: 'defer' callExpression ';'
 	;
 
 letStatement

@@ -369,6 +369,13 @@ private:
 		return std::make_unique<ast::UnsafeBlockStmt>(location(context), std::move(body));
 	}
 
+	std::unique_ptr<ast::Stmt> build_defer_statement(RexyParser::DeferStatementContext *context)
+	{
+		// Grammar: 'defer' callExpression ';'
+		auto call = build_call_expression(context->callExpression());
+		return std::make_unique<ast::DeferStmt>(location(context), std::move(call));
+	}
+
 	ast::Function build_signature(antlr4::tree::TerminalNode *name,
 	                              RexyParser::ParameterListContext *parameters,
 	                              RexyParser::TypeContext *return_type,
@@ -438,6 +445,8 @@ private:
 			return std::make_unique<ast::BreakStmt>(location(break_statement));
 		if (auto *continue_statement = context->continueStatement())
 			return std::make_unique<ast::ContinueStmt>(location(continue_statement));
+		if (auto *defer_statement = context->deferStatement())
+			return build_defer_statement(defer_statement);
 		if (auto *unsafe_block = context->unsafeBlock())
 			return build_unsafe_block(unsafe_block);
 

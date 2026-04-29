@@ -3,6 +3,7 @@
 // These tests exercise parse_source through the generated ANTLR parser and the
 // AST builder. They verify that accepted Rexy syntax becomes the compiler-owned
 // AST shape expected by sema and later stages.
+#include "rexc/ast.hpp"
 #include "rexc/parse.hpp"
 #include "rexc/diagnostics.hpp"
 #include "rexc/source.hpp"
@@ -1327,4 +1328,30 @@ TEST_CASE(parser_accepts_function_without_generics_keeps_empty_list)
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
 	REQUIRE(result.module().functions[0].generic_parameters.empty());
+}
+
+// FE-107: `defer call();` is a top-level statement form. The body must
+// be a call expression terminated by `;`.
+TEST_CASE(parser_accepts_defer_statement)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn cleanup() -> i32 { return 0; }\n"
+	    "fn main() -> i32 {\n"
+	    "    defer cleanup();\n"
+	    "    return 1;\n"
+	    "}\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	const auto &main_fn = result.module().functions[1];
+	REQUIRE_EQ(main_fn.name, std::string("main"));
+	REQUIRE_EQ(main_fn.body.size(), std::size_t(2));
+	REQUIRE(main_fn.body[0]->kind == rexc::ast::Stmt::Kind::Defer);
+	const auto &defer = static_cast<const rexc::ast::DeferStmt &>(*main_fn.body[0]);
+	REQUIRE(defer.call != nullptr);
+	REQUIRE(defer.call->kind == rexc::ast::Expr::Kind::Call);
 }

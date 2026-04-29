@@ -2150,3 +2150,30 @@ TEST_CASE(sema_accepts_explicit_arena_parameter)
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
 }
+
+// FE-107: defer body is type-checked at the registration site.
+TEST_CASE(sema_accepts_defer_with_known_callee)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn cleanup() -> i32 { return 0; }\n"
+	    "fn run() -> i32 { defer cleanup(); return 1; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// FE-107: an unknown callee inside a defer body is a sema error — the
+// body is checked normally with the locals/globals at the registration
+// site.
+TEST_CASE(sema_rejects_defer_with_unknown_callee)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run() -> i32 { defer no_such_function(); return 1; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("no_such_function") != std::string::npos);
+}

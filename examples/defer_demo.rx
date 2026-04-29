@@ -1,0 +1,49 @@
+// FE-107 verification fixture: defer fires on early return AND normal exit,
+// in LIFO order, with block-scoped registration.
+//
+// `RESULT` is shifted-and-added by the cleanup callees so the final exit
+// code uniquely identifies whether each defer ran and in what order.
+//
+// Trace for `main`:
+//   run(true):
+//     defer add_a()  registered in fn scope                 [LIFO slot 2]
+//     defer add_b()  registered in if-then scope            [LIFO slot 1]
+//     return 7  →  cleanup chain runs:
+//                    - if-then scope: add_b()  → RESULT = 0*10 + 2 = 2
+//                    - fn scope:      add_a()  → RESULT = 2*10 + 1 = 21
+//   run(false):
+//     defer add_a()  registered                              [only defer]
+//     return 8  →  cleanup runs:
+//                    - fn scope:      add_a()  → RESULT = 21*10 + 1 = 211
+//
+// Final exit code: 211. Anything else means a bug:
+//   * 121  →  FIFO instead of LIFO
+//   *  21  →  defer skipped on normal-end path
+//   *  11  →  defer skipped on early-return path
+
+static mut RESULT: i32 = 0;
+
+fn add_a() -> i32 {
+    RESULT = RESULT * 10 + 1;
+    return 0;
+}
+
+fn add_b() -> i32 {
+    RESULT = RESULT * 10 + 2;
+    return 0;
+}
+
+fn run(go: bool) -> i32 {
+    defer add_a();
+    if go {
+        defer add_b();
+        return 7;
+    }
+    return 8;
+}
+
+fn main() -> i32 {
+    run(true);
+    run(false);
+    return RESULT;
+}
