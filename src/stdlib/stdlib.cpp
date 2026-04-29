@@ -243,7 +243,20 @@ const std::unordered_set<std::string> &default_prelude_names()
 	    "parse_i32", "parse_bool",
 	    "print_i32", "println_i32", "print_bool", "println_bool", "print_char",
 	    "println_char", "read_i32", "read_bool",
-	    "panic"};
+	    "panic",
+	    // FE-106: expose the implicit-static `alloc_*` helpers and the
+	    // explicit-arena `arena_*` API (FE-105) under bare names. The
+	    // `Arena` struct itself is already reachable as a type because
+	    // sema's `build_type_tables` registers stdlib-declared structs
+	    // whenever `include_stdlib_symbols()` is true (i.e. under both
+	    // `DefaultPrelude` and `All`); the missing piece was the bare
+	    // function-name lookup, which `prelude_functions()` filters via
+	    // this allowlist. Adding the names here is the user-visibility
+	    // step that complements FE-105.
+	    "alloc_bytes", "alloc_remaining", "alloc_used", "alloc_capacity",
+	    "alloc_can_allocate", "alloc_reset",
+	    "arena_init", "arena_alloc", "arena_remaining", "arena_used",
+	    "arena_capacity", "arena_can_allocate", "arena_reset"};
 	return names;
 }
 

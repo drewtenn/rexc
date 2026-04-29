@@ -82,3 +82,55 @@ TEST_CASE(smoke_arena_as_value_end_to_end_assembly)
 	REQUIRE(assembly.find("bl _arena_alloc") != std::string::npos);
 	REQUIRE(assembly.find("bl _arena_used") != std::string::npos);
 }
+
+// FE-106: round-trip smoke under the CLI's *default* symbol policy
+// (StdlibSymbolPolicy::DefaultPrelude). User code must reach both the
+// implicit-static `alloc_bytes` helper and the explicit-arena
+// `arena_*` API by bare name, and must be able to name `Arena` as a
+// type — all without enabling StdlibSymbolPolicy::All.
+//
+// This is the user-visibility complement to FE-105: that ticket made
+// the symbols exist and resolve under the All policy; this ticket
+// lifts them into the default prelude so the CLI works out of the
+// box.
+TEST_CASE(smoke_arena_and_alloc_under_default_prelude)
+{
+	const std::string source =
+		"static mut USER_BUF: [u8; 64];\n"
+		"fn main() -> i32 {\n"
+		"    let legacy: *u8 = alloc_bytes(8);\n"
+		"    let mut a: Arena = Arena { storage: USER_BUF + 0, capacity: 64, offset: 0 };\n"
+		"    arena_init(&a, USER_BUF + 0, 64);\n"
+		"    let block: *u8 = arena_alloc(&a, 12);\n"
+		"    return arena_used(&a);\n"
+		"}\n";
+
+	rexc::SourceFile file("smoke_fe106.rx", source);
+	rexc::Diagnostics diagnostics;
+	auto parsed = rexc::parse_source(file, diagnostics);
+	REQUIRE(parsed.ok());
+
+	rexc::SemanticOptions semantic_options;
+	// Explicitly assert the default — this is the contract that breaks
+	// before FE-106 and passes after.
+	semantic_options.stdlib_symbols = rexc::StdlibSymbolPolicy::DefaultPrelude;
+	semantic_options.enforce_unsafe_blocks = false;
+	auto sema = rexc::analyze_module(parsed.module(), diagnostics, semantic_options);
+	REQUIRE(sema.ok());
+	REQUIRE(!diagnostics.has_errors());
+
+	rexc::LowerOptions lower_options;
+	lower_options.stdlib_symbols = rexc::LowerStdlibSymbolPolicy::DefaultPrelude;
+	auto ir = rexc::lower_to_ir(parsed.module(), lower_options);
+	auto result = rexc::emit_arm64_macos_assembly(ir, diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+
+	const std::string assembly = result.assembly();
+
+	// Both call paths must land in the emitted user-module assembly.
+	REQUIRE(assembly.find("bl _alloc_bytes") != std::string::npos);
+	REQUIRE(assembly.find("bl _arena_init") != std::string::npos);
+	REQUIRE(assembly.find("bl _arena_alloc") != std::string::npos);
+	REQUIRE(assembly.find("bl _arena_used") != std::string::npos);
+}

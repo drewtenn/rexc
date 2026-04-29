@@ -740,27 +740,10 @@ TEST_CASE(sema_rejects_non_default_stdlib_helpers_as_bare_names)
 		        std::string::npos);
 	}
 
-	{
-		rexc::Diagnostics diagnostics;
-
-		auto result = analyze("fn main() -> i32 { alloc_reset(); return 0; }\n",
-		                      diagnostics);
-
-		REQUIRE(!result.ok());
-		REQUIRE(diagnostics.format().find("unknown function 'alloc_reset'") !=
-		        std::string::npos);
-	}
-
-	{
-		rexc::Diagnostics diagnostics;
-
-		auto result = analyze("fn main() -> i32 { return alloc_remaining(); }\n",
-		                      diagnostics);
-
-		REQUIRE(!result.ok());
-		REQUIRE(diagnostics.format().find("unknown function 'alloc_remaining'") !=
-		        std::string::npos);
-	}
+	// FE-106: `alloc_reset` / `alloc_remaining` are now part of the
+	// default prelude alongside `alloc_bytes` and the `arena_*` family,
+	// so they are intentionally NOT covered by this rejection test
+	// anymore. The internal helpers below remain out of the prelude.
 
 	{
 		rexc::Diagnostics diagnostics;

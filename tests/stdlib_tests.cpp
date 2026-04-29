@@ -535,8 +535,21 @@ TEST_CASE(stdlib_default_prelude_contains_only_user_facing_names)
 	REQUIRE(print_i32 != nullptr);
 	REQUIRE(panic != nullptr);
 
+	// FE-106: the implicit-static `alloc_bytes` helper and the explicit
+	// `arena_*` API are user-facing — they must be reachable by bare
+	// name under the CLI's default symbol policy.
+	REQUIRE(rexc::stdlib::find_prelude_function("alloc_bytes") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("alloc_remaining") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("alloc_used") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("alloc_reset") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("arena_init") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("arena_alloc") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("arena_used") != nullptr);
+	REQUIRE(rexc::stdlib::find_prelude_function("arena_remaining") != nullptr);
+
+	// Internal / non-user-facing helpers stay out of the prelude. Users
+	// who need them must reach them via their `std::*` canonical paths.
 	REQUIRE(rexc::stdlib::find_prelude_function("memset_u8") == nullptr);
-	REQUIRE(rexc::stdlib::find_prelude_function("alloc_bytes") == nullptr);
 	REQUIRE(rexc::stdlib::find_prelude_function("alloc_i32_to_str") == nullptr);
 	REQUIRE(rexc::stdlib::find_prelude_function("result_is_ok") == nullptr);
 	REQUIRE(rexc::stdlib::find_prelude_function("file_open_read") == nullptr);
