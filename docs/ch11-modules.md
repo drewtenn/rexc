@@ -85,8 +85,8 @@ fn main() -> i32 {
 Build `main.rx` the way you have been building everything else:
 
 ```sh
-rexc main.rx --target i386-drunix --drunix-root "$DRUNIX" -o app.drunix
-./app.drunix
+rexc main.rx --target arm64-macos -o app
+./app
 echo $?
 ```
 

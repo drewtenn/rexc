@@ -6,10 +6,10 @@ author:
 language: en-US
 rights: "Copyright © 2026 Drew Tennenbaum. All rights reserved."
 description: >
-  A hands-on tutorial for Rexy, an experimental systems language for
-  Drunix userland. Each chapter walks the reader through code they
-  type, run, and modify, covering values and types, bindings and
-  functions, control flow, pattern matching, structs, enums, tuples and
-  slices, pointers and statics, the unsafe boundary, modules, generics,
-  the standard library, and building Rexy programs for Drunix.
+  A hands-on tutorial for Rexy, an experimental systems language. Each
+  chapter walks the reader through code they type, run, and modify,
+  covering values and types, bindings and functions, control flow,
+  pattern matching, structs, enums, tuples and slices, pointers and
+  statics, the unsafe boundary, modules, generics, the standard
+  library, and building Rexy programs.
 ---

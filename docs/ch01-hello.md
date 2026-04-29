@@ -4,9 +4,9 @@
 
 ### Write It
 
-Open a new file called `hello.rx`. Every Rexy source file ends in `.rx`.
-That is what the compiler looks for, and it is the only file extension
-this book will use.
+Open a new file called `hello.rx`. Every Rexy source file ends in
+`.rx`. That is what the compiler looks for, and it is the only file
+extension this book will use.
 
 Type this in:
 
@@ -16,24 +16,26 @@ fn main() -> i32 {
 }
 ```
 
-Save the file. You have just written a complete Rexy program. It does not
-do much yet, but it is a real program: the compiler will accept it and
-Drunix will run it.
+Save the file. You have just written a complete Rexy program. It does
+not do much yet, but it is a real program: the compiler will accept it
+and your operating system will run it.
 
 ### Build And Run It
 
-From the directory where you saved `hello.rx`, run:
+This book builds for **macOS on Apple Silicon** by default. From the
+directory where you saved `hello.rx`, run:
 
 ```sh
-rexc hello.rx --target i386-drunix --drunix-root "$DRUNIX" -o hello.drunix
-./hello.drunix
+rexc hello.rx --target arm64-macos -o hello
+./hello
 echo $?
 ```
 
-Replace `$DRUNIX` with the path to your Drunix checkout. We will come
-back to those flags in Chapter 14, where you will need to know what each
-one is doing. For now, treat the command as the recipe for "compile and
-link a Rexy program into a Drunix executable".
+`--target arm64-macos` selects the macOS arm64 backend, which produces
+a normal Mach-O command-line executable. `-o hello` names the output
+file. We will come back to those flags in Chapter 14, where you will
+also see how to target other platforms. For now, treat the command as
+the recipe for "compile and run a Rexy program".
 
 You should see this:
 
@@ -42,10 +44,10 @@ You should see this:
 ```
 
 That number is what your program returned to the operating system.
-Drunix took the value out of `main` and reported it as the exit status.
-The convention across most operating systems is that `0` means "the
-program finished without error" and any other value means something the
-caller might want to know about.
+The shell took the value out of `main` and reported it as the exit
+status. The convention across most operating systems is that `0`
+means "the program finished without error" and any other value means
+something the caller might want to know about.
 
 ### Look At What You Wrote
 
@@ -59,16 +61,16 @@ fn main() -> i32 {
 
 Three things are worth naming.
 
-`fn main` declares a function called `main`. Every Rexy executable needs
-a `main`. When the operating system starts your program, it eventually
-calls this function, and what `main` returns becomes the program's exit
-status.
+`fn main` declares a function called `main`. Every Rexy executable
+needs a `main`. When the operating system starts your program, it
+eventually calls this function, and what `main` returns becomes the
+program's exit status.
 
 `-> i32` is the return type. The arrow says "this function returns",
 followed by the type of value it returns. `i32` is a 32-bit signed
-integer. You will meet the rest of the primitive types in Chapter 2, but
-`i32` is the one you will see most often, and the one Drunix expects
-from `main`.
+integer. You will meet the rest of the primitive types in Chapter 2,
+but `i32` is the one you will see most often, and the one a `main`
+function is expected to return.
 
 `return 0;` is a statement. It hands the value `0` back as the
 function's result. The semicolon ends the statement, the same way
@@ -87,8 +89,8 @@ fn main() -> i32 {
 Rebuild and run:
 
 ```sh
-rexc hello.rx --target i386-drunix --drunix-root "$DRUNIX" -o hello.drunix
-./hello.drunix
+rexc hello.rx --target arm64-macos -o hello
+./hello
 echo $?
 ```
 
@@ -96,8 +98,8 @@ echo $?
 42
 ```
 
-Drunix faithfully reported whatever number `main` handed it. Try a few
-more values. Try `-1`:
+The shell faithfully reported whatever number `main` handed it. Try a
+few more values. Try `-1`:
 
 ```rust
 fn main() -> i32 {
@@ -109,11 +111,11 @@ fn main() -> i32 {
 255
 ```
 
-That probably is not what you expected. Exit statuses on most operating
-systems wrap to fit in a single byte, so `-1` comes back as `255`, and a
-return of `256` would look like `0`. That is a Drunix and Unix
-convention, not a Rexy rule. Your program faithfully returned the value
-you typed; the shell only showed you the lowest byte.
+That probably is not what you expected. Exit statuses on most
+operating systems wrap to fit in a single byte, so `-1` comes back as
+`255`, and a return of `256` would look like `0`. That is a Unix
+convention, not a Rexy rule. Your program faithfully returned the
+value you typed; the shell only showed you the lowest byte.
 
 ### Try A Tiny Bit Of Math
 
@@ -157,8 +159,8 @@ fn main() -> i32 {
 }
 ```
 
-Build it. The compiler should refuse, with a message that points at the
-line where the semicolon was missing. Put it back, and the program
+Build it. The compiler should refuse, with a message that points at
+the line where the semicolon was missing. Put it back, and the program
 compiles again.
 
 Now try forgetting the `return`:
@@ -170,8 +172,9 @@ fn main() -> i32 {
 ```
 
 The compiler should refuse this one too. Every path through a Rexy
-function must end in a `return`. The compiler enforces this so that no
-function ever falls off the end without giving its caller a value back.
+function must end in a `return`. The compiler enforces this so that
+no function ever falls off the end without giving its caller a value
+back.
 
 These error messages will be your most common companion as you learn
 Rexy. They are designed to point at the exact problem and to tell you
@@ -179,9 +182,9 @@ what the language expected. Read them carefully when they appear.
 
 ### Where You Are by the End of Chapter 1
 
-You have written a Rexy file, compiled it, run it on Drunix, and watched
-the operating system report the value `main` returned. You also know
-what happens when you forget a semicolon or a `return`.
+You have written a Rexy file, compiled it, run it, and watched the
+operating system report the value `main` returned. You also know what
+happens when you forget a semicolon or a `return`.
 
 You know:
 

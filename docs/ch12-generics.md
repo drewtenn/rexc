@@ -198,5 +198,5 @@ You know:
 
 Part VI takes everything you have built and turns it outward. The
 standard library gives you I/O, parsing, and string helpers. The final
-chapter walks the program from a `.rx` source file to a Drunix
+chapter walks the program from a `.rx` source file to a runnable
 executable on disk.

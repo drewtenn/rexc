@@ -29,7 +29,7 @@ fn main() -> i32 {
 Build and run:
 
 ```sh
-./hello.drunix
+./hello
 ```
 
 ```text
@@ -101,7 +101,7 @@ fn main() -> i32 {
 Run with input piped in:
 
 ```sh
-echo "rexy" | ./hello.drunix
+echo "rexy" | ./hello
 ```
 
 ```text
@@ -128,7 +128,7 @@ fn main() -> i32 {
 ```
 
 ```sh
-echo "21" | ./hello.drunix
+echo "21" | ./hello
 ```
 
 ```text

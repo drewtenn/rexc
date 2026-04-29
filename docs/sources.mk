@@ -17,6 +17,6 @@ DOCS_SRC := \
 	docs/partV-organizing.md \
 	docs/ch11-modules.md \
 	docs/ch12-generics.md \
-	docs/partVI-stdlib-drunix.md \
+	docs/partVI-stdlib-toolchain.md \
 	docs/ch13-stdlib.md \
-	docs/ch14-drunix.md
+	docs/ch14-building.md
