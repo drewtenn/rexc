@@ -2,14 +2,11 @@
 
 ## Chapter 7 - Enums and Variants
 
-### Choice as a Type
+### A List Of Alternatives
 
-A **struct** is a record of fields, all present at once. An **enum** is the
-opposite shape: exactly one of several alternatives. Enums let us write
-types like "either a success with an integer or an error with a code" and
-have the compiler enforce that we handle both cases.
-
-The simplest enum is a list of named alternatives:
+A struct says "all of these fields, together". An **enum** says
+"exactly one of these alternatives". Try a simple enum with no
+payloads:
 
 ```rust
 enum Direction {
@@ -18,86 +15,98 @@ enum Direction {
     East,
     West,
 }
+
+fn code(d: Direction) -> i32 {
+    match d {
+        Direction::North => { return 1; },
+        Direction::South => { return 2; },
+        Direction::East => { return 3; },
+        Direction::West => { return 4; },
+    }
+}
+
+fn main() -> i32 {
+    return code(Direction::East);
+}
 ```
 
-Each name in the body is a **variant**. A value of type `Direction` is
-exactly one variant, never zero, never more than one. The compiler tracks
-which variant a value holds and uses that tracking to check `match`
-statements.
+```text
+3
+```
+
+Each name in the body of the enum is a **variant**. A value of type
+`Direction` is exactly one variant, never zero, never more than one.
+
+To build a value, name the enum and the variant with `::`:
+`Direction::North`. To read it, you `match`. The compiler tracks which
+variant a value holds and uses that tracking to check `match`
+statements: if you forget a variant in a `match`, the compiler tells
+you about it.
 
 ### Variants With Payloads
 
-Variants may carry data of their own. A variant followed by a parenthesized
-type list becomes a tagged record:
+Variants may carry data. A variant followed by a parenthesized type
+list becomes a tagged record:
 
 ```rust
 enum Outcome {
     Ok(i32),
     Err(i32),
 }
-```
 
-A value of type `Outcome` is either `Ok(value)` for some `i32` value or
-`Err(code)` for some `i32` code. Different variants of the same enum can
-carry different types and different numbers of fields. Variants without a
-payload, like `North` above, are simply variants whose payload list is
-empty.
+fn unwrap_or(o: Outcome, fallback: i32) -> i32 {
+    match o {
+        Outcome::Ok(value) => { return value; },
+        Outcome::Err(_) => { return fallback; },
+    }
+}
 
-### Building an Enum Value
-
-To build a value of an enum type, we name the enum and the variant with
-`::` and supply the payload, if any:
-
-```rust
-let win: Outcome = Outcome::Ok(42);
-let lose: Outcome = Outcome::Err(1);
-let way: Direction = Direction::North;
-```
-
-The path `Outcome::Ok` is a qualified name. We will see `::` again in
-modules, where the same operator separates module names. For enum
-construction, the rule is simply: enum name, then `::`, then variant name.
-
-### Matching on Variants
-
-Enums become useful the moment we `match` on them. The pattern syntax we
-saw in Chapter 5 grows two new forms here. A constructor pattern matches a
-specific variant and binds its payload:
-
-```rust
-match result {
-    Outcome::Ok(value) => {
-        return value;
-    },
-    Outcome::Err(_) => {
-        return -1;
-    },
+fn main() -> i32 {
+    let success: Outcome = Outcome::Ok(42);
+    let failure: Outcome = Outcome::Err(1);
+    return unwrap_or(success, 0) - unwrap_or(failure, 0);
 }
 ```
 
-In the first arm, `value` is a fresh local that holds the `i32` carried by
-the `Ok` variant. It is in scope for the body of that arm only. In the
-second arm, the wildcard `_` says we do not need the payload, only the
-variant.
+```text
+42
+```
 
-For variants whose payload looks like a struct, a struct-shaped binding list
-inside braces lets us name each field individually. Most of the enums we
-write will use the parenthesized payload form, but the brace form exists for
-the cases where naming each field reads better than positional binding.
+In the first arm, `value` is a fresh local that holds the `i32` carried
+by the `Ok` variant. It is in scope for the body of that arm only. In
+the second arm, the wildcard `_` says you do not need the payload, only
+the variant.
 
-### Why `match` Earns Its Keep Here
+A value of type `Outcome` is either `Outcome::Ok(value)` for some `i32`
+value or `Outcome::Err(code)` for some `i32` code. Different variants
+of the same enum can carry different types and different numbers of
+fields.
 
-When the value being matched is an enum, Rexy can tell us about variants we
-forgot. If `Outcome` grows a third variant later, every `match` over an
-`Outcome` that does not handle the new variant becomes a diagnostic at the
-point where the `match` was written. That is the property `if`/`else if`
-chains cannot give us: enums plus `match` make new alternatives a checked
-change, not a silent one.
+### Forgetting A Variant Is A Compile Error
+
+This is one of the places `match` earns its keep. Take the `Outcome`
+example and remove an arm:
+
+```rust
+fn unwrap_or(o: Outcome, fallback: i32) -> i32 {
+    match o {
+        Outcome::Ok(value) => { return value; },
+    }
+}
+```
+
+The compiler refuses, telling you the `Err` variant is unhandled. Add
+the missing arm back, and the program compiles. If `Outcome` ever
+grows a third variant, every `match` in the program that does not
+handle the new variant will become a compile error at the point where
+the `match` was written. That is the property `if`/`else if` chains
+cannot give you.
 
 ### Public Enums
 
-Like structs, an enum declared in a module is private by default. To make
-the type and its variants visible to other modules, we mark the enum `pub`:
+Like structs, an enum declared in a module is private by default. To
+make the type and its variants visible to other modules, you mark the
+enum `pub`:
 
 ```rust
 pub enum Outcome {
@@ -106,18 +115,28 @@ pub enum Outcome {
 }
 ```
 
-The visibility applies to the enum and all of its variants together. There
-is no way to expose one variant without exposing the others, and that is
-deliberate: variants only make sense as a set.
+The visibility applies to the enum and all of its variants together.
+There is no way to expose one variant without exposing the others, and
+that is deliberate: variants only make sense as a set.
 
-### Where We Are by the End of Chapter 7
+### Where You Are by the End of Chapter 7
 
-We can model choice as a type. We can attach data to a variant and pull
-that data back out with a `match`. Combined with structs, we now have the
-two shapes that almost every program eventually wants: "all of these,
-together" and "exactly one of these".
+You can model choice as a type. You can attach data to a variant and
+pull that data back out with a `match`. Combined with structs, you now
+have the two shapes that almost every program eventually wants: "all
+of these, together" and "exactly one of these".
 
-There are two more composites worth meeting before we leave the data
-chapters. Tuples give us "a fixed group of typed values without naming
-them", and slices give us "a contiguous run of values of the same type".
-Chapter 8 introduces both.
+You know:
+
+- `enum Name { Variant, Variant(Type), ... }` declares a tagged-union
+  type.
+- `Name::Variant(...)` builds a value of that variant.
+- `match` over an enum binds the payload of each variant in its arm.
+- The compiler enforces that a `match` covers every variant.
+- `pub enum` exposes both the type and its variants across module
+  boundaries.
+
+There are two more composites worth meeting before you leave the data
+chapters. Tuples give you "a fixed group of typed values without naming
+them", and slices give you "a contiguous run of values of the same
+type". Chapter 8 introduces both.

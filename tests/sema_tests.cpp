@@ -2107,38 +2107,25 @@ TEST_CASE(sema_rejects_enum_constructor_payload_type_mismatch)
 }
 
 // FE-105: an explicit allocator-as-value parameter — `*Arena` — must
-// type-check, including assigning through `(*arena).field` and reading
-// fields from the pointed-to struct. Mirrors the shape of the new
-// arena_* API in src/stdlib/alloc/alloc.rx. The test redeclares an
-// Arena-shaped struct under a unique name and uses a unique `allocate_block`
-// helper because the stdlib reserves `Arena` and `arena_*` symbols
-// globally even when (today) it cannot register them through
-// find_stdlib_function — see stdlib::reserved_runtime_symbols.
+// type-check, including calling the registered stdlib `arena_alloc`
+// with a `*Arena` argument from user code. Now that
+// `stdlib::resolve_source_type` recognizes user-struct names declared
+// in the same parsed unit and `stdlib_structs()` exposes the Arena
+// shape to sema, user code can name `Arena` directly and call into the
+// registered `arena_*` functions with `StdlibSymbolPolicy::All` (the
+// non-prelude allocator API has always required this opt-in, mirroring
+// the existing `alloc_bytes` test above).
 TEST_CASE(sema_accepts_explicit_arena_parameter)
 {
 	rexc::Diagnostics diagnostics;
+	rexc::SemanticOptions options;
+	options.stdlib_symbols = rexc::StdlibSymbolPolicy::All;
 	auto result = analyze(
-	    "struct LocalArena {\n"
-	    "    storage: *u8,\n"
-	    "    capacity: i32,\n"
-	    "    offset: i32,\n"
-	    "}\n"
-	    "fn local_arena_remaining(arena: *LocalArena) -> i32 {\n"
-	    "    return (*arena).capacity - (*arena).offset;\n"
-	    "}\n"
-	    "fn local_arena_alloc(arena: *LocalArena, len: i32) -> *u8 {\n"
-	    "    if len > local_arena_remaining(arena) {\n"
-	    "        return (*arena).storage + 0;\n"
-	    "    }\n"
-	    "    let start: i32 = (*arena).offset;\n"
-	    "    (*arena).offset = (*arena).offset + len;\n"
-	    "    return (*arena).storage + start;\n"
-	    "}\n"
-	    "fn allocate_block(arena: *LocalArena, n: i32) -> *u8 {\n"
-	    "    return local_arena_alloc(arena, n);\n"
+	    "fn allocate_block(arena: *Arena, n: i32) -> *u8 {\n"
+	    "    return arena_alloc(arena, n);\n"
 	    "}\n"
 	    "fn main() -> i32 { return 0; }\n",
-	    diagnostics);
+	    diagnostics, options);
 	REQUIRE(result.ok());
 	REQUIRE(!diagnostics.has_errors());
 }

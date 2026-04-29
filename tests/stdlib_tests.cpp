@@ -779,16 +779,10 @@ TEST_CASE(stdlib_runtime_dispatch_returns_different_target_assemblies)
 }
 
 // FE-105: Arena struct + arena_* explicit-allocator API are visible in
-// alloc.rx and compile into the portable stdlib assembly. The
-// `find_stdlib_function` lookup surface is currently keyed off
-// PrimitiveType-resolvable signatures (see resolve_source_type in
-// src/stdlib/stdlib.cpp), which doesn't yet recognize user-struct names
-// like *Arena, so the registry skips the arena_* declarations. This
-// test pins both the textual presence in alloc.rx and the codegen
-// presence in the emitted runtime assembly. A follow-up (FE-106 or
-// later) is expected to extend stdlib registration so user-struct
-// signatures show through find_stdlib_function and a future
-// find_stdlib_struct.
+// alloc.rx, compile into the portable stdlib assembly, and (after the
+// stdlib::resolve_source_type extension that recognizes user-struct
+// names declared in the same parsed unit) are now registered in
+// find_stdlib_function so user code can call arena_alloc(arena, n).
 TEST_CASE(stdlib_exposes_arena_struct_and_arena_alloc_function)
 {
 	const std::string source_dir = REXC_SOURCE_DIR;
@@ -816,12 +810,20 @@ TEST_CASE(stdlib_exposes_arena_struct_and_arena_alloc_function)
 	REQUIRE(contains(arm64, "_arena_can_allocate:"));
 	REQUIRE(contains(arm64, "_arena_reset:"));
 
-	// Document the current registration gap: arena_* takes/returns
-	// *Arena, which parse_primitive_type does not yet recognize, so
-	// these symbols are intentionally absent from find_stdlib_function
-	// today even though the names are reserved through
-	// reserved_runtime_symbols and the bodies are compiled into the
-	// stdlib assembly above.
 	auto arena_alloc = rexc::stdlib::find_stdlib_function("arena_alloc");
-	REQUIRE(arena_alloc == nullptr);
+	REQUIRE(arena_alloc != nullptr);
+	REQUIRE(arena_alloc->parameters.size() == 2);
+	REQUIRE(arena_alloc->parameters[0].kind == rexc::PrimitiveKind::Pointer);
+	REQUIRE(arena_alloc->parameters[0].pointee != nullptr);
+	REQUIRE(arena_alloc->parameters[0].pointee->kind ==
+	        rexc::PrimitiveKind::UserStruct);
+	REQUIRE(arena_alloc->parameters[0].pointee->name == "Arena");
+	REQUIRE(arena_alloc->parameters[1].kind ==
+	        rexc::PrimitiveKind::SignedInteger);
+	REQUIRE(arena_alloc->parameters[1].bits == 32);
+	REQUIRE(arena_alloc->return_type.kind == rexc::PrimitiveKind::Pointer);
+	REQUIRE(arena_alloc->return_type.pointee != nullptr);
+	REQUIRE(arena_alloc->return_type.pointee->kind ==
+	        rexc::PrimitiveKind::UnsignedInteger);
+	REQUIRE(arena_alloc->return_type.pointee->bits == 8);
 }

@@ -2,75 +2,131 @@
 
 ## Chapter 6 - Structs
 
-### Naming a Group of Values
+### Declaring A Struct
 
-A **struct** is a named record of fields. Each field has its own name and
-its own type. Structs let us bundle related values into a single thing the
-program can pass around, store, and reason about as one unit.
-
-We declare a struct at the top level of a file, alongside functions:
+A **struct** is a named record of fields. Each field has its own name
+and its own type. You declare a struct at the top level of a file,
+alongside functions:
 
 ```rust
 struct Point {
     x: i32,
     y: i32,
 }
-```
 
-The declaration creates a new type called `Point`. From this point on,
-`Point` may appear anywhere a primitive type may appear: in a parameter
-list, as a return type, or as the type of a `let` binding.
-
-Field declarations are separated by commas. A trailing comma after the last
-field is allowed. The compiler does not care about whether the fields are on
-their own lines, but the convention in this book is one field per line for
-anything beyond the smallest structs.
-
-### Building a Struct Value
-
-To build a value of a struct type, we use a **struct literal**:
-
-```rust
-let origin: Point = Point { x: 0, y: 0 };
-```
-
-The literal names the struct, then provides each field by name. Every field
-the struct declares must appear, and a field name may not appear twice. The
-order does not have to match the declaration order, but readers will thank
-us if it usually does.
-
-Struct values can be passed to functions like any other value:
-
-```rust
-fn shifted(p: Point, dx: i32) -> Point {
-    return Point { x: p.x + dx, y: p.y };
+fn main() -> i32 {
+    let origin: Point = Point { x: 0, y: 0 };
+    return origin.x + origin.y;
 }
 ```
 
-The return type of `shifted` is `Point`. Inside the body, `p.x` and `p.y`
-read the fields of the parameter, and the return statement constructs a
-fresh `Point`.
+```text
+0
+```
+
+The declaration creates a new type called `Point`. From this point on,
+`Point` may appear anywhere a primitive type may appear: as a parameter
+type, a return type, or the type of a `let` binding.
+
+### Building A Struct Value
+
+To build a value of a struct type, use a **struct literal**: name the
+struct, then provide each field by name.
+
+```rust
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() -> i32 {
+    let p: Point = Point { x: 30, y: 12 };
+    return p.x + p.y;
+}
+```
+
+```text
+42
+```
+
+Every field the struct declared must appear, and a field name may not
+appear twice. The order does not have to match the declaration order,
+but readers will thank you if it usually does.
+
+If you forget a field, the compiler tells you which one is missing. Try
+this:
+
+```rust
+let p: Point = Point { x: 30 };
+```
+
+The diagnostic names `y` as a missing field. Add it back, and the
+program compiles.
 
 ### Reading Fields
 
 Field access uses a dot:
 
 ```rust
-let p: Point = Point { x: 3, y: 4 };
 let x: i32 = p.x;
 let y: i32 = p.y;
 ```
 
 A field expression has the type of the field. The same dot syntax works
-inside any larger expression. There is nothing magical about it: it is just
-the way to ask a struct value for one of its parts.
+inside any larger expression. There is nothing magical about it: it is
+just the way to ask a struct value for one of its parts.
 
-### Mutating Fields Through a Pointer
+### Passing Structs To Functions
 
-Fields of a local struct can be re-bound by assigning a new struct value to
-the local. To mutate a field of a struct that is referenced through a
-pointer, Rexy provides a dedicated form. We will cover pointers in detail in
-Chapter 9, but the syntax is worth seeing now:
+Struct values pass to functions like any other value. Pass them in by
+type name and read the fields inside:
+
+```rust
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn manhattan(p: Point) -> i32 {
+    return p.x + p.y;
+}
+
+fn main() -> i32 {
+    let here: Point = Point { x: 30, y: 12 };
+    return manhattan(here);
+}
+```
+
+```text
+42
+```
+
+You can also return structs:
+
+```rust
+fn shifted(p: Point, dx: i32) -> Point {
+    return Point { x: p.x + dx, y: p.y };
+}
+
+fn main() -> i32 {
+    let p: Point = Point { x: 10, y: 20 };
+    let q: Point = shifted(p, 5);
+    return q.x + q.y;
+}
+```
+
+```text
+35
+```
+
+`shifted` builds and returns a fresh `Point`. The caller binds it to
+`q` and reads its fields.
+
+### Mutating Fields Through A Pointer
+
+You will not see this form in full until Part IV, but it is worth
+seeing the syntax now so it is not a surprise. To write through a
+pointer to a struct field, Rexy uses a dedicated form:
 
 ```rust
 unsafe {
@@ -78,15 +134,15 @@ unsafe {
 }
 ```
 
-That is the form Rexy uses to write through a pointer to a struct field.
-The parentheses and the leading `*` make the indirection explicit, which is
-the same explicitness theme we have followed since Chapter 2: when we
-change something, the code shows where and how.
+The parentheses and the leading `*` make the indirection explicit.
+Chapter 9 introduces pointers properly, and Chapter 10 explains why
+this syntax has to live inside `unsafe`.
 
 ### Public Structs
 
-A struct declared inside a module is private to that module by default. To
-let other modules construct it and read its fields, we mark it `pub`:
+A struct declared inside a module is private to that module by default.
+To let other modules construct it and read its fields, you mark it
+`pub`:
 
 ```rust
 pub struct Point {
@@ -95,17 +151,24 @@ pub struct Point {
 }
 ```
 
-Visibility becomes interesting once we have more than one module. Chapter
-11 covers modules and the visibility rules around them in full. For now it
-is enough to know that the keyword exists and that we will use it where
-needed.
+You will see modules in Chapter 11. For now, just know the keyword
+exists; programs in this chapter all live in a single file, so
+visibility does not matter yet.
 
-### Where We Are by the End of Chapter 6
+### Where You Are by the End of Chapter 6
 
-We can declare a struct, build values of that struct, read its fields, and
-hand it to functions. We have a clean way to give names to grouped data.
+You can declare a struct, build values of that struct, read its fields,
+and pass it to and from functions. You have a clean way to give names
+to grouped data.
 
-What structs cannot do is express choice. A `Point` is always an `x` and a
-`y`. There is no way to say "this is *either* a point *or* a label". For
-that we need enums. Chapter 7 adds them, and once both are in our toolbox
-we can model the data of almost any program we will write.
+You know:
+
+- `struct Name { field: Type, ... }` declares a record type.
+- `Name { field: value, ... }` builds a value of that type.
+- `value.field` reads a field.
+- Structs pass as arguments and return as values like any other type.
+- `pub struct` exposes a struct across module boundaries.
+
+What structs cannot do is express choice. A `Point` is always an `x`
+and a `y`. There is no way to say "this is *either* a point *or* a
+label". For that you need enums. Chapter 7 adds them.

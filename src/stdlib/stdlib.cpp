@@ -13,8 +13,12 @@
 #include "source.hpp"
 #include "sys/runtime.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -22,9 +26,51 @@
 namespace rexc::stdlib {
 namespace {
 
-std::optional<PrimitiveType> resolve_source_type(const ast::TypeName &type)
+std::string trim_type_name(const std::string &value)
 {
-	return parse_primitive_type(type.name);
+	auto begin = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+		return std::isspace(ch) != 0;
+	});
+	auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+		return std::isspace(ch) != 0;
+	}).base();
+	if (begin >= end)
+		return "";
+	return std::string(begin, end);
+}
+
+using UserStructTypeMap = std::unordered_map<std::string, PrimitiveType>;
+
+// FE-105: a stdlib unit may declare its own structs (e.g. `Arena`) and
+// reference them in function signatures (e.g. `*Arena`). The built-in
+// `parse_primitive_type` only knows about language primitives, so we
+// pass it a per-unit map of user-struct names → resolved
+// `UserStruct` PrimitiveType (with `bits` set from the laid-out struct
+// size) and synthesize a `Pointer` wrapping for the `*Arena` form when
+// the primitive parser returns nullopt. Matching the bits exactly is
+// what lets sema treat the registry-side `*Arena` and the user-side
+// `*Arena` as the same PrimitiveType under operator==.
+std::optional<PrimitiveType> resolve_source_type(
+    const ast::TypeName &type,
+    const UserStructTypeMap &user_structs)
+{
+	auto primitive = parse_primitive_type(type.name);
+	if (primitive)
+		return primitive;
+
+	// Direct user struct: "Arena" (or " Arena" defensively).
+	std::string trimmed = trim_type_name(type.name);
+	if (auto it = user_structs.find(trimmed); it != user_structs.end())
+		return it->second;
+
+	// Pointer to user struct: "*Arena" or "* Arena".
+	if (!trimmed.empty() && trimmed.front() == '*') {
+		std::string inner = trim_type_name(trimmed.substr(1));
+		if (auto it = user_structs.find(inner); it != user_structs.end())
+			return pointer_to(it->second);
+	}
+
+	return std::nullopt;
 }
 
 bool is_public_stdlib_function(const ast::Function &function)
@@ -32,27 +78,107 @@ bool is_public_stdlib_function(const ast::Function &function)
 	return !function.is_extern && !function.name.empty() && function.name.front() != '_';
 }
 
-void append_source_unit_declarations(std::vector<FunctionDecl> &target,
-                                     const SourceUnit &unit)
+std::size_t align_up(std::size_t value, std::size_t alignment)
 {
+	if (alignment <= 1)
+		return value;
+	return (value + alignment - 1) / alignment * alignment;
+}
+
+// Mirror sema::compute_struct_layout: walk fields, align each one to its
+// natural alignment, sum the sizes, then round the total up to the
+// struct's alignment. Used to set the `bits` of the UserStruct
+// PrimitiveType so it matches sema's view of the same struct.
+std::size_t compute_struct_size_bytes(const std::vector<StructFieldDecl> &fields)
+{
+	std::size_t offset = 0;
+	std::size_t struct_alignment = 1;
+	for (const auto &field : fields) {
+		std::size_t field_alignment = type_alignment_bytes(field.type).value_or(1u);
+		std::size_t field_size = type_size_bytes(field.type).value_or(0u);
+		offset = align_up(offset, field_alignment);
+		offset += field_size;
+		if (field_alignment > struct_alignment)
+			struct_alignment = field_alignment;
+	}
+	return align_up(offset, struct_alignment);
+}
+
+// Two-pass per-unit registration: collect struct declarations first so
+// every PrimitiveType emitted for `*Arena` etc. carries the laid-out
+// `bits`, then resolve function signatures using the populated map.
+struct ResolvedUnit {
+	UserStructTypeMap struct_types;
+	std::vector<StructDecl> structs;
+	std::vector<FunctionDecl> functions;
+};
+
+ResolvedUnit resolve_source_unit(const SourceUnit &unit)
+{
+	ResolvedUnit resolved;
 	Diagnostics diagnostics;
 	SourceFile source(unit.path, unit.source);
 	auto parsed = parse_source(source, diagnostics);
 	if (!parsed.ok())
-		return;
+		return resolved;
 
+	// Pass 1: stub each struct's type without bits so field types that
+	// reference a sibling struct still resolve. Bits are filled in
+	// after layout below.
+	for (const auto &declaration : parsed.module().structs) {
+		if (declaration.name.empty())
+			continue;
+		if (!declaration.generic_parameters.empty())
+			continue;
+		PrimitiveType placeholder;
+		placeholder.kind = PrimitiveKind::UserStruct;
+		placeholder.name = declaration.name;
+		resolved.struct_types[declaration.name] = std::move(placeholder);
+	}
+
+	// Pass 2: resolve fields, compute layout, finalize each struct's
+	// PrimitiveType bits in the map.
+	for (const auto &declaration : parsed.module().structs) {
+		if (declaration.name.empty())
+			continue;
+		if (!declaration.generic_parameters.empty())
+			continue;
+		StructDecl decl;
+		decl.layer = unit.layer;
+		decl.name = declaration.name;
+		bool ok = true;
+		for (const auto &field : declaration.fields) {
+			auto field_type = resolve_source_type(field.type, resolved.struct_types);
+			if (!field_type) {
+				ok = false;
+				break;
+			}
+			decl.fields.push_back(StructFieldDecl{field.name, *field_type});
+		}
+		if (!ok) {
+			resolved.struct_types.erase(declaration.name);
+			continue;
+		}
+		std::size_t size = compute_struct_size_bytes(decl.fields);
+		auto &type = resolved.struct_types[declaration.name];
+		type.bits = static_cast<int>(size * 8);
+		resolved.structs.push_back(std::move(decl));
+	}
+
+	// Pass 3: resolve function signatures — `*Arena` now carries the
+	// matching pointee bits.
 	for (const auto &function : parsed.module().functions) {
 		if (!is_public_stdlib_function(function))
 			continue;
 
-		auto return_type = resolve_source_type(function.return_type);
+		auto return_type = resolve_source_type(function.return_type, resolved.struct_types);
 		if (!return_type)
 			continue;
 
 		std::vector<PrimitiveType> parameters;
 		bool ok = true;
 		for (const auto &parameter : function.parameters) {
-			auto parameter_type = resolve_source_type(parameter.type);
+			auto parameter_type = resolve_source_type(parameter.type, resolved.struct_types);
 			if (!parameter_type) {
 				ok = false;
 				break;
@@ -62,9 +188,27 @@ void append_source_unit_declarations(std::vector<FunctionDecl> &target,
 		if (!ok)
 			continue;
 
-		target.push_back(FunctionDecl{unit.layer, function.name, std::move(parameters),
-		                              *return_type});
+		resolved.functions.push_back(FunctionDecl{unit.layer, function.name,
+		                                          std::move(parameters), *return_type});
 	}
+
+	return resolved;
+}
+
+void append_source_unit_declarations(std::vector<FunctionDecl> &target,
+                                     const SourceUnit &unit)
+{
+	auto resolved = resolve_source_unit(unit);
+	for (auto &function : resolved.functions)
+		target.push_back(std::move(function));
+}
+
+void append_source_unit_structs(std::vector<StructDecl> &target,
+                                const SourceUnit &unit)
+{
+	auto resolved = resolve_source_unit(unit);
+	for (auto &declaration : resolved.structs)
+		target.push_back(std::move(declaration));
 }
 
 void append_source_unit_symbol_names(std::vector<std::string> &target,
@@ -179,6 +323,26 @@ const std::vector<FunctionDecl> &stdlib_functions()
 		return result;
 	}();
 	return functions;
+}
+
+const std::vector<StructDecl> &stdlib_structs()
+{
+	static const std::vector<StructDecl> structs = [] {
+		std::vector<StructDecl> result;
+		for (const auto &unit : portable_stdlib_source_units())
+			append_source_unit_structs(result, unit);
+		return result;
+	}();
+	return structs;
+}
+
+const StructDecl *find_stdlib_struct(const std::string &name)
+{
+	for (const auto &declaration : stdlib_structs()) {
+		if (declaration.name == name)
+			return &declaration;
+	}
+	return nullptr;
 }
 
 const std::vector<FunctionDecl> &prelude_functions()

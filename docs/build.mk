@@ -24,9 +24,6 @@ docs/diagrams/%.png: docs/diagrams/%.svg
 		exit 1; \
 	fi
 
-$(COVER_ART): docs/generate_cover.py
-	$(PYTHON) docs/generate_cover.py "$@"
-
 docs/Rexy.pdf: $(PDF_FRONTMATTER) $(DOCS_SRC) $(COVER_ART) docs/epub-metadata.yaml $(PDF_METADATA) $(PDF_FILTER) $(PDF_TEMPLATE)
 	pandoc $(PDF_FRONTMATTER) $(DOCS_SRC) \
 	    --to typst \
@@ -71,4 +68,4 @@ epub: docs/Rexy.epub
 docs: pdf epub
 
 clean-docs:
-	rm -f "$(PDF)" "$(EPUB)" "$(COVER_ART)" $(DIAGRAMS_PNG)
+	rm -f "$(PDF)" "$(EPUB)" $(DIAGRAMS_PNG)

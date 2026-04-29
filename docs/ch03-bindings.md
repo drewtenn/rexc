@@ -2,64 +2,100 @@
 
 ## Chapter 3 - Bindings and Functions
 
-### `let` Introduces a Local
+### `let` Binds A Name To A Value
 
-A **binding** is a name attached to a value inside a function body. Rexy
-introduces bindings with `let`:
-
-```rust
-let count: i32 = 0;
-```
-
-Every part of that line is required. The keyword `let` says we are
-introducing a new local. The name `count` is the identifier we will use to
-refer to the value. The type annotation `: i32` tells the compiler what the
-binding holds. The right-hand side `= 0` is the initial value. The semicolon
-ends the statement.
-
-Type annotations are not optional. Rexy does not attempt to infer the type of
-a binding from its initial expression. The trade-off is the one we discussed
-in Chapter 2: a small amount of typing now buys a program that any reader can
-follow without running the compiler in their head.
-
-### Mutation Is Opt-In
-
-A plain `let` binding cannot be reassigned. The value it holds at the moment
-of declaration is the value it holds for the rest of the function. To create
-a binding that can be reassigned, we mark it `mut`:
+So far every program you have written has fit in one expression. Real
+programs hold values in names. In Rexy, you introduce a name with `let`:
 
 ```rust
-let mut count: i32 = 0;
-count = count + 1;
-count = count + 1;
+fn main() -> i32 {
+    let count: i32 = 7;
+    return count;
+}
 ```
 
-Without `mut`, the second and third lines would be rejected. That refusal is
-the language's quiet way of pointing out that mutation is a separate
-capability from existence. Most locals do not need it. The ones that do are
-labelled, so a reader scanning a function body can see at a glance which
-names change over the course of the function.
+```text
+7
+```
 
-Reassignment uses ordinary syntax: `count = count + 1;`. The form is the same
-whether we are incrementing, recomputing, or replacing.
+Every part of that line matters. `let` says you are introducing a new
+local. `count` is the name. `: i32` is the type annotation. `= 7` is
+the initial value. The semicolon ends the statement.
 
-There are also two compact mutation forms inherited from the C family. `++`
-and `--` increment and decrement an integer binding by one, either as a
-prefix or a postfix:
+Rexy does not infer the type of a binding from its initial expression.
+You write the type down. Try removing the type annotation:
 
 ```rust
-let mut i: i32 = 0;
-++i;
-i++;
+fn main() -> i32 {
+    let count = 7;
+    return count;
+}
 ```
 
-Both produce the same effect on `i`. We will use them inside loops where they
-are conventional and read smoothly.
+The compiler will refuse this. The error message points at the binding
+and tells you a type annotation is required. Put `: i32` back, and the
+program compiles.
+
+### Bindings Are Immutable Unless You Say Otherwise
+
+A plain `let` binding cannot be reassigned. The value it holds at the
+moment of declaration is the value it holds for the rest of the
+function. Try reassigning:
+
+```rust
+fn main() -> i32 {
+    let count: i32 = 0;
+    count = count + 1;
+    return count;
+}
+```
+
+The compiler will reject the assignment. To allow reassignment, mark
+the binding `mut`:
+
+```rust
+fn main() -> i32 {
+    let mut count: i32 = 0;
+    count = count + 1;
+    count = count + 1;
+    return count;
+}
+```
+
+```text
+2
+```
+
+The two assignments now compile. Most locals you write will not need
+`mut`. The ones that do are labelled, so anyone reading the function
+can see at a glance which names change over its lifetime.
+
+### `++` And `--`
+
+Rexy gives you two compact mutation forms inherited from the C family.
+`++` and `--` increment and decrement an integer binding by one, either
+as a prefix or a postfix:
+
+```rust
+fn main() -> i32 {
+    let mut i: i32 = 0;
+    ++i;
+    i++;
+    return i;
+}
+```
+
+```text
+2
+```
+
+You will use these inside loops where they read smoothly. They only
+work on `mut` integer bindings.
 
 ### Functions
 
-We have already seen the shape of a function from Chapter 1. The general form
-is:
+You have been writing one function the whole time: `main`. Adding more
+follows the same shape:
 
 ```rust
 fn name(parameter_list) -> return_type {
@@ -67,66 +103,111 @@ fn name(parameter_list) -> return_type {
 }
 ```
 
-A function takes a comma-separated list of parameters, each of which is a
-name and a type, and returns a value whose type is named after the `->`. The
-body is a block of statements.
+Try defining a helper and calling it from `main`:
 
 ```rust
 fn add(a: i32, b: i32) -> i32 {
     return a + b;
 }
 
-fn double(value: i32) -> i32 {
-    return add(value, value);
+fn main() -> i32 {
+    return add(20, 22);
 }
 ```
 
-Calling a function uses ordinary parentheses, with positional arguments. The
-compiler checks that we passed the right number of arguments, that each one
-has the type the parameter declared, and that the call site uses the return
-value in a context that matches its type.
+```text
+42
+```
 
-### `return` Is a Statement
+Each parameter is a name and a type, separated by a colon. The arrow
+`->` introduces the return type. The body is a block of statements.
+Calling a function uses parentheses and positional arguments.
 
-Every function in Rexy must end its execution with a `return` statement. The
-expression after `return` becomes the function's result. This is not the
-same as some languages where the last expression of a block is implicitly
-returned. Rexy is explicit: the only way a value leaves a function is through
-a `return`.
+The compiler checks every call against the function's signature: the
+number of arguments, the type of each one, and the type the call site
+expects to receive back. If you change one of the call's arguments to
+the wrong type, the compiler tells you exactly which argument and what
+type it expected.
 
-When a function has multiple paths, every path must end in a `return`:
+### Every Function Must `return`
+
+Rexy is explicit about how values leave functions. Every path through a
+function must end in a `return`. Try this:
 
 ```rust
-fn sign(value: i32) -> i32 {
+fn classify(value: i32) -> i32 {
     if value > 0 {
         return 1;
-    } else if value < 0 {
-        return -1;
-    } else {
-        return 0;
     }
+}
+
+fn main() -> i32 {
+    return classify(5);
 }
 ```
 
-If a path could fall off the end of a function without returning, the
-compiler rejects the program. We never wonder what a Rexy function returned.
-If it returned at all, it returned because of a `return`.
+You will meet `if` properly in Chapter 4. The point of this example is
+that the `if` has no `else`, so when `value` is not greater than zero
+the function falls off the end. The compiler refuses to compile this
+program. Add a fallback:
 
-### Parameter and Return Types Cover the Whole Surface
+```rust
+fn classify(value: i32) -> i32 {
+    if value > 0 {
+        return 1;
+    }
+    return 0;
+}
 
-A function's signature is its full external description. The type of every
-parameter is in the signature. The return type is in the signature. There
-are no implicit parameters, no hidden return paths, and no values that exist
-outside the type system. When we read a Rexy function header, we are reading
-the entirety of its contract with the rest of the program.
+fn main() -> i32 {
+    return classify(5);
+}
+```
 
-### Where We Are by the End of Chapter 3
+```text
+1
+```
 
-We can declare local variables with `let`, mark them `mut` when we need to
-reassign them, increment and decrement integers, define functions with typed
-parameters and a typed return, and call functions positionally. We have the
-ingredients for a useful straight-line program.
+Now every path returns. The function compiles, and `main` returns
+whatever `classify` returned.
 
-What we still lack is the ability to choose between paths and to repeat work.
-Part II covers both: Chapter 4 brings in conditions and loops, and Chapter 5
-brings in `match`, which is how Rexy expresses choice over structured data.
+### Composing Functions
+
+Once you can define functions, you can compose them. Try this:
+
+```rust
+fn double(value: i32) -> i32 {
+    return value + value;
+}
+
+fn main() -> i32 {
+    return double(double(10));
+}
+```
+
+```text
+40
+```
+
+`double(10)` returns `20`. `double(20)` returns `40`. The expression
+nests the way it would in any C-family language.
+
+### Where You Are by the End of Chapter 3
+
+You can declare local variables, mark them mutable when you need to
+reassign them, increment and decrement integer bindings, define
+functions with typed parameters, return values from them, and call them
+from other functions.
+
+You know:
+
+- `let` introduces a binding; `let mut` makes it reassignable.
+- Type annotations are required. Rexy does not infer them.
+- `++` and `--` mutate integer bindings by one.
+- A function's signature names every parameter type and the return
+  type.
+- Every path through a function must end in a `return`.
+
+What you cannot do yet is choose between paths or repeat work. Part II
+adds both: Chapter 4 covers `if`, `while`, `for`, `break`, and
+`continue`, and Chapter 5 covers `match`.

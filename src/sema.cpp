@@ -313,6 +313,24 @@ private:
 
 	void build_type_tables()
 	{
+		// FE-105: register stdlib-declared structs (e.g. Arena) before user
+		// structs so user code can name them in signatures and field
+		// expressions. Field types arrive already resolved through
+		// stdlib::resolve_source_type, so we skip check_type here.
+		if (include_stdlib_symbols()) {
+			for (const auto &decl : stdlib::stdlib_structs()) {
+				if (structs_.find(decl.name) != structs_.end())
+					continue;
+				StructInfo info{SourceLocation{}, {}, ast::Visibility::Public,
+				                {}, 0, 1};
+				info.fields.reserve(decl.fields.size());
+				for (const auto &field : decl.fields)
+					info.fields.emplace_back(field.name, field.type);
+				compute_struct_layout(info);
+				structs_[decl.name] = std::move(info);
+			}
+		}
+
 		// Multi-pass registration: first pass records all user type names so
 		// structs and enums can cross-reference each other regardless of
 		// declaration order. Later passes validate member/payload type names.

@@ -247,6 +247,35 @@ private:
 
 	void register_type_tables()
 	{
+		// FE-105: stdlib-declared structs (e.g. Arena) need a concrete IR
+		// layout so user code that names them can lower struct literals,
+		// pointer dereferences, and field accesses. Field types arrive
+		// already resolved as PrimitiveType from stdlib::stdlib_structs(),
+		// so we register and compute layout here without a re-resolution
+		// step.
+		if (include_stdlib_symbols()) {
+			for (const auto &decl : stdlib::stdlib_structs()) {
+				if (struct_layouts_.find(decl.name) != struct_layouts_.end())
+					continue;
+				StructLayout layout;
+				std::size_t offset = 0;
+				std::size_t struct_alignment = 1;
+				for (const auto &field : decl.fields) {
+					ir::Type field_type = field.type;
+					std::size_t field_alignment = alignment_of(field_type);
+					offset = align_up(offset, field_alignment);
+					layout.fields.push_back(
+					    StructFieldLayout{field.name, field_type, offset});
+					offset += size_in_bytes(field_type);
+					if (field_alignment > struct_alignment)
+						struct_alignment = field_alignment;
+				}
+				layout.total_size = align_up(offset, struct_alignment);
+				layout.alignment = struct_alignment;
+				struct_layouts_[decl.name] = std::move(layout);
+			}
+		}
+
 		for (const auto &decl : module_.structs) {
 			// FE-103: generic struct templates are not registered as
 			// concrete layouts; each `Box<i32>`-style instantiation gets
@@ -268,6 +297,11 @@ private:
 				continue; // FE-103: generic templates have no layout
 			auto it = struct_layouts_.find(decl.name);
 			if (it == struct_layouts_.end())
+				continue;
+			// FE-105: stdlib structs were laid out in register_type_tables
+			// using already-resolved PrimitiveType fields; if a layout is
+			// already present (non-empty), skip recomputing it.
+			if (!it->second.fields.empty())
 				continue;
 			std::size_t offset = 0;
 			std::size_t struct_alignment = 1;
