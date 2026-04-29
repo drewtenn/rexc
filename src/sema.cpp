@@ -1383,7 +1383,12 @@ private:
 					}
 					if (!inference_ok)
 						return std::nullopt;
-					return substitute_generics(function->return_type, bindings);
+					// FE-103.1: re-route through resolve_substituted_type so
+					// a return type like `Box<T>` mangles to `Box__i32` and
+					// matches the consumer's `Box<i32>` annotation.
+					return resolve_substituted_type(
+					    substitute_generics(function->return_type, bindings),
+					    call.location);
 				}
 
 				for (std::size_t i = 0; i < call.arguments.size(); ++i) {
@@ -1420,6 +1425,18 @@ private:
 					    target->second.template_name == literal_type.name) {
 						literal_type = *expected;
 					}
+					// FE-103.1: expected may be the unmangled angle-bracket
+					// form `Box<T>` produced by check_type_name when the
+					// surrounding scope still has T unbound. The literal's
+					// concrete type must agree with that expected form, so
+					// adopt it directly as the literal type.
+					else if (auto open = expected->name.find('<');
+					         open != std::string::npos &&
+					         !expected->name.empty() &&
+					         expected->name.back() == '>' &&
+					         expected->name.substr(0, open) == literal_type.name) {
+						literal_type = *expected;
+					}
 				}
 			}
 			if (!is_user_struct(literal_type)) {
@@ -1428,7 +1445,21 @@ private:
 				return literal_type;
 			}
 
-			auto it = structs_.find(literal_type.name);
+			// FE-103.1: when the literal type is an unmangled `Box<T>` form
+			// (T is an unbound generic param in scope), look up the
+			// underlying template for field iteration. Field types remain
+			// in their raw template form (referencing T) and compare via
+			// the generic-type-variable plumbing.
+			std::string lookup_name = literal_type.name;
+			if (auto open = lookup_name.find('<');
+			    open != std::string::npos && !lookup_name.empty() &&
+			    lookup_name.back() == '>') {
+				std::string base = lookup_name.substr(0, open);
+				if (auto tpl = structs_.find(base);
+				    tpl != structs_.end() && tpl->second.is_generic)
+					lookup_name = base;
+			}
+			auto it = structs_.find(lookup_name);
 			if (it == structs_.end()) {
 				diagnostics_.error(literal.location,
 				                   "struct '" + literal_type.name + "' not in scope");
@@ -1915,6 +1946,21 @@ private:
 		return check_type_name(type.name, type.location);
 	}
 
+	// FE-103.1: re-route a post-`substitute_generics` UserStruct that may
+	// carry an unmangled angle-bracket name like "Box<i32>" through
+	// check_type_name so the nested generic instantiation gets mangled
+	// (`Box__i32`), registered, and given proper layout bits. Non-UserStruct
+	// types and UserStructs without angle brackets pass through unchanged.
+	PrimitiveType resolve_substituted_type(PrimitiveType type,
+	                                       const SourceLocation &loc)
+	{
+		if (type.kind != PrimitiveKind::UserStruct)
+			return type;
+		if (type.name.find('<') == std::string::npos)
+			return type;
+		return check_type_name(type.name, loc);
+	}
+
 	// FE-103: monomorphize a generic struct instantiation like `Box<i32>`.
 	// Mangles a unique name, substitutes field types, computes layout,
 	// and registers the result as a non-generic StructInfo so subsequent
@@ -1955,9 +2001,16 @@ private:
 		info.visibility = tpl.visibility;
 		info.template_name = base;
 		info.is_generic = false;
-		for (const auto &field : tpl.fields)
+		for (const auto &field : tpl.fields) {
+			PrimitiveType field_type =
+			    substitute_generics(field.second, bindings);
+			// FE-103.1: substitute_generics may produce an angle-bracket
+			// form like `Box<i32>` that needs re-routing through
+			// check_type_name to mangle to `Box__i32` and register the
+			// nested monomorph (and pick up its layout bits).
 			info.fields.emplace_back(field.first,
-			                         substitute_generics(field.second, bindings));
+			                         resolve_substituted_type(field_type, loc));
+		}
 		compute_struct_layout(info);
 		structs_[mangled] = std::move(info);
 		return struct_type(mangled, structs_.at(mangled));
@@ -2010,8 +2063,25 @@ private:
 			std::string base = name.substr(0, open);
 			auto template_it = structs_.find(base);
 			if (template_it != structs_.end() && template_it->second.is_generic) {
-				if (auto args = consume_generic_type_arguments(name, base))
+				if (auto args = consume_generic_type_arguments(name, base)) {
+					// FE-103.1: defer mangling when an arg is itself an
+					// unbound generic type variable in the current scope
+					// (e.g. `Box<T>` inside `fn wrap<T>(...)`). Eagerly
+					// mangling produces `Box__T`, which substitute_generics
+					// can't re-walk to `Box__i32` later. Keeping the angle-
+					// bracket name lets substitute_generics handle the
+					// nested template form via substitute_generic_name.
+					bool has_unbound_param = false;
+					for (const auto &arg : *args) {
+						if (current_generic_parameters_.count(arg) > 0) {
+							has_unbound_param = true;
+							break;
+						}
+					}
+					if (has_unbound_param)
+						return user_struct_type(name);
 					return instantiate_generic_struct(base, *args, loc);
+				}
 			}
 		}
 		if (name == "int") {

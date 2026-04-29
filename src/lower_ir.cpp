@@ -402,6 +402,28 @@ private:
 			if (template_it != generic_struct_templates_.end()) {
 				auto args = consume_generic_type_arguments(name, base);
 				if (args) {
+					// FE-103.1: defer mangling when an arg is itself an
+					// unbound generic type variable (e.g. `Box<T>` inside
+					// a generic fn signature). Eagerly mangling produces a
+					// `Box__T` placeholder layout that downstream
+					// substitute_generics can't re-walk to `Box__i32`.
+					// Returning the angle-bracket name here lets later
+					// passes (lower_monomorph, sema-driven re-resolve)
+					// instantiate with concrete bindings.
+					bool has_unbound = false;
+					for (const auto &arg : *args) {
+						if (current_type_substitutions_.find(arg) !=
+						    current_type_substitutions_.end()) {
+							const auto &bound =
+							    current_type_substitutions_.at(arg);
+							if (is_user_struct(bound) && bound.name == arg) {
+								has_unbound = true;
+								break;
+							}
+						}
+					}
+					if (has_unbound)
+						return user_struct_type(name);
 					std::string mangled = instantiate_generic_struct_layout(
 					    *template_it->second, *args);
 					auto layout = struct_layouts_.find(mangled);
@@ -714,8 +736,18 @@ private:
 					pending.bindings = bindings;
 					monomorph_queue_.push_back(std::move(pending));
 				}
+				// FE-103.1: substitute_generics may produce an angle-bracket
+				// form like `Box<i32>` (when the function's return type was
+				// kept unmangled because args contained a type variable).
+				// Re-route through lower_type_name to mangle and register
+				// the monomorph layout, ensuring the CallValue's type has
+				// proper bits for downstream chunk computation.
 				ir::Type instantiated_return =
 				    substitute_generics(function->return_type, bindings);
+				if (is_user_struct(instantiated_return) &&
+				    instantiated_return.name.find('<') != std::string::npos) {
+					instantiated_return = lower_type_name(instantiated_return.name);
+				}
 				auto call = std::make_unique<ir::CallValue>(
 				    mangled, instantiated_return);
 				for (auto &arg : lowered_args)

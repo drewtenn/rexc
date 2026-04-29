@@ -1890,6 +1890,43 @@ TEST_CASE(sema_diagnoses_inconsistent_generic_binding_at_call_site)
 	REQUIRE(formatted.find("cannot infer generic type") != std::string::npos);
 }
 
+// FE-103.1: generic param substitution must walk string-encoded nested
+// template names like Box<T> in fn return types and struct fields, so the
+// inferred return type at the call site mangles to Box__i32 (matching the
+// consumer's annotation), not Box__T.
+
+TEST_CASE(sema_substitutes_nested_generic_in_function_return_type)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Box<T> { value: T }\n"
+	    "fn wrap<T>(x: T) -> Box<T> { return Box { value: x }; }\n"
+	    "fn main() -> i32 {\n"
+	    "  let b: Box<i32> = wrap(42);\n"
+	    "  return b.value;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+TEST_CASE(sema_substitutes_nested_generic_in_struct_field)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Box<T> { value: T }\n"
+	    "struct Pair<A, B> { left: Box<A>, right: Box<B> }\n"
+	    "fn main() -> i32 {\n"
+	    "  let bi: Box<i32> = Box { value: 1 };\n"
+	    "  let bb: Box<bool> = Box { value: true };\n"
+	    "  let p: Pair<i32, bool> = Pair { left: bi, right: bb };\n"
+	    "  return p.left.value;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 // FE-005 (Phase 1): enum registration, constructor checking, and tags.
 //
 // These tests keep enum semantics at the type-checking boundary. Lowering and

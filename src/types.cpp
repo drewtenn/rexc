@@ -691,6 +691,23 @@ bool unify_generic_pattern(PrimitiveType pattern, PrimitiveType actual,
 	}
 }
 
+namespace {
+
+// FE-103.1: forward declarations for the string-walking helpers used by
+// substitute_generics's UserStruct branch. The implementations sit alongside
+// other anonymous-namespace helpers below so they can reach
+// trim_type_text_internal; the public `consume_generic_type_arguments` they
+// also call is forward-declared in types.hpp.
+std::string substitute_generic_name(
+    const std::string &name,
+    const std::unordered_map<std::string, PrimitiveType> &bindings);
+
+std::string substitute_arg_text(
+    const std::string &arg_in,
+    const std::unordered_map<std::string, PrimitiveType> &bindings);
+
+} // namespace
+
 PrimitiveType substitute_generics(
     PrimitiveType type,
     const std::unordered_map<std::string, PrimitiveType> &bindings)
@@ -699,6 +716,18 @@ PrimitiveType substitute_generics(
 		auto it = bindings.find(type.name);
 		if (it != bindings.end())
 			return it->second;
+		// FE-103.1: walk string-encoded nested template names like "Box<T>"
+		// and substitute generic-param tokens inside the angle-bracket args.
+		// Returns angle-bracket form (e.g. "Box<i32>") so callers can
+		// re-resolve through check_type_name / lower_type_name to mangle and
+		// register the monomorphized layout.
+		std::string substituted = substitute_generic_name(type.name, bindings);
+		if (substituted != type.name) {
+			PrimitiveType result = type;
+			result.name = substituted;
+			result.bits = 0; // bits are stale post-substitution; consumer re-resolves.
+			return result;
+		}
 		return type;
 	}
 
@@ -759,6 +788,53 @@ std::string trim_type_text_internal(std::string value)
 	if (begin >= end)
 		return "";
 	return std::string(begin, end);
+}
+
+// FE-103.1: substitute generic-param tokens inside a string-encoded
+// template name like "Box<T>", returning the canonical angle-bracket form
+// (e.g. "Box<i32>"). Names that don't parse as Foo<...> are returned
+// unchanged.
+//
+// Tuples ("(i32, T)") and slices ("&[T]") inside generic args are NOT
+// substituted here; they're a known gap, not exercised by the FE-103
+// exit-test surface. Adding them is straightforward but currently
+// unnecessary.
+std::string substitute_generic_name(
+    const std::string &name,
+    const std::unordered_map<std::string, PrimitiveType> &bindings)
+{
+	auto open = name.find('<');
+	if (open == std::string::npos || name.empty() || name.back() != '>')
+		return name;
+	std::string base = name.substr(0, open);
+	auto args = consume_generic_type_arguments(name, base);
+	if (!args)
+		return name;
+	std::string result = base + "<";
+	for (std::size_t i = 0; i < args->size(); ++i) {
+		if (i > 0)
+			result += ", ";
+		result += substitute_arg_text((*args)[i], bindings);
+	}
+	result += ">";
+	return result;
+}
+
+std::string substitute_arg_text(
+    const std::string &arg_in,
+    const std::unordered_map<std::string, PrimitiveType> &bindings)
+{
+	std::string arg = trim_type_text_internal(arg_in);
+	if (auto it = bindings.find(arg); it != bindings.end())
+		return format_type(it->second);
+	if (!arg.empty() && arg.front() == '*')
+		return "*" + substitute_arg_text(arg.substr(1), bindings);
+	if (!arg.empty() && arg.back() == '>' &&
+	    arg.find('<') != std::string::npos)
+		return substitute_generic_name(arg, bindings);
+	// Concrete primitive (i32, bool, ...) or a not-currently-substituted
+	// token; leave as-is. Tuples/slices fall through here on purpose.
+	return arg;
 }
 
 } // namespace
