@@ -1910,6 +1910,26 @@ TEST_CASE(sema_substitutes_nested_generic_in_struct_field)
 	REQUIRE(!diagnostics.has_errors());
 }
 
+// Inside a generic function body, a value of type *Vec<T> has pointee
+// name 'Vec<T>' — the unmangled instantiation form. Field access and
+// assignment must look up the base template (Vec) when the direct
+// lookup of 'Vec<T>' misses.
+TEST_CASE(sema_resolves_generic_struct_field_through_pointer_in_generic_body)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "struct Vec<T> { data: *T, len: i32, capacity: i32 }\n"
+	    "fn vec_push<T>(v: *Vec<T>, value: T) -> i32 {\n"
+	    "    if (*v).len >= (*v).capacity { return 0; }\n"
+	    "    (*v).len = (*v).len + 1;\n"
+	    "    return 1;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
 // FE-005 (Phase 1): enum registration, constructor checking, and tags.
 //
 // These tests keep enum semantics at the type-checking boundary. Lowering and

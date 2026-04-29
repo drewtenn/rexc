@@ -845,6 +845,30 @@ private:
 		return nullptr;
 	}
 
+	// Returns an iterator into structs_ for `name`, falling back to the
+	// base template if `name` is shaped like `Foo<...>`. Used when checking
+	// field access/assignment inside generic function bodies, where the
+	// struct's instantiation name is the unmangled `Vec<T>` form rather
+	// than a concrete mangled form like `Vec__i32`. The template's field
+	// schema references generic param names (T) as UserStruct sentinels,
+	// matching how the generic body's local type variables are modeled,
+	// so field types resolve correctly without further substitution.
+	std::unordered_map<std::string, StructInfo>::iterator
+	find_struct_by_name(const std::string &name)
+	{
+		auto it = structs_.find(name);
+		if (it != structs_.end())
+			return it;
+		auto open = name.find('<');
+		auto close = name.rfind('>');
+		if (open != std::string::npos && close != std::string::npos &&
+		    close > open) {
+			std::string base = name.substr(0, open);
+			return structs_.find(base);
+		}
+		return it; // == end(), the original miss
+	}
+
 	void analyze_function(const ast::Function &function)
 	{
 		current_module_path_ = &function.module_path;
@@ -984,7 +1008,7 @@ private:
 				check_expr(locals, *assign.value);
 				return;
 			}
-			auto it = structs_.find(pointee->name);
+			auto it = find_struct_by_name(pointee->name);
 			if (it == structs_.end()) {
 				diagnostics_.error(assign.location,
 				                   "struct '" + pointee->name + "' not in scope");
@@ -1589,7 +1613,7 @@ private:
 				                       format_type(*base_type) + "'");
 				return std::nullopt;
 			}
-			auto it = structs_.find(base_type->name);
+			auto it = find_struct_by_name(base_type->name);
 			if (it == structs_.end()) {
 				diagnostics_.error(access.location,
 				                   "struct '" + base_type->name + "' not in scope");
