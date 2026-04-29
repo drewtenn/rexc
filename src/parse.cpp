@@ -467,9 +467,16 @@ private:
 		}
 
 		auto *name = context->IDENT();
+		// FE-108: the grammar makes the initializer optional. A null
+		// initializer means `let mut x: T;` — sema will track x as
+		// possibly-uninitialized until it sees an assignment on every
+		// reachable path.
+		std::unique_ptr<ast::Expr> initializer;
+		if (auto *expression = context->expression())
+			initializer = build_expression(expression);
 		return std::make_unique<ast::LetStmt>(
 		    location(context), is_mutable, name->getText(), build_type(context->type()),
-		    build_expression(context->expression()));
+		    std::move(initializer));
 	}
 
 	std::unique_ptr<ast::Stmt> build_assign_statement(

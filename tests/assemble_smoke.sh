@@ -122,6 +122,18 @@ if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
 	defer_exit=$?
 	set -e
 	test "$defer_exit" -eq 211
+
+	# FE-108: definite-assignment analysis. The fixture exercises an
+	# uninitialized `let mut x: i32;` whose value is set via an if/else,
+	# then read after the merge — sema must accept it and the binary
+	# must exit 42.
+	"${build_dir}/rexc" "${repo_dir}/examples/uninit_let_demo.rx" --target arm64-macos -o "${tmp_dir}/uninit-let-demo-arm64"
+	test -x "${tmp_dir}/uninit-let-demo-arm64"
+	set +e
+	"${tmp_dir}/uninit-let-demo-arm64"
+	uninit_exit=$?
+	set -e
+	test "$uninit_exit" -eq 42
 	"${build_dir}/rexc" "${repo_dir}/examples/stdlib.rx" -o "${tmp_dir}/stdlib-arm64"
 	test -x "${tmp_dir}/stdlib-arm64"
 	printf 'friend\nsecond\n21\n' | "${tmp_dir}/stdlib-arm64" > "${tmp_dir}/stdlib-arm64.out"

@@ -147,6 +147,9 @@ struct Stmt {
 };
 
 struct LetStmt final : Stmt {
+	// FE-108: `initializer` is null when the user wrote `let mut x: T;`
+	// (no `=`). Sema treats the local as possibly-uninitialized until a
+	// later assignment definitely-assigns it on every path.
 	LetStmt(SourceLocation location, bool is_mutable, std::string name, TypeName type,
 	        std::unique_ptr<Expr> initializer);
 

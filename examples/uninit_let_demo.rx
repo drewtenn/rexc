@@ -1,0 +1,27 @@
+// FE-108 verification fixture: definite-assignment analysis.
+//
+// Demonstrates that an uninitialized local declared with `let mut x: i32;`
+// is accepted by sema as long as every reachable path assigns it before
+// the read. The branches below assign x to a value that — together with
+// y — yields exit code 42.
+//
+// Trace:
+//   pick(true)  → x = 30   y = 12   sum = 42
+//   pick(false) → x = -1 (sentinel: branch never reached at runtime)
+//
+// `main` calls pick(true), so the runtime exit is exactly 42.
+
+fn pick(c: bool) -> i32 {
+    let mut x: i32;
+    if c {
+        x = 30;
+    } else {
+        x = -1;
+    }
+    let y: i32 = 12;
+    return x + y;
+}
+
+fn main() -> i32 {
+    return pick(true);
+}

@@ -1355,3 +1355,31 @@ TEST_CASE(parser_accepts_defer_statement)
 	REQUIRE(defer.call != nullptr);
 	REQUIRE(defer.call->kind == rexc::ast::Expr::Kind::Call);
 }
+
+// FE-108: the `let` grammar makes the initializer optional. A bare
+// `let mut x: T;` parses to a LetStmt with a null initializer; sema
+// will track it as possibly-uninitialized.
+TEST_CASE(parser_accepts_let_without_initializer)
+{
+	rexc::SourceFile source(
+	    "test.rx",
+	    "fn main() -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    x = 7;\n"
+	    "    return x;\n"
+	    "}\n");
+	rexc::Diagnostics diagnostics;
+
+	auto result = rexc::parse_source(source, diagnostics);
+
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+	const auto &main_fn = result.module().functions[0];
+	REQUIRE_EQ(main_fn.name, std::string("main"));
+	REQUIRE_EQ(main_fn.body.size(), std::size_t(3));
+	REQUIRE(main_fn.body[0]->kind == rexc::ast::Stmt::Kind::Let);
+	const auto &let = static_cast<const rexc::ast::LetStmt &>(*main_fn.body[0]);
+	REQUIRE_EQ(let.name, std::string("x"));
+	REQUIRE(let.is_mutable);
+	REQUIRE(let.initializer == nullptr);
+}

@@ -415,6 +415,32 @@ private:
 		return lower_type_name(type.name);
 	}
 
+	// FE-108: produce a type-shaped zero IR value for an uninitialized
+	// `let mut x: T;`. The value is logically dead (sema rejects reads
+	// before assignment) but the backend still needs *some* value to
+	// reserve a slot of the correct width.
+	std::unique_ptr<ir::Value> synth_zero_value(ir::Type type,
+	                                            const SourceLocation &location)
+	{
+		switch (type.kind) {
+		case PrimitiveKind::SignedInteger:
+		case PrimitiveKind::UnsignedInteger:
+		case PrimitiveKind::Char:
+			return std::make_unique<ir::IntegerValue>(type, "0", false);
+		case PrimitiveKind::Bool:
+			return std::make_unique<ir::BoolValue>(false);
+		case PrimitiveKind::Pointer: {
+			auto zero = std::make_unique<ir::IntegerValue>(i32_type(), "0", false);
+			return std::make_unique<ir::CastValue>(std::move(zero), type);
+		}
+		default:
+			(void)location;
+			throw std::runtime_error(
+			    "uninitialized `let` is only supported for scalar types in v1; "
+			    "complex types must be initialized explicitly");
+		}
+	}
+
 	ir::Type lower_type_name(const std::string &name)
 	{
 		// FE-103: while monomorphizing a generic body, type-variable names
@@ -1323,7 +1349,18 @@ private:
 		if (statement.kind == ast::Stmt::Kind::Let) {
 			const auto &let = static_cast<const ast::LetStmt &>(statement);
 			ir::Type let_type = lower_type(let.type);
-			auto initializer = lower_expr(*let.initializer, locals, let_type);
+			std::unique_ptr<ir::Value> initializer;
+			if (let.initializer) {
+				initializer = lower_expr(*let.initializer, locals, let_type);
+			} else {
+				// FE-108: `let mut x: T;` with no initializer. Sema has
+				// already verified every read of x is dominated by an
+				// assignment, so the value emitted here is logically
+				// dead. We still need *some* value so the backend can
+				// reserve a slot of the correct width — synthesize a
+				// type-shaped zero.
+				initializer = synth_zero_value(let_type, let.location);
+			}
 			locals[let.name] = let_type;
 			return std::make_unique<ir::LetStatement>(let.name, std::move(initializer));
 		}

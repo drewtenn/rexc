@@ -115,6 +115,12 @@ struct FunctionInfo {
 struct LocalInfo {
 	PrimitiveType type;
 	bool is_mutable = false;
+	// FE-108: definite-assignment tracking. A local declared via
+	// `let mut x: T;` (no initializer) starts is_uninit=true and is
+	// cleared by the first assignment that dominates a subsequent read.
+	// Locals declared with an initializer or introduced as parameters /
+	// match-bindings start is_uninit=false.
+	bool is_uninit = false;
 };
 
 struct GlobalInfo {
@@ -901,6 +907,74 @@ private:
 		current_module_path_ = nullptr;
 	}
 
+	// FE-108: a body "diverges" if every path through it ends with
+	// `return`, `break`, or `continue`. Diverging branches contribute no
+	// converging state to the post-merge of an if/match. The check is
+	// intentionally conservative — it only inspects the last statement
+	// of the body and recurses into nested if/match. Anything else is
+	// treated as converging.
+	bool body_diverges(const std::vector<std::unique_ptr<ast::Stmt>> &body) const
+	{
+		if (body.empty())
+			return false;
+		return statement_diverges(*body.back());
+	}
+
+	bool statement_diverges(const ast::Stmt &statement) const
+	{
+		if (statement.kind == ast::Stmt::Kind::Return ||
+		    statement.kind == ast::Stmt::Kind::Break ||
+		    statement.kind == ast::Stmt::Kind::Continue)
+			return true;
+		if (statement.kind == ast::Stmt::Kind::If) {
+			const auto &if_stmt = static_cast<const ast::IfStmt &>(statement);
+			// An `if` without an else cannot guarantee divergence on the
+			// not-taken path.
+			if (if_stmt.else_body.empty())
+				return false;
+			return body_diverges(if_stmt.then_body) &&
+			       body_diverges(if_stmt.else_body);
+		}
+		if (statement.kind == ast::Stmt::Kind::Match) {
+			const auto &match_stmt = static_cast<const ast::MatchStmt &>(statement);
+			// FE-010 enforces match exhaustiveness, so all-arms-diverge
+			// implies the match diverges.
+			if (match_stmt.arms.empty())
+				return false;
+			for (const auto &arm : match_stmt.arms)
+				if (!body_diverges(arm.body))
+					return false;
+			return true;
+		}
+		return false;
+	}
+
+	// FE-108: after analyzing a control-flow construct with N branches,
+	// compute the merged is_uninit bit for every local that exists in
+	// `out`. A local is possibly-uninitialized after the construct if it
+	// is possibly-uninitialized at the end of *any* converging branch.
+	// Diverging branches are excluded entirely (no path continues from
+	// them).
+	void merge_uninit_state(
+	    std::unordered_map<std::string, LocalInfo> &out,
+	    const std::vector<const std::unordered_map<std::string, LocalInfo> *>
+	        &converging_branches)
+	{
+		if (converging_branches.empty())
+			return;
+		for (auto &entry : out) {
+			bool any_uninit = false;
+			for (const auto *branch : converging_branches) {
+				auto it = branch->find(entry.first);
+				if (it != branch->end() && it->second.is_uninit) {
+					any_uninit = true;
+					break;
+				}
+			}
+			entry.second.is_uninit = any_uninit;
+		}
+	}
+
 	void analyze_statement(PrimitiveType function_return_type,
 	                       std::unordered_map<std::string, LocalInfo> &locals,
 	                       const ast::Stmt &statement, int loop_depth)
@@ -911,16 +985,35 @@ private:
 			bool duplicate = locals.find(let.name) != locals.end();
 			if (duplicate)
 				diagnostics_.error(let.location, "duplicate local '" + let.name + "'");
-			// The new binding is inserted after checking the initializer so
-			// `let x: i32 = x;` remains an unknown-name error.
-			auto initializer_type = check_expr(locals, *let.initializer, let_type);
-			if (initializer_type && !types_compatible(let_type, *initializer_type)) {
-				diagnostics_.error(let.location, "initializer type mismatch: expected '" +
-				                   format_type(let_type) + "' but got '" +
-				                   format_type(*initializer_type) + "'");
+			bool is_uninit = false;
+			if (let.initializer) {
+				// The new binding is inserted after checking the
+				// initializer so `let x: i32 = x;` remains an
+				// unknown-name error.
+				auto initializer_type =
+				    check_expr(locals, *let.initializer, let_type);
+				if (initializer_type && !types_compatible(let_type, *initializer_type)) {
+					diagnostics_.error(let.location,
+					                   "initializer type mismatch: expected '" +
+					                   format_type(let_type) + "' but got '" +
+					                   format_type(*initializer_type) + "'");
+				}
+			} else {
+				// FE-108: `let mut x: T;` (no initializer) — track as
+				// possibly-uninitialized. Reject the immutable form
+				// (`let x: T;`) since it can never be assigned later
+				// and would be unobservably useless.
+				if (!let.is_mutable) {
+					diagnostics_.error(
+					    let.location,
+					    "uninitialized local '" + let.name +
+					        "' must be declared `let mut`");
+				}
+				is_uninit = true;
 			}
 			if (!duplicate)
-				locals.emplace(let.name, LocalInfo{let_type, let.is_mutable});
+				locals.emplace(let.name,
+				               LocalInfo{let_type, let.is_mutable, is_uninit});
 			return;
 		}
 
@@ -954,6 +1047,9 @@ private:
 				                   format_type(it->second.type) + "' but got '" +
 				                   format_type(*value_type) + "'");
 			}
+			// FE-108: a successful assignment definitely-assigns the local
+			// from this point onward in the current control-flow path.
+			it->second.is_uninit = false;
 			return;
 		}
 
@@ -1048,6 +1144,19 @@ private:
 			for (const auto &branch_statement : if_stmt.else_body)
 				analyze_statement(function_return_type, else_locals, *branch_statement,
 				                  loop_depth);
+
+			// FE-108: merge per-branch is_uninit state back into the outer
+			// locals. Diverging branches don't contribute. An `if` without
+			// an else carries the pre-state through the implicit no-op
+			// else, which is captured by `else_locals` (the unmodified
+			// pre-state copy above).
+			std::vector<const std::unordered_map<std::string, LocalInfo> *> branches;
+			if (!body_diverges(if_stmt.then_body))
+				branches.push_back(&then_locals);
+			if (if_stmt.else_body.empty() ||
+			    !body_diverges(if_stmt.else_body))
+				branches.push_back(&else_locals);
+			merge_uninit_state(locals, branches);
 			return;
 		}
 
@@ -1062,6 +1171,9 @@ private:
 					matched_enum = &enum_it->second;
 			}
 			bool saw_default = false;
+			// FE-108: collect per-arm final locals to merge after the match.
+			std::vector<std::unordered_map<std::string, LocalInfo>> arm_locals_snapshots;
+			arm_locals_snapshots.reserve(match_stmt.arms.size());
 			for (std::size_t i = 0; i < match_stmt.arms.size(); ++i) {
 				const auto &arm = match_stmt.arms[i];
 				auto arm_locals = locals;
@@ -1089,6 +1201,7 @@ private:
 				for (const auto &arm_statement : arm.body)
 					analyze_statement(function_return_type, arm_locals, *arm_statement,
 					                  loop_depth);
+				arm_locals_snapshots.push_back(std::move(arm_locals));
 			}
 			if (matched_enum && !saw_default) {
 				for (const auto &variant : matched_enum->variants) {
@@ -1101,6 +1214,15 @@ private:
 					}
 				}
 			}
+			// FE-108: merge converging arms' uninit state. FE-010 enforces
+			// match exhaustiveness, so we do not need to add an implicit
+			// fall-through branch.
+			std::vector<const std::unordered_map<std::string, LocalInfo> *> branches;
+			for (std::size_t i = 0; i < match_stmt.arms.size(); ++i) {
+				if (!body_diverges(match_stmt.arms[i].body))
+					branches.push_back(&arm_locals_snapshots[i]);
+			}
+			merge_uninit_state(locals, branches);
 			return;
 		}
 
@@ -1307,8 +1429,18 @@ private:
 		case ast::Expr::Kind::Name: {
 			const auto &name = static_cast<const ast::NameExpr &>(expr);
 			auto it = locals.find(name.name);
-			if (it != locals.end())
+			if (it != locals.end()) {
+				// FE-108: definite-assignment check. A local is read here;
+				// reject if the analyzer has not seen an unconditional
+				// assignment dominating this point. The error is emitted
+				// once per use site.
+				if (it->second.is_uninit) {
+					diagnostics_.error(name.location,
+					                   "use of possibly-uninitialized local '" +
+					                       name.name + "'");
+				}
 				return it->second.type;
+			}
 			auto global = resolve_global(name.name, name.location);
 			if (global != nullptr)
 				return global->type;

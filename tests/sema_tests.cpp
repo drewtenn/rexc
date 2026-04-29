@@ -2177,3 +2177,175 @@ TEST_CASE(sema_rejects_defer_with_unknown_callee)
 	REQUIRE(!result.ok());
 	REQUIRE(diagnostics.format().find("no_such_function") != std::string::npos);
 }
+
+// FE-108: definite-assignment analysis.
+
+// `let mut x: i32;` followed immediately by a read of x is a
+// use-before-init: the analyzer must report it with a span pointing at
+// the use site (not the let).
+TEST_CASE(sema_rejects_use_of_uninitialized_local)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    return x;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("use of possibly-uninitialized local 'x'") !=
+	        std::string::npos);
+}
+
+// An assignment between the declaration and the use clears the uninit
+// state: the program must type-check.
+TEST_CASE(sema_accepts_uninit_local_assigned_before_use)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    x = 7;\n"
+	    "    return x;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// `let x: i32;` (immutable, uninitialized) is rejected — there is no
+// way to ever assign it, so the slot is unobservably useless.
+TEST_CASE(sema_rejects_immutable_uninit_local)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 {\n"
+	    "    let x: i32;\n"
+	    "    return 0;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("must be declared `let mut`") !=
+	        std::string::npos);
+}
+
+// If both branches of an if/else assign the local, the read after the
+// if is definitely-assigned.
+TEST_CASE(sema_accepts_uninit_assigned_in_both_if_branches)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run(c: bool) -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    if c { x = 1; } else { x = 2; }\n"
+	    "    return x;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// If only the then-branch assigns the local, the post-if read is a
+// use-before-init on the implicit no-op else path.
+TEST_CASE(sema_rejects_uninit_assigned_only_in_then_branch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run(c: bool) -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    if c { x = 1; }\n"
+	    "    return x;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("possibly-uninitialized local 'x'") !=
+	        std::string::npos);
+}
+
+// A diverging branch (one that ends in `return`) is excluded from the
+// post-merge: `if !c { return 0; } else { x = 5; }` makes x DA after.
+TEST_CASE(sema_accepts_uninit_via_early_return_in_if_branch)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run(c: bool) -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    if c { x = 5; } else { return 0; }\n"
+	    "    return x;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// While-loop bodies do not propagate definite-assignment forward — the
+// body may not execute at all.
+TEST_CASE(sema_rejects_uninit_assigned_only_in_while_body)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run(c: bool) -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    while c { x = 1; }\n"
+	    "    return x;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("possibly-uninitialized local 'x'") !=
+	        std::string::npos);
+}
+
+// A read inside an expression's RHS is checked: `let y: i32 = x;` where
+// x is uninit must error, with a span pointing at the read of x.
+TEST_CASE(sema_rejects_uninit_read_in_let_initializer)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn main() -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    let y: i32 = x;\n"
+	    "    return y;\n"
+	    "}\n",
+	    diagnostics);
+	REQUIRE(!result.ok());
+	REQUIRE(diagnostics.format().find("possibly-uninitialized local 'x'") !=
+	        std::string::npos);
+}
+
+// Function parameters are always definitely-assigned (the caller
+// supplied a value). Reading them must not error.
+TEST_CASE(sema_accepts_function_parameter_read)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run(p: i32) -> i32 { return p; }\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}
+
+// All match arms assign before reading: must accept. Uses an integer
+// match with a default arm so the analyzer can confirm exhaustiveness.
+TEST_CASE(sema_accepts_uninit_assigned_in_all_match_arms)
+{
+	rexc::Diagnostics diagnostics;
+	auto result = analyze(
+	    "fn run(tag: i32) -> i32 {\n"
+	    "    let mut x: i32;\n"
+	    "    match tag {\n"
+	    "        0 => { x = 1; },\n"
+	    "        1 => { x = 2; },\n"
+	    "        _ => { x = 3; },\n"
+	    "    }\n"
+	    "    return x;\n"
+	    "}\n"
+	    "fn main() -> i32 { return 0; }\n",
+	    diagnostics);
+	REQUIRE(result.ok());
+	REQUIRE(!diagnostics.has_errors());
+}

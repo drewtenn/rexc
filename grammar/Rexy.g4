@@ -148,7 +148,7 @@ deferStatement
 	;
 
 letStatement
-	: 'let' 'mut'? IDENT ':' type '=' expression ';'
+	: 'let' 'mut'? IDENT ':' type ('=' expression)? ';'
 	;
 
 assignStatement
