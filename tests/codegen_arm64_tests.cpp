@@ -471,3 +471,38 @@ TEST_CASE(codegen_arm64_macos_passes_large_struct_on_stack)
 	REQUIRE(assembly.find("[x29, #48]") != std::string::npos);
 	REQUIRE(assembly.find("lsr x0, x0, #32") != std::string::npos);
 }
+
+// Regression: multi-chunk struct returns must populate both AAPCS return
+// registers (x0 and x1). Prior to the fix, only chunk 0 landed in x0 and
+// chunk 1 was silently dropped, corrupting any struct return larger than
+// 8 bytes.
+TEST_CASE(codegen_arm64_macos_returns_multi_chunk_struct_in_x0_x1)
+{
+	auto assembly = compile_to_arm64_assembly(
+		"struct Triplet { a: i32, b: i32, c: i32 }\n"
+		"fn make_triplet() -> Triplet { return Triplet { a: 10, b: 20, c: 30 }; }\n"
+		"fn main() -> i32 {\n"
+		"  let t: Triplet = make_triplet();\n"
+		"  return t.a + t.b + t.c;\n"
+		"}\n");
+
+	// Callee side: the return path must emit chunk 1 first (materialized in
+	// x0), move it to x1, then emit chunk 0 to x0 so both halves of the
+	// 12-byte struct survive into the AAPCS return convention.
+	REQUIRE(assembly.find("_make_triplet:") != std::string::npos);
+	REQUIRE(assembly.find("mov x1, x0") != std::string::npos);
+
+	// Caller side: after `bl _make_triplet`, both x0 and x1 must be spilled
+	// into the receiving local's slots. With negative-offset frame locals
+	// the slots for a 2-chunk value are #-8 (chunk 0) and #-16 (chunk 1).
+	// Match on the leading tab so we only see real branch instructions
+	// (the symbol also appears inside `.globl _make_triplet`).
+	auto call_pos = assembly.find("\tbl _make_triplet");
+	REQUIRE(call_pos != std::string::npos);
+	auto store_x0 = assembly.find("str x0, [x29, #-8]", call_pos);
+	auto store_x1 = assembly.find("str x1, [x29, #-16]", call_pos);
+	REQUIRE(store_x0 != std::string::npos);
+	REQUIRE(store_x1 != std::string::npos);
+	// And the call must only happen once for this let-binding.
+	REQUIRE(assembly.find("\tbl _make_triplet", call_pos + 1) == std::string::npos);
+}

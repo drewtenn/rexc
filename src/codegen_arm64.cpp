@@ -305,10 +305,7 @@ private:
 		if (statement.kind == ir::Statement::Kind::Let) {
 			const auto &let = static_cast<const ir::LetStatement &>(statement);
 			int slot = frame.let_slots.at(&let);
-			for (int chunk = 0; chunk < value_chunks(let.value->type); ++chunk) {
-				emit_value_chunk(*let.value, chunk, frame, slots);
-				out_ << "\tstr x0, [x29, #" << chunk_slot(slot, chunk) << "]\n";
-			}
+			emit_value_to_slots(*let.value, slot, frame, slots);
 			slots[let.name] = slot;
 			return;
 		}
@@ -371,7 +368,29 @@ private:
 		}
 
 		const auto &ret = static_cast<const ir::ReturnStatement &>(statement);
-		emit_value(*ret.value, frame, slots);
+		int return_chunks = value_chunks(ret.value->type);
+		if (return_chunks <= 1) {
+			emit_value(*ret.value, frame, slots);
+		} else if (return_chunks == 2) {
+			// AAPCS: a 9..16 byte aggregate is returned in x0:x1. Both
+			// chunk emission paths use x1 as a scratch register (e.g. the
+			// orr-fold in struct/enum literal chunk builders), so we can't
+			// just stash chunk 1 in x1 across the chunk 0 emit. Instead:
+			// build chunk 0 in x0, spill to the stack, build chunk 1 in
+			// x0, move it to x1, then reload chunk 0 from the stack.
+			emit_value_chunk(*ret.value, 0, frame, slots);
+			emit_push_accumulator();
+			emit_value_chunk(*ret.value, 1, frame, slots);
+			out_ << "\tmov x1, x0\n";
+			emit_pop_to("x0");
+		} else {
+			// >16 byte aggregates need an sret hidden pointer in x8 — that
+			// path is not yet wired. Fail loudly rather than silently
+			// corrupting the return value.
+			throw std::runtime_error(
+				"arm64 codegen: struct return larger than 16 bytes not yet "
+				"supported (use a *Struct return for now)");
+		}
 		out_ << "\tb " << done_label << "\n";
 	}
 
@@ -406,10 +425,7 @@ private:
 			arm_labels.push_back(make_label("L_match_arm_"));
 
 		int match_slot = frame.match_slots.at(&match_statement);
-		for (int chunk = 0; chunk < value_chunks(match_statement.value->type); ++chunk) {
-			emit_value_chunk(*match_statement.value, chunk, frame, slots);
-			out_ << "\tstr x0, [x29, #" << chunk_slot(match_slot, chunk) << "]\n";
-		}
+		emit_value_to_slots(*match_statement.value, match_slot, frame, slots);
 
 		std::optional<std::size_t> default_arm;
 		for (std::size_t i = 0; i < match_statement.arms.size(); ++i) {
@@ -819,6 +835,43 @@ private:
 			out_ << "\tlsl x0, x0, #" << (chunk_offset * 8) << "\n";
 		emit_pop_to("x1");
 		out_ << "\torr x0, x1, x0\n";
+	}
+
+	// Stores a value into consecutive frame slots, one per 8-byte chunk.
+	//
+	// The wrinkle this handles is multi-chunk Call returns. The AAPCS
+	// places a 9..16-byte aggregate return in x0:x1 — emit_value alone
+	// only materialises chunk 0 in x0, and per-chunk re-evaluation would
+	// (a) call the function twice and (b) emit `mov x0, #0` for chunk 1
+	// because emit_value_chunk has no general way to reconstruct chunk 1
+	// of a Call. Spilling x0 and x1 directly after the bl is both correct
+	// and the natural shape per AAPCS.
+	void emit_value_to_slots(const ir::Value &value, int base_slot,
+	                         const Frame &frame, const SlotMap &slots)
+	{
+		int chunks = value_chunks(value.type);
+		if (chunks == 2 && value.kind == ir::Value::Kind::Call) {
+			// AAPCS: a 9..16 byte aggregate return is in x0:x1. Spill both
+			// directly. Re-emitting per chunk would either call the
+			// function twice or, for chunk 1, emit `mov x0, #0` because
+			// emit_value_chunk has no way to reconstruct chunk 1 of a Call.
+			emit_value(value, frame, slots);
+			out_ << "\tstr x0, [x29, #" << chunk_slot(base_slot, 0) << "]\n";
+			out_ << "\tstr x1, [x29, #" << chunk_slot(base_slot, 1) << "]\n";
+			return;
+		}
+		if (chunks > 2 && value.kind == ir::Value::Kind::Call) {
+			// >16 byte returns need an sret hidden pointer in x8; the
+			// ReturnStatement emitter rejects emitting these, so a caller
+			// also can't safely receive one. Bail loudly.
+			throw std::runtime_error(
+				"arm64 codegen: receiving a struct return larger than 16 "
+				"bytes is not yet supported");
+		}
+		for (int chunk = 0; chunk < chunks; ++chunk) {
+			emit_value_chunk(value, chunk, frame, slots);
+			out_ << "\tstr x0, [x29, #" << chunk_slot(base_slot, chunk) << "]\n";
+		}
 	}
 
 	void emit_value_chunk(const ir::Value &value, int chunk, const Frame &frame,
