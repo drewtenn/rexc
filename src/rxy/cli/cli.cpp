@@ -257,21 +257,37 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
     bopts.color_for_rexc = util::color_enabled_for_stderr();
 
     for (size_t i = 0; i < args.size(); ++i) {
-        const auto& a = args[i];
-        if (a == "--release") bopts.profile_name = "release";
-        else if (a == "--profile") {
-            if (i + 1 >= args.size()) {
-                std::fprintf(stderr, "error: --profile requires an argument\n");
-                return 2;
+        std::string a = args[i];
+        std::string eq_key, eq_val;
+        bool has_eq = a.size() > 2 && a.substr(0, 2) == "--";
+        if (has_eq) {
+            auto pos = a.find('=');
+            if (pos != std::string::npos) {
+                eq_key = a.substr(0, pos);
+                eq_val = a.substr(pos + 1);
+            } else {
+                has_eq = false;
             }
-            bopts.profile_name = args[++i];
         }
-        else if (a == "--bin") {
+        const std::string& flag = has_eq ? eq_key : a;
+        auto take = [&](const char* name) -> std::optional<std::string> {
+            if (has_eq) return eq_val;
             if (i + 1 >= args.size()) {
-                std::fprintf(stderr, "error: --bin requires an argument\n");
-                return 2;
+                std::fprintf(stderr, "error: %s requires an argument\n", name);
+                return std::nullopt;
             }
-            bopts.bin = args[++i];
+            return args[++i];
+        };
+
+        if      (flag == "--release") bopts.profile_name = "release";
+        else if (flag == "--locked")  bopts.locked = true;
+        else if (flag == "--profile") {
+            auto v = take("--profile"); if (!v) return 2;
+            bopts.profile_name = *v;
+        }
+        else if (flag == "--bin") {
+            auto v = take("--bin"); if (!v) return 2;
+            bopts.bin = *v;
         }
         else {
             std::fprintf(stderr, "error: unknown build option `%s`\n", a.c_str());

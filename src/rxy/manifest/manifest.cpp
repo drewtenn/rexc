@@ -15,11 +15,12 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// Allowed top-level keys in Rexy.toml for Phase A.
+// Allowed top-level keys in Rexy.toml.
 const std::set<std::string> kKnownTopLevelKeys = {
     "package", "targets", "profile",
-    // Reserved for later phases — accepted but ignored if present, with a warning.
-    "dependencies", "dev-dependencies", "build", "workspace", "platform",
+    "dependencies", "dev-dependencies",
+    // Reserved for later phases — accepted but ignored, with a warning.
+    "build", "workspace", "platform",
 };
 
 bool is_valid_package_name(const std::string& s) {
@@ -303,6 +304,66 @@ ManifestResult load_manifest(const fs::path& manifest_toml) {
             }
         }
     }
+
+    // [dependencies] / [dev-dependencies]
+    auto parse_deps_table = [&](const char* table_name,
+                                  std::vector<DependencySpec>& out) {
+        auto node = tbl.get(table_name);
+        if (!node) return;
+        if (!node->is_table()) {
+            errors.push_back(mk_err(abs_path,
+                std::string("`") + table_name + "` must be a table"));
+            return;
+        }
+        for (const auto& [key, val] : *node->as_table()) {
+            DependencySpec dep;
+            dep.name = std::string{key.str()};
+
+            if (val.is_string()) {
+                dep.registry_version = std::string{*val.value<std::string>()};
+            } else if (val.is_table()) {
+                const auto& t = *val.as_table();
+                if (auto p = t.get("path")) {
+                    if (auto s = p->value<std::string>()) dep.path = std::filesystem::path{*s};
+                }
+                if (auto g = t.get("git")) {
+                    if (auto s = g->value<std::string>()) dep.git_url = *s;
+                }
+                if (auto r = t.get("rev"))     if (auto s = r->value<std::string>()) dep.git_rev    = *s;
+                if (auto r = t.get("tag"))     if (auto s = r->value<std::string>()) dep.git_tag    = *s;
+                if (auto r = t.get("branch"))  if (auto s = r->value<std::string>()) dep.git_branch = *s;
+                if (auto v = t.get("version")) {
+                    if (auto s = v->value<std::string>()) {
+                        if (dep.git_url) dep.git_version = *s;
+                        else             dep.registry_version = *s;
+                    }
+                }
+                int kinds = (dep.path ? 1 : 0) + (dep.git_url ? 1 : 0) +
+                            (dep.registry_version && !dep.git_url ? 1 : 0);
+                if (kinds == 0) {
+                    errors.push_back(mk_err_at(abs_path,
+                        "dependency `" + dep.name + "` must specify one of `path`, `git`, or `version`",
+                        val.source()));
+                    continue;
+                }
+                if (kinds > 1) {
+                    errors.push_back(mk_err_at(abs_path,
+                        "dependency `" + dep.name + "` mixes incompatible source kinds (path / git / version)",
+                        val.source()));
+                    continue;
+                }
+            } else {
+                errors.push_back(mk_err_at(abs_path,
+                    "dependency `" + dep.name + "` must be a string version or an inline table",
+                    val.source()));
+                continue;
+            }
+
+            out.push_back(std::move(dep));
+        }
+    };
+    parse_deps_table("dependencies", m.dependencies);
+    parse_deps_table("dev-dependencies", m.dev_dependencies);
 
     // [profile.<name>]
     auto profile_node = tbl.get("profile");

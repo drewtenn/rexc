@@ -213,6 +213,10 @@ add_library(rxy_core STATIC
 	src/rxy/util/fs.cpp
 	src/rxy/util/tty.cpp
 	src/rxy/todo_impl.cpp
+	src/rxy/hash/sha256.cpp
+	src/rxy/cache/cache.cpp
+	src/rxy/source/source.cpp
+	src/rxy/resolver/resolver.cpp
 )
 target_include_directories(rxy_core PUBLIC src/rxy)
 target_link_libraries(rxy_core PUBLIC tomlplusplus::tomlplusplus)
@@ -226,6 +230,8 @@ add_executable(rxy_tests
 	tests/rxy/manifest_tests.cpp
 	tests/rxy/lockfile_tests.cpp
 	tests/rxy/cli_tests.cpp
+	tests/rxy/sha256_tests.cpp
+	tests/rxy/deps_tests.cpp
 )
 target_include_directories(rxy_tests PRIVATE tests/rxy)
 target_link_libraries(rxy_tests PRIVATE rxy_core)
@@ -237,6 +243,13 @@ add_test(NAME rxy_tests COMMAND rxy_tests)
 add_test(
 	NAME rxy_smoke
 	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy/smoke.sh"
+	        "${CMAKE_CURRENT_BINARY_DIR}"
+	        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+add_test(
+	NAME rxy_smoke_b
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy/smoke_b.sh"
 	        "${CMAKE_CURRENT_BINARY_DIR}"
 	        "${CMAKE_CURRENT_SOURCE_DIR}"
 )

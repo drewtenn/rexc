@@ -1,15 +1,24 @@
 #pragma once
 
-// TODO(rxy/Phase C) — see docs/prd-package-manager.md FR-016 (resolution).
-// Phase A scaffold; resolution is a no-op (root only) until Phase B/C.
+#include "manifest/manifest.hpp"
+#include "source/source.hpp"
 
-#include "todo.hpp"
+#include <map>
+#include <string>
+#include <vector>
 
 namespace rxy::resolver {
 
-inline void resolve_unimplemented() {
-    ::rxy::todo::unimplemented_phase(::rxy::todo::PHASE_C_REGISTRY,
-                                      "resolver::resolve");
-}
+struct Resolution {
+    // Direct + transitive deps in BFS order. Each entry includes its own
+    // dependencies (by name) for lockfile reconstruction.
+    std::vector<source::Resolved> packages;
+    std::map<std::string, std::vector<std::string>> dep_edges;  // name -> [name, ...]
+};
+
+// Resolve the dependency graph rooted at `root`. Throws on cycles, missing
+// sources, or any underlying error. Phase B: deduplicates by name; rejects
+// any conflicting versions of the same dep (no SAT).
+Resolution resolve_graph(const manifest::Manifest& root);
 
 }  // namespace rxy::resolver

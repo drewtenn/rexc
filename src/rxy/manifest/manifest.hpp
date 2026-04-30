@@ -41,12 +41,35 @@ struct Profile {
     std::optional<bool> strip;
 };
 
+// One [dependencies] entry. Phase B supports three shapes:
+//   foo = "0.4"                                  → registry (errors in Phase B)
+//   foo = { path = "../foo" }                    → path source
+//   foo = { git = "...", tag/rev/branch = ... }  → git source
+struct DependencySpec {
+    std::string name;                              // the import handle / lookup key
+
+    // exactly one source kind is set
+    std::optional<std::string> registry_version;   // "0.4" — errors before Phase C
+    std::optional<std::filesystem::path> path;     // relative or absolute filesystem path
+    std::optional<std::string> git_url;
+    std::optional<std::string> git_tag;
+    std::optional<std::string> git_rev;
+    std::optional<std::string> git_branch;
+    std::optional<std::string> git_version;        // optional semver constraint with git source
+
+    bool is_path()     const { return path.has_value(); }
+    bool is_git()      const { return git_url.has_value(); }
+    bool is_registry() const { return !is_path() && !is_git() && registry_version.has_value(); }
+};
+
 struct Manifest {
     PackageMeta package;
     std::optional<LibTarget> lib;
     std::vector<BinTarget> bins;
     std::vector<TestTarget> tests;
     std::map<std::string, Profile> profiles;   // "dev", "release", custom
+    std::vector<DependencySpec> dependencies;  // [dependencies]
+    std::vector<DependencySpec> dev_dependencies;  // [dev-dependencies] — parsed but currently unused
 
     std::filesystem::path manifest_path;       // absolute path to Rexy.toml
     std::filesystem::path package_root;        // dir containing Rexy.toml
