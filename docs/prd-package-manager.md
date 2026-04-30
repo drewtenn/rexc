@@ -227,6 +227,23 @@ These are explicit *no*s for v1. Drift requires re-opening this PRD.
 - **FR-051** A package can declare *minimum* native versions: `[build.system.openssl] min-version = "3.0"`. The build script enforces this via `pkg-config` and emits a clean error: "this project requires libssl ≥ 3.0; pkg-config reports 1.1.1. Install via `brew install openssl@3` (macOS) or `apt install libssl-dev` (Ubuntu)."
 - **FR-052** Out of scope (P2): bundling, building, or fetching native libraries. `rxy` will not subsume `vcpkg`/`conan`/Homebrew in v1.
 
+### 6.10 Distribution & installation of `rxy` itself
+
+`rxy` ships as a single static binary alongside `rexc`. The author is the first user — `rxy` needs to be on `$PATH` for ongoing Rexy development without being clobbered by every rebuild of the workspace. The package manager itself does not need to be packaged the way packages it manages do, but it does need a documented, repeatable install path. Target list mirrors the language PRD: macOS-arm64 (Apple Silicon) is the daily-driver host, Linux-x86_64 is the second-class host. Windows host stays NG-9.
+
+- **FR-053** `cmake --install build --component rxy --prefix <PREFIX>` installs the `rxy` binary to `<PREFIX>/bin/rxy`, and (once stdlib unbundling lands in Phase F+1) the bundled stdlib tree to `<PREFIX>/share/rxy/stdlib/`. Scoped to its own `rxy` component so the antlr4 FetchContent dependency does not hitch a ride. Default prefix is `/usr/local` per CMake convention; `~/.local` is the recommended user-scope prefix.
+- **FR-054** A `make install-rxy` convenience target in the top-level `Makefile` wraps the CMake install with the `macos-arm64-release` preset and `~/.local` as the default prefix. Idempotent: re-running upgrades the installed binary without disturbing the developer's `~/.rxy/` cache.
+- **FR-055** `rxy --version` reports both the `rxy` version and the embedded bundled-stdlib version (until stdlib unbundling: `rxy 0.1.0 (stdlib bundled 0.1.0)`). Makes installed-binary drift visible without spelunking through the build tree.
+- **FR-056** Signed release tarballs published from a GitHub Actions workflow on tag pushes:
+  - `rxy-<version>-aarch64-apple-darwin.tar.gz`
+  - `rxy-<version>-x86_64-unknown-linux-gnu.tar.gz`
+  Each contains the binary, a SHA-256 manifest, and a minimal `install.sh` that copies to `${PREFIX:-$HOME/.local}/bin`. Tarball SHA-256s are mirrored into the release notes so users can verify out-of-band.
+- **FR-057** **Homebrew tap (P2).** `brew install rexy-lang/rxy/rxy` installs the macOS binary from the tap formula, which references the FR-056 tarball by SHA-256. Tap repo at `github.com/rexy-lang/homebrew-rxy`. Out of scope for v1; tracked here so FR-056 tarball naming is Homebrew-friendly from day one.
+- **FR-058** **Self-bootstrap (P2).** Once `rexc` is self-hosted (language roadmap Phase 7), `rxy build --release` of `rxy` itself produces a binary identical to a CMake-installed one. Until then, `rxy` is built from CMake against `rexc` C++ sources; documented as the bootstrap path, not a long-term installation method.
+- **FR-059** **Reproducibility.** FR-056 tarballs are byte-identical across rebuilds of the same git commit on a clean macOS/Linux runner. CI verifies this by building twice and comparing SHA-256s. No build-time paths, timestamps, or hostnames in the binary.
+
+These FRs intentionally do **not** include a centralized installer service, auto-update, or a curl-piped-into-shell convenience; the latter is a known supply-chain anti-pattern, and the FR-056 tarball + verifiable SHA-256 path covers the same UX without the trust hop.
+
 ---
 
 ## 7. Implementation Phases
@@ -260,7 +277,8 @@ Dependency-ordered. Each phase has an exit criterion and is shippable in isolati
 - **Exit criterion:** Roadmap Phase 7's known limit ("stdlib embedded by CMake") is gone. Air-gapped offline build works against a primed cache.
 
 ### Phase G — Polish
-- FR-017 (multi-registry), FR-039 (reserved subcommand stubs), `--json` output everywhere, plugin discovery design doc (P2 implementation).
+- FR-017 (multi-registry), FR-039 (reserved subcommand stubs), `--json` output everywhere, plugin discovery design doc (P2 implementation), FR-053 + FR-054 (CMake install component + `make install-rxy`).
+- **Exit criterion:** `make install-rxy` puts a working `rxy` on `$PATH` at `~/.local/bin/rxy` against `cmake --install build --component rxy`. Re-running upgrades the binary in place without disturbing `~/.rxy/`.
 
 ---
 
@@ -482,6 +500,10 @@ The original three deferred items (#6/#7 signal+chdir, #10 cache flock, workspac
 | **#6/#7 Signal & chdir refactor** | `process.cpp` now keeps a lock-free 32-slot table of active child PIDs (`std::atomic<pid_t>`, lock-free static-asserted) and forwards SIGINT/SIGTERM to all live children. Signal handlers are installed exactly once; when no children are live, the handler restores `SIG_DFL` and re-raises so the parent exits as the user expects. `cwd` change runs in the child via `posix_spawn_file_actions_addchdir_np` when CMake detects it; on older systems a process-wide mutex serializes the parent-`chdir`/spawn/restore window. | `tests/rxy/process_tests.cpp` (cwd round-trip; 64 sequential spawns; failed-spawn slot release) |
 | **#10 `flock` on `~/.rxy` cache** | `cache::FileLock` RAII wrapper around `flock(2) LOCK_EX` (with EINTR loop). `cache::lock_bare_for_url(url)` and `cache::lock_src(name, commit)` produce per-bucket lockfiles (`<bare-sha256>.lock`, `<commit>.lock`). `source::resolve_git` holds the bare lock across clone/fetch/rev-parse and the src lock across the `.rxy_extracted` check + tar extraction so concurrent rxy processes resolving the same URL/commit serialize correctly. | `tests/rxy/cache_tests.cpp` (release-on-destruction; cross-process fork blocking test that proves the lock is observed across PIDs) |
 | **Workspace-root build dispatch** | `cmd_build` detects a workspace-only manifest (`m.package.name.empty()` + `[workspace]` table), enumerates members via `workspace::load`, and walks them in sorted order. Default behavior is fail-fast; `--keep-going` builds every member and reports `N ok, M failed` while still exiting non-zero on any failure. `--bin` is rejected at a workspace root (no defensible cross-member meaning). | `tests/rxy/smoke_h.sh` (fail-fast, `--keep-going`, `--bin` rejection, all-green path) |
+
+### Distribution of `rxy` itself
+
+Tracked as new section 6.10 / FR-053–FR-059. v1 lands FR-053 + FR-054 (CMake install component + `make install-rxy` to `~/.local`). FR-055 is a one-line patch to the version banner once stdlib unbundling lands. FR-056–FR-059 (signed tarballs, Homebrew tap, self-bootstrap, reproducible-build CI) are post-v1 and deliberately gated on the language roadmap reaching self-hosted `rexc`.
 
 ### Audit failure mode worth recording
 

@@ -239,6 +239,14 @@ endif()
 add_executable(rxy src/rxy/main.cpp)
 target_link_libraries(rxy PRIVATE rxy_core)
 
+# FR-053: cmake --install support for rxy. Installs the binary to <PREFIX>/bin/rxy.
+# Scoped to its own component (`rxy`) so `cmake --install --component rxy` skips
+# the FetchContent-pulled antlr4 runtime headers/static lib that otherwise hitch
+# along under ANTLR4_INSTALL=OFF (which the upstream CMake doesn't fully honor).
+# rexc is intentionally not installed yet — language PRD covers compiler distribution
+# separately, and rxy ships ahead of self-hosted rexc per the package-manager PRD.
+install(TARGETS rxy RUNTIME DESTINATION bin COMPONENT rxy)
+
 add_executable(rxy_tests
 	tests/rxy/test_main.cpp
 	tests/rxy/manifest_tests.cpp
