@@ -18,6 +18,14 @@ struct PackageMeta {
     std::optional<std::string> description;
     std::optional<std::string> license;
     std::optional<std::string> repository;
+
+    // Workspace inheritance markers — true when the member declared
+    // e.g. `version.workspace = true`. Resolved by workspace::apply_inheritance.
+    bool version_inherited = false;
+    bool edition_inherited = false;
+    bool license_inherited = false;
+    bool repository_inherited = false;
+    bool description_inherited = false;
 };
 
 struct LibTarget {
@@ -57,6 +65,10 @@ struct DependencySpec {
     std::optional<std::string> git_branch;
     std::optional<std::string> git_version;        // optional semver constraint with git source
 
+    // Workspace inheritance: true when `foo.workspace = true` was used.
+    // Resolved by workspace::apply_inheritance.
+    bool from_workspace = false;
+
     bool is_path()     const { return path.has_value(); }
     bool is_git()      const { return git_url.has_value(); }
     bool is_registry() const { return !is_path() && !is_git() && registry_version.has_value(); }
@@ -80,6 +92,7 @@ struct Manifest {
 
     std::filesystem::path manifest_path;       // absolute path to Rexy.toml
     std::filesystem::path package_root;        // dir containing Rexy.toml
+    std::optional<std::filesystem::path> workspace_root;  // set when this manifest is a workspace member
 
     // Resolves the effective profile (built-in defaults for "dev"/"release"
     // unless the manifest overrode them).

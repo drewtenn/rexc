@@ -19,8 +19,16 @@ namespace fs = std::filesystem;
 
 namespace {
 
-fs::path ensure_target_dir(const manifest::Manifest& m, const std::string& profile) {
-    fs::path dir = m.package_root / "target" / profile;
+fs::path ensure_target_dir(const manifest::Manifest& m,
+                            const std::string& profile,
+                            const std::optional<std::string>& target_triple) {
+    // Phase E: target-prefixed output dirs. Default ("host") preserves the
+    // single-triple layout used by Phase A-D.
+    fs::path dir = m.package_root / "target";
+    if (target_triple) {
+        dir /= *target_triple;
+    }
+    dir /= profile;
     std::error_code ec;
     fs::create_directories(dir, ec);
     return dir;
@@ -53,7 +61,21 @@ Result run(const manifest::Manifest& m, const Options& opts) {
     auto t0 = std::chrono::steady_clock::now();
 
     manifest::Profile profile = m.resolved_profile(opts.profile_name);
-    fs::path target_dir = ensure_target_dir(m, opts.profile_name);
+    fs::path target_dir = ensure_target_dir(m, opts.profile_name, opts.target_triple);
+
+    // Profile-knob warnings (debate-gate decision): emit a single "recorded
+    // but not yet wired into rexc" warning per non-default knob set in this
+    // profile. Keeps users from believing in placebo settings.
+    auto warn_recorded_knob = [&](const char* name, const std::string& value) {
+        if (opts.quiet) return;
+        diag::print(diag::Diagnostic::warning(
+            std::string("[profile.") + opts.profile_name + "] " + name + " = " + value +
+            " — recorded but not yet wired into rexc")
+            .with_help("rexc accepts -S/-c/-o today; opt-level/lto/strip become functional once it grows the flags"));
+    };
+    if (profile.opt_level && *profile.opt_level != 0) warn_recorded_knob("opt-level", std::to_string(*profile.opt_level));
+    if (profile.lto && *profile.lto)                   warn_recorded_knob("lto", "true");
+    if (profile.strip && *profile.strip)               warn_recorded_knob("strip", "true");
 
     // Resolve dependency graph (Phase B). Path deps are resolved in place;
     // git deps are cloned/checked-out into ~/.rxy/src.
@@ -253,6 +275,10 @@ Result run(const manifest::Manifest& m, const Options& opts) {
         }
         fs::path out = target_dir / (m.package.name + ".o");
         std::vector<std::string> args = {src->string(), "-c", "-o", out.string()};
+        if (opts.target_triple) {
+            args.push_back("--target");
+            args.push_back(*opts.target_triple);
+        }
         for (const auto& pp : dep_package_paths) {
             args.push_back("--package-path");
             args.push_back(pp);
@@ -287,6 +313,10 @@ Result run(const manifest::Manifest& m, const Options& opts) {
 
         fs::path out = target_dir / bin.name;
         std::vector<std::string> args = {src->string(), "-o", out.string()};
+        if (opts.target_triple) {
+            args.push_back("--target");
+            args.push_back(*opts.target_triple);
+        }
         for (const auto& pp : dep_package_paths) {
             args.push_back("--package-path");
             args.push_back(pp);

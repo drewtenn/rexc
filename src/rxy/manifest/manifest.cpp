@@ -208,30 +208,75 @@ ManifestResult load_manifest(const fs::path& manifest_toml) {
 
     // [package]
     auto pkg_node = tbl.get("package");
-    if (!pkg_node || !pkg_node->is_table()) {
+    bool is_workspace_only = (tbl.get("workspace") != nullptr) && (pkg_node == nullptr);
+    if (!is_workspace_only && (!pkg_node || !pkg_node->is_table())) {
         errors.push_back(mk_err(abs_path,
             "missing required `[package]` table"));
-    } else {
+    } else if (pkg_node && pkg_node->is_table()) {
         const auto& pkg = *pkg_node->as_table();
-        auto name    = require_string(ctx, pkg, "name",    "[package]");
-        auto version = require_string(ctx, pkg, "version", "[package]");
-        auto edition = require_string(ctx, pkg, "edition", "[package]");
-        if (name)    m.package.name    = *name;
-        if (version) m.package.version = *version;
-        if (edition) m.package.edition = *edition;
-        m.package.description = opt_string(pkg, "description");
-        m.package.license     = opt_string(pkg, "license");
-        m.package.repository  = opt_string(pkg, "repository");
 
-        if (name    && !is_valid_package_name(*name))    errors.push_back(mk_err(abs_path,
+        // Helper: read a field that may be either a string OR an inline table
+        // with `workspace = true`. Returns (string-value, inherit-flag).
+        auto read_inheritable = [&](const std::string& key,
+                                      std::string& out_value,
+                                      bool& out_inherited) -> bool {
+            auto node = pkg.get(key);
+            if (!node) return false;
+            if (node->is_string()) {
+                out_value = *node->value<std::string>();
+                return true;
+            }
+            if (node->is_table()) {
+                if (auto ws = (*node->as_table())["workspace"].value<bool>()) {
+                    if (*ws) { out_inherited = true; return true; }
+                }
+                errors.push_back(mk_err_at(abs_path,
+                    "field `" + key + "` must be a string or `{ workspace = true }`",
+                    node->source()));
+                return false;
+            }
+            errors.push_back(mk_err_at(abs_path,
+                "field `" + key + "` must be a string", node->source()));
+            return false;
+        };
+
+        // name is never inheritable — it's the package's own identity.
+        auto name = require_string(ctx, pkg, "name", "[package]");
+        if (name) m.package.name = *name;
+
+        // version, edition: required, inheritable.
+        bool ok_v = read_inheritable("version", m.package.version, m.package.version_inherited);
+        bool ok_e = read_inheritable("edition", m.package.edition, m.package.edition_inherited);
+        if (!ok_v && !m.package.version_inherited) {
+            errors.push_back(mk_err(abs_path,
+                "missing required field `version` in [package]"));
+        }
+        if (!ok_e && !m.package.edition_inherited) {
+            errors.push_back(mk_err(abs_path,
+                "missing required field `edition` in [package]"));
+        }
+
+        // license, repository, description: optional, inheritable.
+        std::string lic, repo, desc;
+        bool li=false, ri=false, di=false;
+        if (read_inheritable("license", lic, li))    m.package.license    = lic;
+        if (read_inheritable("repository", repo, ri)) m.package.repository = repo;
+        if (read_inheritable("description", desc, di)) m.package.description = desc;
+        m.package.license_inherited     = li;
+        m.package.repository_inherited  = ri;
+        m.package.description_inherited = di;
+
+        if (name    && !is_valid_package_name(*name))                       errors.push_back(mk_err(abs_path,
             "invalid package name `" + *name + "`")
             .with_help("must start with letter or _, contain only [A-Za-z0-9_-]"));
-        if (version && !is_valid_semver(*version))       errors.push_back(mk_err(abs_path,
-            "invalid version `" + *version + "`")
-            .with_help("expected semver, e.g. \"0.1.0\""));
-        if (edition && !is_valid_edition(*edition))      errors.push_back(mk_err(abs_path,
-            "invalid edition `" + *edition + "`")
-            .with_help("expected a 4-digit year string, e.g. \"2026\""));
+        if (!m.package.version.empty() && !m.package.version_inherited && !is_valid_semver(m.package.version))
+            errors.push_back(mk_err(abs_path,
+                "invalid version `" + m.package.version + "`")
+                .with_help("expected semver, e.g. \"0.1.0\""));
+        if (!m.package.edition.empty() && !m.package.edition_inherited && !is_valid_edition(m.package.edition))
+            errors.push_back(mk_err(abs_path,
+                "invalid edition `" + m.package.edition + "`")
+                .with_help("expected a 4-digit year string, e.g. \"2026\""));
     }
 
     // [targets]
@@ -323,6 +368,13 @@ ManifestResult load_manifest(const fs::path& manifest_toml) {
                 dep.registry_version = std::string{*val.value<std::string>()};
             } else if (val.is_table()) {
                 const auto& t = *val.as_table();
+                if (auto ws = t["workspace"].value<bool>()) {
+                    if (*ws) {
+                        dep.from_workspace = true;
+                        out.push_back(std::move(dep));
+                        continue;
+                    }
+                }
                 if (auto p = t.get("path")) {
                     if (auto s = p->value<std::string>()) dep.path = std::filesystem::path{*s};
                 }

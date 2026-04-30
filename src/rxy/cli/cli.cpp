@@ -11,6 +11,7 @@
 #include "source/source.hpp"
 #include "util/fs.hpp"
 #include "util/tty.hpp"
+#include "workspace/workspace.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -149,10 +150,39 @@ fs::path resolve_manifest_path(const GlobalFlags& g) {
     return *root / "Rexy.toml";
 }
 
+// Loads a member's manifest and applies workspace inheritance if a workspace
+// root is found. Returns either a fully-resolved Manifest or a list of errors.
+std::variant<manifest::Manifest, std::vector<diag::Diagnostic>>
+load_with_workspace(const fs::path& mp) {
+    auto loaded = manifest::load_manifest(mp);
+    if (auto* errs = std::get_if<std::vector<diag::Diagnostic>>(&loaded)) {
+        return *errs;
+    }
+    auto m = std::get<manifest::Manifest>(loaded);
+
+    auto ws_root = workspace::find_workspace_root(m.package_root.parent_path());
+    if (!ws_root) return m;
+    fs::path ws_manifest = *ws_root / "Rexy.toml";
+    if (ws_manifest == m.manifest_path) return m;     // root IS this manifest
+    workspace::Workspace ws;
+    try {
+        ws = workspace::load(ws_manifest);
+    } catch (const std::exception& ex) {
+        std::vector<diag::Diagnostic> errs;
+        errs.push_back(diag::Diagnostic::error(ex.what()));
+        return errs;
+    }
+    auto inherit_errs = workspace::apply_inheritance(m, ws);
+    if (!inherit_errs.empty()) return inherit_errs;
+    m.workspace_root = ws.root;
+    return m;
+}
+
 int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g);
 int cmd_yank_or_unyank(const std::vector<std::string>& args, bool yank);
 int cmd_add(const std::vector<std::string>& args, const GlobalFlags& g);
 int cmd_remove(const std::vector<std::string>& args, const GlobalFlags& g);
+int cmd_test(const std::vector<std::string>& args, const GlobalFlags& g);
 
 int cmd_new_or_init(const std::vector<std::string>& args, bool is_init) {
     bool want_lib = false;
@@ -301,6 +331,10 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
             auto v = take("--bin"); if (!v) return 2;
             bopts.bin = *v;
         }
+        else if (flag == "--target") {
+            auto v = take("--target"); if (!v) return 2;
+            bopts.target_triple = *v;
+        }
         else {
             std::fprintf(stderr, "error: unknown build option `%s`\n", a.c_str());
             return 2;
@@ -316,7 +350,7 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
         return 1;
     }
 
-    auto loaded = manifest::load_manifest(mp);
+    auto loaded = load_with_workspace(mp);
     if (auto* errs = std::get_if<std::vector<diag::Diagnostic>>(&loaded)) {
         for (const auto& d : *errs) diag::print(d);
         return 1;
@@ -356,7 +390,7 @@ int cmd_run(const std::vector<std::string>& args, const GlobalFlags& g) {
         return 1;
     }
 
-    auto loaded = manifest::load_manifest(mp);
+    auto loaded = load_with_workspace(mp);
     if (auto* errs = std::get_if<std::vector<diag::Diagnostic>>(&loaded)) {
         for (const auto& d : *errs) diag::print(d);
         return 1;
@@ -696,6 +730,137 @@ int cmd_add(const std::vector<std::string>& args, const GlobalFlags& g) {
     return 0;
 }
 
+int cmd_test(const std::vector<std::string>& args, const GlobalFlags& g) {
+    std::optional<std::string> filter;
+    bool nocapture = false;
+    bool release = false;
+    std::optional<std::string> target_triple;
+    std::vector<std::string> child_args;
+    bool seen_dashdash = false;
+
+    for (size_t i = 0; i < args.size(); ++i) {
+        const auto& a = args[i];
+        if (seen_dashdash) { child_args.push_back(a); continue; }
+        if (a == "--") { seen_dashdash = true; continue; }
+        std::string eq_key, eq_val;
+        bool has_eq = a.size() > 2 && a.substr(0, 2) == "--" && a.find('=') != std::string::npos;
+        if (has_eq) {
+            auto pos = a.find('=');
+            eq_key = a.substr(0, pos);
+            eq_val = a.substr(pos + 1);
+        }
+        const std::string& flag = has_eq ? eq_key : a;
+        auto take = [&](const char* name) -> std::optional<std::string> {
+            if (has_eq) return eq_val;
+            if (i + 1 >= args.size()) {
+                std::fprintf(stderr, "error: %s needs a value\n", name); return std::nullopt;
+            }
+            return args[++i];
+        };
+
+        if      (flag == "--nocapture") nocapture = true;
+        else if (flag == "--release")   release = true;
+        else if (flag == "--test") {
+            auto v = take("--test"); if (!v) return 2;
+            filter = *v;
+        }
+        else if (flag == "--target") {
+            auto v = take("--target"); if (!v) return 2;
+            target_triple = *v;
+        }
+        else if (!a.empty() && a[0] != '-' && !filter) {
+            filter = a;
+        }
+        else {
+            std::fprintf(stderr, "error: unknown test option `%s`\n", a.c_str());
+            return 2;
+        }
+    }
+
+    fs::path mp;
+    try { mp = resolve_manifest_path(g); }
+    catch (const std::exception& ex) {
+        diag::print(diag::Diagnostic::error(ex.what())); return 1;
+    }
+
+    auto loaded = load_with_workspace(mp);
+    if (auto* errs = std::get_if<std::vector<diag::Diagnostic>>(&loaded)) {
+        for (const auto& d : *errs) diag::print(d);
+        return 1;
+    }
+    auto m = std::get<manifest::Manifest>(loaded);
+
+    if (m.tests.empty()) {
+        diag::print(diag::Diagnostic::error("no [[targets.test]] declared in this package")
+            .with_help("add a [[targets.test]] entry with name + path"));
+        return 1;
+    }
+
+    // Build all test targets via rexc (reuse the build pipeline by faking
+    // bin targets onto a copy of the manifest).
+    manifest::Manifest test_manifest = m;
+    test_manifest.bins.clear();
+    for (const auto& t : m.tests) {
+        if (filter && t.name != *filter) continue;
+        test_manifest.bins.push_back(manifest::BinTarget{t.name, t.path});
+    }
+    if (test_manifest.bins.empty()) {
+        diag::print(diag::Diagnostic::error("no test target matched filter"));
+        return 1;
+    }
+
+    build::Options bopts;
+    bopts.profile_name = release ? "release" : "dev";
+    bopts.target_triple = target_triple;
+    bopts.quiet   = g.quiet;
+    bopts.verbose = g.verbose;
+    bopts.color_for_rexc = util::color_enabled_for_stderr();
+
+    auto br = build::run(test_manifest, bopts);
+    if (br.exit_code != 0) return br.exit_code;
+
+    int passed = 0, failed = 0, skipped = 0;
+    for (const auto& art : br.artifacts) {
+        std::string name = art.filename().string();
+        if (target_triple) {
+            // Cross-compiled: skip-run, count as "skipped".
+            diag::status("Skipping", name + " (cross-compiled, not runnable on host)");
+            ++skipped;
+            continue;
+        }
+        diag::status("Running", "test " + name);
+        process::Options popts;
+        popts.cwd = m.package_root;
+        popts.stream_through = nocapture;
+        process::Result pr = process::run(art, child_args, popts);
+        if (pr.exit_code == 0) {
+            ++passed;
+        } else {
+            ++failed;
+            diag::print(diag::Diagnostic::error("test `" + name + "` failed (exit " +
+                std::to_string(pr.exit_code) + ")"));
+            if (!nocapture && !pr.stderr_data.empty()) {
+                std::fprintf(stderr, "%s", pr.stderr_data.c_str());
+            }
+        }
+    }
+
+    if (!g.quiet) {
+        std::ostringstream oss;
+        oss << "test result: ";
+        if (failed == 0) oss << "ok. ";
+        else             oss << "FAILED. ";
+        oss << passed << " passed; " << failed << " failed";
+        if (skipped > 0) oss << "; " << skipped << " skipped (cross-target)";
+        if (skipped > 0 && failed == 0) {
+            diag::print(diag::Diagnostic::warning(oss.str()));
+        } else {
+            diag::status(failed == 0 ? "Finished" : "FAILED", oss.str());
+        }
+    }
+    return failed == 0 ? 0 : 1;
+}
+
 int cmd_remove(const std::vector<std::string>& args, const GlobalFlags& g) {
     if (args.size() != 1) {
         std::fprintf(stderr, "usage: rxy remove <name>\n");
@@ -754,6 +919,7 @@ int dispatch(int argc, char** argv) {
         if (p.subcommand == "unyank")  return cmd_yank_or_unyank(p.sub_args, /*yank*/false);
         if (p.subcommand == "add")     return cmd_add(p.sub_args, p.g);
         if (p.subcommand == "remove")  return cmd_remove(p.sub_args, p.g);
+        if (p.subcommand == "test")    return cmd_test(p.sub_args, p.g);
     } catch (const std::exception& ex) {
         diag::print(diag::Diagnostic::error(std::string("internal error: ") + ex.what()));
         return 101;
