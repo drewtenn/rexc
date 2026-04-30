@@ -85,6 +85,26 @@ RXY_TEST("registry: append rejects duplicate version") {
     RXY_REQUIRE(threw);
 }
 
+RXY_TEST("registry: serialize_package escapes quotes + newlines") {
+    // Security: a malicious git_url containing `"\n[[entries]]\n…` would
+    // inject arbitrary registry entries on next read. toml_escape must
+    // neutralize the backslashes and quotes.
+    ScopedHome home;
+    auto reg = rxy::registry::open_default();
+    rxy::registry::Entry e;
+    e.version = *rxy::semver::parse_version("0.1.0");
+    e.git_url = "https://x.test/u\"\n[[entries]]\nyanked=false";  // hostile
+    e.commit  = "deadbeef";
+    e.checksum = "sha256:cafe";
+    reg.append_entry("victim", e);
+
+    auto info = reg.lookup("victim");
+    RXY_REQUIRE(info && info->entries.size() == 1);
+    RXY_REQUIRE(info->entries[0].git_url == e.git_url);   // round-trip preserved
+    // Critical: there must NOT be a second entry from the injection attempt.
+    RXY_REQUIRE(info->entries.size() == 1);
+}
+
 RXY_TEST("registry: yank flips the flag and round-trips") {
     ScopedHome home;
     auto reg = rxy::registry::open_default();

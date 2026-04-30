@@ -114,6 +114,21 @@ std::optional<fs::path> search_path(const std::string& exe_name) {
 }
 }  // namespace
 
+fs::path find_on_path(const std::string& exe_name, const char* env_var) {
+    if (env_var) {
+        if (const char* p = std::getenv(env_var); p && *p) {
+            fs::path candidate = p;
+            if (is_executable(candidate)) return fs::canonical(candidate);
+            throw std::runtime_error(std::string{env_var} +
+                "=" + p + " does not point to an executable");
+        }
+    }
+    auto on_path = search_path(exe_name);
+    if (on_path) return fs::canonical(*on_path);
+    throw std::runtime_error("could not find `" + exe_name + "` on PATH" +
+        (env_var ? std::string("; set $") + env_var + " to override" : ""));
+}
+
 fs::path find_rexc(const fs::path& self_exe) {
     std::vector<std::string> tried;
 

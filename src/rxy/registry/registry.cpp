@@ -101,6 +101,85 @@ std::string normalize_name(const std::string& name) {
     return out;
 }
 
+// Defense-in-depth: assert that a normalized package name cannot escape
+// its bucket directory. Throws on any character outside [a-z0-9-]. Manifest
+// validation should catch this earlier, but registry::package_file is
+// reachable from registry-side parsing where the manifest validator hasn't
+// run.
+void assert_safe_name(const std::string& normalized, const std::string& original) {
+    for (char c : normalized) {
+        bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+        if (!ok) {
+            throw std::runtime_error("unsafe package name `" + original +
+                "` contains character `" + std::string(1, c) +
+                "` outside [A-Za-z0-9_-]");
+        }
+    }
+    if (normalized == "." || normalized == ".." || normalized.empty()) {
+        throw std::runtime_error("unsafe package name `" + original + "`");
+    }
+}
+
+// TOML basic-string escape. Used when re-serializing registry entries that
+// contain user-controlled fields (git_url, commit, checksum, yank_reason,
+// dep strings, name). Without this, a git remote URL containing `"` or
+// newline characters can inject arbitrary registry entries on next read.
+std::string toml_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b";  break;
+            case '\f': out += "\\f";  break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x",
+                                   static_cast<unsigned char>(c));
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    return out;
+}
+
+std::string serialize_package(const PackageInfo& info) {
+    std::ostringstream oss;
+    oss << "name = \"" << toml_escape(info.name) << "\"\n";
+    for (const auto& e : info.entries) {
+        oss << "\n[[entries]]\n";
+        oss << "version = \""  << toml_escape(e.version.to_string()) << "\"\n";
+        oss << "git-url = \""  << toml_escape(e.git_url)             << "\"\n";
+        oss << "commit  = \""  << toml_escape(e.commit)              << "\"\n";
+        oss << "checksum = \"" << toml_escape(e.checksum)            << "\"\n";
+        if (!e.deps.empty()) {
+            oss << "deps = [\n";
+            for (const auto& d : e.deps) oss << "  \"" << toml_escape(d) << "\",\n";
+            oss << "]\n";
+        }
+        oss << "yanked = " << (e.yanked ? "true" : "false") << "\n";
+        if (e.yanked) {
+            oss << "yank-severity = \""
+                << (e.yank_severity == YankSeverity::Security ? "security" : "informational")
+                << "\"\n";
+            if (e.yank_reason) {
+                oss << "yank-reason = \"" << toml_escape(*e.yank_reason) << "\"\n";
+            }
+        }
+        if (!e.published_at.empty()) {
+            oss << "published-at = \"" << toml_escape(e.published_at) << "\"\n";
+        }
+    }
+    return oss.str();
+}
+
 std::string bucket_prefix(const std::string& n) {
     if (n.empty()) return "0";
     if (n.size() == 1) return std::string("1/") + n;
@@ -111,6 +190,7 @@ std::string bucket_prefix(const std::string& n) {
 
 fs::path Registry::package_file(const std::string& name) const {
     std::string n = normalize_name(name);
+    assert_safe_name(n, name);
     return config.index_root / "packages" / bucket_prefix(n) / (n + ".toml");
 }
 
@@ -177,30 +257,7 @@ void Registry::append_entry(const std::string& name, const Entry& entry) {
     }
     info.entries.push_back(entry);
 
-    // Re-serialize.
-    std::ostringstream oss;
-    oss << "name = \"" << info.name << "\"\n";
-    for (const auto& e : info.entries) {
-        oss << "\n[[entries]]\n";
-        oss << "version = \"" << e.version.to_string() << "\"\n";
-        oss << "git-url = \"" << e.git_url << "\"\n";
-        oss << "commit  = \"" << e.commit  << "\"\n";
-        oss << "checksum = \"" << e.checksum << "\"\n";
-        if (!e.deps.empty()) {
-            oss << "deps = [\n";
-            for (const auto& d : e.deps) oss << "  \"" << d << "\",\n";
-            oss << "]\n";
-        }
-        oss << "yanked = " << (e.yanked ? "true" : "false") << "\n";
-        if (e.yanked) {
-            oss << "yank-severity = \""
-                << (e.yank_severity == YankSeverity::Security ? "security" : "informational")
-                << "\"\n";
-            if (e.yank_reason) oss << "yank-reason = \"" << *e.yank_reason << "\"\n";
-        }
-        if (!e.published_at.empty()) oss << "published-at = \"" << e.published_at << "\"\n";
-    }
-    util::atomic_write_text_file(file, oss.str());
+    util::atomic_write_text_file(file, serialize_package(info));
 }
 
 void Registry::set_yanked(const std::string& name,
@@ -227,30 +284,7 @@ void Registry::set_yanked(const std::string& name,
         throw std::runtime_error("no entry " + name + " " + v.to_string() + " in registry");
     }
 
-    // Re-serialize directly (similar to append, but no append).
-    std::ostringstream oss;
-    oss << "name = \"" << info.name << "\"\n";
-    for (const auto& e : info.entries) {
-        oss << "\n[[entries]]\n";
-        oss << "version = \"" << e.version.to_string() << "\"\n";
-        oss << "git-url = \"" << e.git_url << "\"\n";
-        oss << "commit  = \"" << e.commit  << "\"\n";
-        oss << "checksum = \"" << e.checksum << "\"\n";
-        if (!e.deps.empty()) {
-            oss << "deps = [\n";
-            for (const auto& d : e.deps) oss << "  \"" << d << "\",\n";
-            oss << "]\n";
-        }
-        oss << "yanked = " << (e.yanked ? "true" : "false") << "\n";
-        if (e.yanked) {
-            oss << "yank-severity = \""
-                << (e.yank_severity == YankSeverity::Security ? "security" : "informational")
-                << "\"\n";
-            if (e.yank_reason) oss << "yank-reason = \"" << *e.yank_reason << "\"\n";
-        }
-        if (!e.published_at.empty()) oss << "published-at = \"" << e.published_at << "\"\n";
-    }
-    util::atomic_write_text_file(file, oss.str());
+    util::atomic_write_text_file(file, serialize_package(info));
 }
 
 Registry open_default() { return open_named("default"); }
@@ -288,6 +322,10 @@ void refresh_if_stale(Registry& r, bool force) {
         cache::ensure_dir(r.config.index_root);
     }
 
+    // Resolve `git` to an absolute path; honor $GIT override. Avoids the
+    // /usr/bin/env trap of trusting whatever PATH contains.
+    fs::path git_exe = util::find_on_path("git", "GIT");
+
     // First-time clone or refresh.
     fs::path git_marker = r.config.index_root / ".git";
     if (!fs::exists(git_marker)) {
@@ -298,8 +336,8 @@ void refresh_if_stale(Registry& r, bool force) {
         process::Options popts;
         popts.cwd = r.config.index_root.parent_path();
         popts.stream_through = false;
-        process::Result pr = process::run("/usr/bin/env",
-            {"git", "clone", "--quiet", *r.config.git_url, r.config.index_root.string()},
+        process::Result pr = process::run(git_exe,
+            {"clone", "--quiet", *r.config.git_url, r.config.index_root.string()},
             popts);
         if (pr.exit_code != 0) {
             throw std::runtime_error("git clone of registry index failed: " + pr.stderr_data);
@@ -308,8 +346,8 @@ void refresh_if_stale(Registry& r, bool force) {
         process::Options popts;
         popts.cwd = r.config.index_root;
         popts.stream_through = false;
-        process::Result pr = process::run("/usr/bin/env",
-            {"git", "pull", "--quiet", "--ff-only", "--tags", "--force"},
+        process::Result pr = process::run(git_exe,
+            {"pull", "--quiet", "--ff-only", "--tags", "--force"},
             popts);
         if (pr.exit_code != 0) {
             throw std::runtime_error("git pull of registry index failed: " + pr.stderr_data);

@@ -15,12 +15,14 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace rxy::cli {
@@ -507,17 +509,33 @@ int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g) {
     // Source-tree checksum: must match what consumers will compute, which
     // hashes a `git archive` extraction (no .git, no untracked files).
     // We materialize a temporary archive, extract it, hash, then discard.
+    fs::path git_exe;
+    try {
+        git_exe = util::find_on_path("git", "GIT");
+    } catch (const std::exception& ex) {
+        diag::print(diag::Diagnostic::error(ex.what()));
+        return 1;
+    }
+
     std::string checksum;
     {
-        fs::path tmp = fs::temp_directory_path() / ("rxy_publish_" + std::to_string(::rand()));
-        fs::create_directories(tmp);
+        // Security: mkdtemp gives an unguessable path with O_EXCL semantics,
+        // unlike rand()-based names which are predictable + race-prone in /tmp.
+        std::string tmpl = (fs::temp_directory_path() / "rxy_publish_XXXXXX").string();
+        std::vector<char> tmpl_buf(tmpl.begin(), tmpl.end());
+        tmpl_buf.push_back('\0');
+        if (::mkdtemp(tmpl_buf.data()) == nullptr) {
+            diag::print(diag::Diagnostic::error(std::string("mkdtemp failed: ") + std::strerror(errno)));
+            return 1;
+        }
+        fs::path tmp = std::string(tmpl_buf.data());
         struct CleanGuard { fs::path p; ~CleanGuard(){ std::error_code ec; fs::remove_all(p, ec); } } g{tmp};
 
         process::Options popts_archive;
         popts_archive.cwd = m.package_root;
         popts_archive.stream_through = false;
-        process::Result pa = process::run("/usr/bin/env",
-            {"git", "archive", "--format=tar", "HEAD"}, popts_archive);
+        process::Result pa = process::run(git_exe,
+            {"archive", "--format=tar", "HEAD"}, popts_archive);
         if (pa.exit_code != 0) {
             diag::print(diag::Diagnostic::error("git archive failed: " + pa.stderr_data));
             return 1;
@@ -527,7 +545,12 @@ int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g) {
         process::Options popts_tar;
         popts_tar.cwd = tmp;
         popts_tar.stream_through = false;
-        process::Result pt = process::run("/usr/bin/tar", {"-xf", tar_path.string()}, popts_tar);
+        // Security: --no-same-owner --no-same-permissions prevents the
+        // archive from setting setuid/setgid bits or overriding the user's
+        // umask. macOS bsdtar refuses absolute paths and `..` by default.
+        process::Result pt = process::run("/usr/bin/tar",
+            {"--no-same-owner", "--no-same-permissions", "-xf", tar_path.string()},
+            popts_tar);
         if (pt.exit_code != 0) {
             diag::print(diag::Diagnostic::error("tar extract failed: " + pt.stderr_data));
             return 1;
@@ -553,7 +576,6 @@ int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g) {
 
     // git-url + commit: Phase C MVP requires the package to have a git
     // working tree at HEAD with a clean working directory.
-    fs::path git_exe = "/usr/bin/env";
     process::Options popts;
     popts.cwd = m.package_root;
     popts.stream_through = false;
@@ -566,7 +588,7 @@ int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g) {
         return s;
     };
 
-    auto status = git_ok({"git", "status", "--porcelain"});
+    auto status = git_ok({"status", "--porcelain"});
     if (!status) {
         diag::print(diag::Diagnostic::error(
             "package directory is not a git repository (rxy publish v1 requires git)")
@@ -578,12 +600,12 @@ int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g) {
             .with_help("commit or stash changes before publishing"));
         return 1;
     }
-    auto commit = git_ok({"git", "rev-parse", "HEAD"});
+    auto commit = git_ok({"rev-parse", "HEAD"});
     if (!commit) {
         diag::print(diag::Diagnostic::error("could not resolve HEAD commit"));
         return 1;
     }
-    auto remote_url = git_ok({"git", "config", "--get", "remote.origin.url"});
+    auto remote_url = git_ok({"config", "--get", "remote.origin.url"});
     std::string git_url = remote_url.value_or("");
     if (git_url.empty()) {
         diag::print(diag::Diagnostic::error(
@@ -1090,12 +1112,34 @@ int cmd_remove(const std::vector<std::string>& args, const GlobalFlags& g) {
     bool removed = false;
     std::istringstream in(text);
     std::string line;
+    // Track current TOML section header. We only delete entries inside
+    // [dependencies] or [dev-dependencies]; otherwise `rxy remove name`
+    // would also delete `name = "MIT"` from [package].
+    std::string current_section;
+    auto in_deps_section = [&]() {
+        return current_section == "dependencies" || current_section == "dev-dependencies";
+    };
     while (std::getline(in, line)) {
-        // Match "name = ..." at start of line (allowing a leading whitespace).
+        // Track section transitions.
         std::string trimmed = line;
         while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front()))) trimmed.erase(0, 1);
+        if (!trimmed.empty() && trimmed.front() == '[') {
+            // Bare-section header: [foo] or [foo.bar]
+            std::string header = trimmed;
+            // Strip any trailing comment.
+            if (auto h = header.find('#'); h != std::string::npos) header.resize(h);
+            while (!header.empty() && std::isspace(static_cast<unsigned char>(header.back()))) header.pop_back();
+            if (header.size() >= 2 && header.front() == '[' && header.back() == ']' &&
+                (header.size() < 4 || header.substr(0, 2) != "[[")) {
+                current_section = header.substr(1, header.size() - 2);
+            } else if (header.size() >= 4 && header.substr(0, 2) == "[[") {
+                // [[array-of-tables]] — also leaves the deps context.
+                current_section.clear();
+            }
+        }
         bool matches = false;
-        if (trimmed.size() > name.size() &&
+        if (in_deps_section() &&
+            trimmed.size() > name.size() &&
             trimmed.compare(0, name.size(), name) == 0) {
             char after = trimmed[name.size()];
             if (after == ' ' || after == '=' || after == '\t') matches = true;

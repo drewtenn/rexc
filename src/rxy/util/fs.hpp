@@ -29,4 +29,10 @@ std::filesystem::path find_rexc(const std::filesystem::path& self_exe);
 // Returns the path of the currently-running executable. macOS + Linux only.
 std::filesystem::path current_executable_path();
 
+// Find a binary on PATH (or via $-environment-variable override).
+// `env_var` is checked first, then PATH. Throws std::runtime_error if neither
+// finds an executable file.
+std::filesystem::path find_on_path(const std::string& exe_name,
+                                    const char* env_var = nullptr);
+
 }  // namespace rxy::util

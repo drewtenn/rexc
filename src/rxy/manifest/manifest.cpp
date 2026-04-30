@@ -364,6 +364,17 @@ ManifestResult load_manifest(const fs::path& manifest_toml) {
             DependencySpec dep;
             dep.name = std::string{key.str()};
 
+            // Security: validate the name BEFORE it can flow into filesystem
+            // paths (cache::src_path, registry::package_file). TOML quoted
+            // keys allow arbitrary characters including `/` and `..`.
+            if (!is_valid_package_name(dep.name)) {
+                errors.push_back(mk_err_at(abs_path,
+                    "invalid dependency name `" + dep.name + "`",
+                    val.source())
+                    .with_help("must start with a letter or _, contain only [A-Za-z0-9_-]"));
+                continue;
+            }
+
             if (val.is_string()) {
                 dep.registry_version = std::string{*val.value<std::string>()};
             } else if (val.is_table()) {

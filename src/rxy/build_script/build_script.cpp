@@ -102,8 +102,45 @@ bool any_source_newer(const fs::path& root, fs::file_time_type cutoff) {
     return false;
 }
 
+// Per-file fingerprint that resists utime() spoofing: combines mtime, size,
+// and a content sha256 (cheap for typical .rx source files). A malicious
+// build script can `utime()` an mtime back, but it cannot rewrite content
+// without sha256 changing.
+struct FileFingerprint {
+    fs::file_time_type mtime;
+    uint64_t size = 0;
+    std::string sha256;     // hex without the "sha256:" prefix
+    bool operator==(const FileFingerprint& o) const {
+        return mtime == o.mtime && size == o.size && sha256 == o.sha256;
+    }
+    bool operator!=(const FileFingerprint& o) const { return !(*this == o); }
+};
+
+FileFingerprint fingerprint(const fs::path& p) {
+    FileFingerprint f;
+    f.mtime = mtime_or_zero(p);
+    std::error_code ec;
+    f.size = static_cast<uint64_t>(fs::file_size(p, ec));
+    if (ec) f.size = 0;
+    // Content hash (skip for empty file optimization).
+    if (f.size > 0) {
+        try {
+            std::string content;
+            std::ifstream in(p, std::ios::binary);
+            content.assign(std::istreambuf_iterator<char>(in), {});
+            std::string h = hash::sha256_hex(content);
+            if (h.rfind("sha256:", 0) == 0) h = h.substr(7);
+            f.sha256 = std::move(h);
+        } catch (...) {
+            // Silent failure here would mask mutation; treat as zero hash.
+            f.sha256.clear();
+        }
+    }
+    return f;
+}
+
 void snapshot_source_mtimes(const fs::path& root,
-                              std::map<std::string, fs::file_time_type>& out) {
+                              std::map<std::string, FileFingerprint>& out) {
     static const std::set<std::string> kSkipDirs = {"target", ".git"};
     static const std::set<std::string> kSkipFiles = {"Rexy.lock", ".rxy_extracted"};
     std::error_code ec;
@@ -116,13 +153,13 @@ void snapshot_source_mtimes(const fs::path& root,
             continue;
         }
         if (kSkipFiles.count(name)) continue;
-        out[fs::relative(p, root).generic_string()] = mtime_or_zero(p);
+        out[fs::relative(p, root).generic_string()] = fingerprint(p);
     }
 }
 
 void detect_source_mutation(const fs::path& root,
-                              const std::map<std::string, fs::file_time_type>& before) {
-    std::map<std::string, fs::file_time_type> after;
+                              const std::map<std::string, FileFingerprint>& before) {
+    std::map<std::string, FileFingerprint> after;
     snapshot_source_mtimes(root, after);
     for (const auto& [path, t] : after) {
         auto it = before.find(path);
@@ -277,8 +314,10 @@ Directives run_for(const manifest::Manifest& m, const RunOptions& opts) {
         diag::status("Running", m.package.name + " (build script)");
     }
 
-    // 2) Snapshot source-tree mtimes BEFORE running for FR-025 enforcement.
-    std::map<std::string, fs::file_time_type> before_mtimes;
+    // 2) Snapshot source-tree fingerprints BEFORE running for FR-025
+    //    enforcement. Combines mtime + size + content sha256 to resist
+    //    utime() spoofing.
+    std::map<std::string, FileFingerprint> before_mtimes;
     snapshot_source_mtimes(m.package_root, before_mtimes);
 
     // 3) Run the script with OUT_DIR set, capture stdout/stderr.

@@ -76,6 +76,29 @@ util = "0.4"
     RXY_REQUIRE(m->dependencies[0].registry_version == "0.4");
 }
 
+RXY_TEST("deps: TOML quoted-key path-traversal name rejected") {
+    // Security: a quoted dep name like "../../../etc/passwd" is legal TOML
+    // but must be rejected before flowing into cache::src_path or the
+    // registry's package_file path-bucket logic.
+    auto dir = make_pkg(R"(
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2026"
+
+[dependencies]
+"../../../etc/passwd" = { path = "/anywhere" }
+)");
+    auto r = rxy::manifest::load_manifest(dir / "Rexy.toml");
+    auto* errs = std::get_if<std::vector<rxy::diag::Diagnostic>>(&r);
+    RXY_REQUIRE(errs != nullptr);
+    bool found = false;
+    for (const auto& d : *errs) {
+        if (d.message.find("invalid dependency name") != std::string::npos) found = true;
+    }
+    RXY_REQUIRE(found);
+}
+
 RXY_TEST("deps: mixed path + git is rejected") {
     auto dir = make_pkg(R"(
 [package]
