@@ -185,3 +185,58 @@ add_test(
 	        "${CMAKE_CURRENT_BINARY_DIR}"
 	        "${CMAKE_CURRENT_SOURCE_DIR}"
 )
+
+# ---------------------------------------------------------------------------
+# rxy — Cargo-like package manager for Rexy. Sibling tool to rexc.
+# Phase A: manifest + lockfile + single-package build that shells out to rexc.
+# See docs/prd-package-manager.md.
+# ---------------------------------------------------------------------------
+
+# tomlplusplus pinned to the immutable commit for tag v3.4.0 rather than the
+# tag itself. Mirrors how the ANTLR fetch above pins by SHA hash; tags can be
+# moved upstream, commits cannot.
+FetchContent_Declare(
+	tomlplusplus
+	GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+	GIT_TAG        30172438cee64926dc41fdd9c11fb3ba5b2ba9de  # v3.4.0
+	GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(tomlplusplus)
+
+add_library(rxy_core STATIC
+	src/rxy/cli/cli.cpp
+	src/rxy/manifest/manifest.cpp
+	src/rxy/lockfile/lockfile.cpp
+	src/rxy/build/build.cpp
+	src/rxy/process/process.cpp
+	src/rxy/diag/diag.cpp
+	src/rxy/util/fs.cpp
+	src/rxy/util/tty.cpp
+	src/rxy/todo_impl.cpp
+)
+target_include_directories(rxy_core PUBLIC src/rxy)
+target_link_libraries(rxy_core PUBLIC tomlplusplus::tomlplusplus)
+target_compile_definitions(rxy_core PUBLIC RXY_VERSION="0.1.0")
+
+add_executable(rxy src/rxy/main.cpp)
+target_link_libraries(rxy PRIVATE rxy_core)
+
+add_executable(rxy_tests
+	tests/rxy/test_main.cpp
+	tests/rxy/manifest_tests.cpp
+	tests/rxy/lockfile_tests.cpp
+	tests/rxy/cli_tests.cpp
+)
+target_include_directories(rxy_tests PRIVATE tests/rxy)
+target_link_libraries(rxy_tests PRIVATE rxy_core)
+target_compile_definitions(rxy_tests PRIVATE
+	RXY_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy"
+)
+add_test(NAME rxy_tests COMMAND rxy_tests)
+
+add_test(
+	NAME rxy_smoke
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy/smoke.sh"
+	        "${CMAKE_CURRENT_BINARY_DIR}"
+	        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
