@@ -365,6 +365,28 @@ ManifestResult load_manifest(const fs::path& manifest_toml) {
     parse_deps_table("dependencies", m.dependencies);
     parse_deps_table("dev-dependencies", m.dev_dependencies);
 
+    // [build]
+    if (auto bnode = tbl.get("build")) {
+        if (!bnode->is_table()) {
+            errors.push_back(mk_err(abs_path, "`[build]` must be a table"));
+        } else {
+            const auto& b = *bnode->as_table();
+            BuildSection bs;
+            if (auto s = opt_string(b, "script")) bs.script = std::filesystem::path{*s};
+            if (auto arr = b["allow-scripts"].as_array()) {
+                for (const auto& el : *arr) {
+                    if (auto v = el.value<std::string>()) bs.allow_scripts.push_back(*v);
+                }
+            }
+            if (auto arr = b["links"].as_array()) {
+                for (const auto& el : *arr) {
+                    if (auto v = el.value<std::string>()) bs.links.push_back(*v);
+                }
+            }
+            m.build = std::move(bs);
+        }
+    }
+
     // [profile.<name>]
     auto profile_node = tbl.get("profile");
     if (profile_node) {

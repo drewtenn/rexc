@@ -1,5 +1,6 @@
 #include "build/build.hpp"
 
+#include "build_script/build_script.hpp"
 #include "diag/diag.hpp"
 #include "lockfile/lockfile.hpp"
 #include "process/process.hpp"
@@ -145,12 +146,73 @@ Result run(const manifest::Manifest& m, const Options& opts) {
         return r;
     }
 
+    // Phase D: detect blocked transitive build scripts before any compilation.
+    if (!opts.no_build_scripts && !opts.allow_all_build_scripts) {
+        std::vector<manifest::Manifest> dep_manifests;
+        for (const auto& d : resolution.packages) {
+            auto loaded = manifest::load_manifest(d.package_root / "Rexy.toml");
+            if (auto* errs = std::get_if<std::vector<diag::Diagnostic>>(&loaded)) {
+                for (const auto& e : *errs) diag::print(e);
+                r.exit_code = 1;
+                return r;
+            }
+            dep_manifests.push_back(std::get<manifest::Manifest>(loaded));
+        }
+        auto blocked = build_script::disallowed_transitive_scripts(m, dep_manifests);
+        if (!blocked.empty()) {
+            std::ostringstream oss;
+            oss << blocked.size() << " transitive dependency build script(s) blocked: ";
+            for (size_t i = 0; i < blocked.size(); ++i) {
+                if (i) oss << ", ";
+                oss << "`" << blocked[i] << "`";
+            }
+            std::ostringstream allow_block;
+            allow_block << "[build]\nallow-scripts = [";
+            for (size_t i = 0; i < blocked.size(); ++i) {
+                if (i) allow_block << ", ";
+                allow_block << "\"" << blocked[i] << "\"";
+            }
+            allow_block << "]";
+            diag::print(diag::Diagnostic::error(oss.str())
+                .with_help("transitive build scripts require explicit opt-in. To allow, add to Rexy.toml:\n"
+                           + allow_block.str() +
+                           "\nor pass --allow-all-build-scripts (trusts every dep)"));
+            r.exit_code = 1;
+            return r;
+        }
+    }
+
+    // Phase D: run the root package's build script (if any), apply directives.
+    build_script::Directives root_dirs;
+    if (m.build && m.build->script) {
+        build_script::RunOptions bs_opts;
+        bs_opts.rexc_exe        = rexc;
+        bs_opts.target_dir_root = m.package_root / "target";
+        bs_opts.profile_name    = opts.profile_name;
+        bs_opts.host_triple     = "host";       // refined in Phase E (cross-compile)
+        bs_opts.target_triple   = "host";
+        bs_opts.rexc_version    = "0.x";        // refined when rexc reports its version
+        bs_opts.quiet           = opts.quiet;
+        bs_opts.no_build_scripts = opts.no_build_scripts;
+        try {
+            root_dirs = build_script::run_for(m, bs_opts);
+        } catch (const std::exception& ex) {
+            diag::print(diag::Diagnostic::error(ex.what()));
+            r.exit_code = 1;
+            return r;
+        }
+    }
+
     // Compute --package-path values once per build, derived from the
     // resolved dep graph. For each dep, the import handle is the dep's
     // package name (Phase B convention: package.name == import name).
     // We pass the directory containing that dep's lib target's source file
     // (or the package root if no lib target).
     std::vector<std::string> dep_package_paths;
+    // Build-script-emitted search paths come first (so codegen output is reachable).
+    for (const auto& p : root_dirs.rxy_search_paths) {
+        if (fs::is_directory(p)) dep_package_paths.push_back(p.string());
+    }
     for (const auto& d : resolution.packages) {
         // Reload the dep's manifest to know where its lib lives.
         auto loaded = manifest::load_manifest(d.package_root / "Rexy.toml");
@@ -198,6 +260,7 @@ Result run(const manifest::Manifest& m, const Options& opts) {
         process::Options popts;
         popts.cwd = m.package_root;
         popts.stream_through = true;
+        for (const auto& kv : root_dirs.env_overlay) popts.env_overlay[kv.first] = kv.second;
         process::Result pr = process::run(rexc, args, popts);
         if (pr.exit_code != 0) {
             diag::print(diag::Diagnostic::error(
@@ -231,6 +294,7 @@ Result run(const manifest::Manifest& m, const Options& opts) {
         process::Options popts;
         popts.cwd = m.package_root;
         popts.stream_through = true;
+        for (const auto& kv : root_dirs.env_overlay) popts.env_overlay[kv.first] = kv.second;
         process::Result pr = process::run(rexc, args, popts);
         if (pr.exit_code != 0) {
             diag::print(diag::Diagnostic::error(

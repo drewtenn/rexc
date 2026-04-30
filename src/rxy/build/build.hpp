@@ -16,6 +16,8 @@ struct Options {
     bool verbose = false;
     bool color_for_rexc = false;        // pass --color=always to rexc when true
     bool locked  = false;               // FR-011: fail if Rexy.lock would change
+    bool no_build_scripts = false;      // FR-024: skip all build scripts
+    bool allow_all_build_scripts = false; // PRD R-3 escape hatch for transitive
 };
 
 struct Result {

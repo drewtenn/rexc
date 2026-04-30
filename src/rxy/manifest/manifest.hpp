@@ -62,6 +62,12 @@ struct DependencySpec {
     bool is_registry() const { return !is_path() && !is_git() && registry_version.has_value(); }
 };
 
+struct BuildSection {
+    std::optional<std::filesystem::path> script;        // path to build.rx, relative to package_root
+    std::vector<std::string> allow_scripts;             // FR-023 transitive opt-in
+    std::vector<std::string> links;                     // FR-049 native libs (recorded only Phase D)
+};
+
 struct Manifest {
     PackageMeta package;
     std::optional<LibTarget> lib;
@@ -70,6 +76,7 @@ struct Manifest {
     std::map<std::string, Profile> profiles;   // "dev", "release", custom
     std::vector<DependencySpec> dependencies;  // [dependencies]
     std::vector<DependencySpec> dev_dependencies;  // [dev-dependencies] — parsed but currently unused
+    std::optional<BuildSection> build;          // [build]
 
     std::filesystem::path manifest_path;       // absolute path to Rexy.toml
     std::filesystem::path package_root;        // dir containing Rexy.toml

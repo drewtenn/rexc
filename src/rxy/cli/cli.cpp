@@ -291,6 +291,8 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
 
         if      (flag == "--release") bopts.profile_name = "release";
         else if (flag == "--locked")  bopts.locked = true;
+        else if (flag == "--no-build-scripts")      bopts.no_build_scripts = true;
+        else if (flag == "--allow-all-build-scripts") bopts.allow_all_build_scripts = true;
         else if (flag == "--profile") {
             auto v = take("--profile"); if (!v) return 2;
             bopts.profile_name = *v;
