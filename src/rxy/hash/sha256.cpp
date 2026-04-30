@@ -147,7 +147,7 @@ std::string sha256_dir_tree(const std::filesystem::path& root) {
     namespace fs = std::filesystem;
 
     static const std::vector<std::string> kSkipNames = {
-        "target", ".git", "Rexy.lock"
+        "target", ".git", "Rexy.lock", ".rxy_extracted"
     };
 
     std::vector<fs::path> files;

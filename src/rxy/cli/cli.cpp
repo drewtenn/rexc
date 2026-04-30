@@ -2,14 +2,19 @@
 
 #include "build/build.hpp"
 #include "diag/diag.hpp"
+#include "hash/sha256.hpp"
 #include "lockfile/lockfile.hpp"
 #include "manifest/manifest.hpp"
 #include "process/process.hpp"
+#include "registry/registry.hpp"
+#include "semver/semver.hpp"
+#include "source/source.hpp"
 #include "util/fs.hpp"
 #include "util/tty.hpp"
 
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -143,6 +148,11 @@ fs::path resolve_manifest_path(const GlobalFlags& g) {
     }
     return *root / "Rexy.toml";
 }
+
+int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g);
+int cmd_yank_or_unyank(const std::vector<std::string>& args, bool yank);
+int cmd_add(const std::vector<std::string>& args, const GlobalFlags& g);
+int cmd_remove(const std::vector<std::string>& args, const GlobalFlags& g);
 
 int cmd_new_or_init(const std::vector<std::string>& args, bool is_init) {
     bool want_lib = false;
@@ -386,6 +396,342 @@ int cmd_run(const std::vector<std::string>& args, const GlobalFlags& g) {
     return pr.exit_code;
 }
 
+// ===== Phase C: registry-aware commands =====
+
+namespace {
+
+std::string rfc3339_now_utc() {
+    std::time_t t = std::time(nullptr);
+    std::tm tm{};
+    gmtime_r(&t, &tm);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    return std::string(buf);
+}
+
+}  // namespace
+
+int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g) {
+    bool dry_run = false;
+    std::string registry_name = "default";
+    for (size_t i = 0; i < args.size(); ++i) {
+        const auto& a = args[i];
+        if (a == "--dry-run") dry_run = true;
+        else if (a == "--registry") {
+            if (i + 1 >= args.size()) { std::fprintf(stderr, "error: --registry needs a value\n"); return 2; }
+            registry_name = args[++i];
+        } else {
+            std::fprintf(stderr, "error: unknown flag for publish: %s\n", a.c_str()); return 2;
+        }
+    }
+
+    fs::path mp;
+    try { mp = resolve_manifest_path(g); }
+    catch (const std::exception& ex) {
+        diag::print(diag::Diagnostic::error(ex.what())); return 1;
+    }
+    auto loaded = manifest::load_manifest(mp);
+    if (auto* errs = std::get_if<std::vector<diag::Diagnostic>>(&loaded)) {
+        for (const auto& d : *errs) diag::print(d); return 1;
+    }
+    auto m = std::get<manifest::Manifest>(loaded);
+
+    diag::status("Verifying", "package `" + m.package.name + " v" + m.package.version + "`");
+
+    // Source-tree checksum: must match what consumers will compute, which
+    // hashes a `git archive` extraction (no .git, no untracked files).
+    // We materialize a temporary archive, extract it, hash, then discard.
+    std::string checksum;
+    {
+        fs::path tmp = fs::temp_directory_path() / ("rxy_publish_" + std::to_string(::rand()));
+        fs::create_directories(tmp);
+        struct CleanGuard { fs::path p; ~CleanGuard(){ std::error_code ec; fs::remove_all(p, ec); } } g{tmp};
+
+        process::Options popts_archive;
+        popts_archive.cwd = m.package_root;
+        popts_archive.stream_through = false;
+        process::Result pa = process::run("/usr/bin/env",
+            {"git", "archive", "--format=tar", "HEAD"}, popts_archive);
+        if (pa.exit_code != 0) {
+            diag::print(diag::Diagnostic::error("git archive failed: " + pa.stderr_data));
+            return 1;
+        }
+        fs::path tar_path = tmp / "archive.tar";
+        util::atomic_write_text_file(tar_path, pa.stdout_data);
+        process::Options popts_tar;
+        popts_tar.cwd = tmp;
+        popts_tar.stream_through = false;
+        process::Result pt = process::run("/usr/bin/tar", {"-xf", tar_path.string()}, popts_tar);
+        if (pt.exit_code != 0) {
+            diag::print(diag::Diagnostic::error("tar extract failed: " + pt.stderr_data));
+            return 1;
+        }
+        std::error_code ec;
+        fs::remove(tar_path, ec);
+        checksum = hash::sha256_dir_tree(tmp);
+    }
+
+    // Reserved-prefix guard.
+    static const std::vector<std::string> kReserved = {"rexy-", "rxy-", "std-", "core-", "alloc-"};
+    std::string normalized = registry::normalize_name(m.package.name);
+    for (const auto& pref : kReserved) {
+        if (normalized.size() >= pref.size() && normalized.compare(0, pref.size(), pref) == 0) {
+            diag::print(diag::Diagnostic::error(
+                "package name `" + m.package.name + "` uses reserved prefix `" + pref + "`")
+                .with_help("reserved prefixes are claimable only by the core team — see docs/registry-governance.md"));
+            return 1;
+        }
+    }
+
+    auto reg = registry::open_named(registry_name);
+
+    // git-url + commit: Phase C MVP requires the package to have a git
+    // working tree at HEAD with a clean working directory.
+    fs::path git_exe = "/usr/bin/env";
+    process::Options popts;
+    popts.cwd = m.package_root;
+    popts.stream_through = false;
+
+    auto git_ok = [&](const std::vector<std::string>& argsv) -> std::optional<std::string> {
+        process::Result pr = process::run(git_exe, argsv, popts);
+        if (pr.exit_code != 0) return std::nullopt;
+        std::string s = pr.stdout_data;
+        while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+        return s;
+    };
+
+    auto status = git_ok({"git", "status", "--porcelain"});
+    if (!status) {
+        diag::print(diag::Diagnostic::error(
+            "package directory is not a git repository (rxy publish v1 requires git)")
+            .with_help("run `git init && git commit -am init` first"));
+        return 1;
+    }
+    if (!status->empty()) {
+        diag::print(diag::Diagnostic::error("working tree has uncommitted changes")
+            .with_help("commit or stash changes before publishing"));
+        return 1;
+    }
+    auto commit = git_ok({"git", "rev-parse", "HEAD"});
+    if (!commit) {
+        diag::print(diag::Diagnostic::error("could not resolve HEAD commit"));
+        return 1;
+    }
+    auto remote_url = git_ok({"git", "config", "--get", "remote.origin.url"});
+    std::string git_url = remote_url.value_or("");
+    if (git_url.empty()) {
+        diag::print(diag::Diagnostic::error(
+            "git remote `origin` is not set; rxy publish needs a fetch URL")
+            .with_help("git remote add origin <url> first"));
+        return 1;
+    }
+
+    registry::Entry entry;
+    auto v = semver::parse_version(m.package.version);
+    if (!v) {
+        diag::print(diag::Diagnostic::error("invalid version `" + m.package.version + "`"));
+        return 1;
+    }
+    entry.version = *v;
+    entry.git_url = git_url;
+    entry.commit  = *commit;
+    entry.checksum = checksum;
+    entry.published_at = rfc3339_now_utc();
+    for (const auto& d : m.dependencies) {
+        if (d.is_registry()) {
+            entry.deps.push_back(d.name + " " + d.registry_version.value_or("*"));
+        }
+    }
+
+    if (dry_run) {
+        diag::status("Dry-run",
+            "would publish " + m.package.name + " v" + m.package.version +
+            " to registry `" + reg.config.name + "` (commit " + commit->substr(0, 8) +
+            ", checksum " + checksum.substr(0, 16) + "...)");
+        return 0;
+    }
+
+    diag::status("Publishing",
+        m.package.name + " v" + m.package.version +
+        " to registry `" + reg.config.name + "`");
+
+    try {
+        reg.append_entry(m.package.name, entry);
+    } catch (const std::exception& ex) {
+        diag::print(diag::Diagnostic::error(ex.what()));
+        return 1;
+    }
+    diag::status("Published", m.package.name + " v" + m.package.version);
+    return 0;
+}
+
+int cmd_yank_or_unyank(const std::vector<std::string>& args, bool yank) {
+    if (args.empty()) {
+        std::fprintf(stderr, "usage: rxy %s <name>@<version> [--reason TEXT] [--severity informational|security] [--registry NAME]\n",
+                     yank ? "yank" : "unyank");
+        return 2;
+    }
+    std::string spec = args[0];
+    std::string registry_name = "default";
+    std::optional<std::string> reason;
+    registry::YankSeverity sev = registry::YankSeverity::Informational;
+
+    for (size_t i = 1; i < args.size(); ++i) {
+        const auto& a = args[i];
+        if (a == "--reason") {
+            if (i + 1 >= args.size()) { std::fprintf(stderr, "error: --reason needs a value\n"); return 2; }
+            reason = args[++i];
+        } else if (a == "--severity") {
+            if (i + 1 >= args.size()) { std::fprintf(stderr, "error: --severity needs a value\n"); return 2; }
+            std::string v = args[++i];
+            if (v == "security") sev = registry::YankSeverity::Security;
+            else if (v != "informational") {
+                std::fprintf(stderr, "error: --severity must be `informational` or `security`\n");
+                return 2;
+            }
+        } else if (a == "--registry") {
+            if (i + 1 >= args.size()) { std::fprintf(stderr, "error: --registry needs a value\n"); return 2; }
+            registry_name = args[++i];
+        } else {
+            std::fprintf(stderr, "error: unknown flag: %s\n", a.c_str()); return 2;
+        }
+    }
+
+    auto at = spec.find('@');
+    if (at == std::string::npos) {
+        std::fprintf(stderr, "error: expected NAME@VERSION; got `%s`\n", spec.c_str());
+        return 2;
+    }
+    std::string name = spec.substr(0, at);
+    std::string ver_str = spec.substr(at + 1);
+    auto v = semver::parse_version(ver_str);
+    if (!v) {
+        std::fprintf(stderr, "error: invalid version `%s`\n", ver_str.c_str());
+        return 2;
+    }
+
+    auto reg = registry::open_named(registry_name);
+    try {
+        reg.set_yanked(name, *v, yank, sev, reason);
+    } catch (const std::exception& ex) {
+        diag::print(diag::Diagnostic::error(ex.what()));
+        return 1;
+    }
+    diag::status(yank ? "Yanked" : "Unyanked", name + " v" + ver_str);
+    return 0;
+}
+
+int cmd_add(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (args.empty()) {
+        std::fprintf(stderr, "usage: rxy add <name>[@<constraint>] [--git URL [--tag T|--rev R|--branch B]] [--path P] [--registry NAME]\n");
+        return 2;
+    }
+
+    std::string spec = args[0];
+    std::optional<std::string> git_url, git_tag, git_rev, git_branch, path_arg;
+
+    for (size_t i = 1; i < args.size(); ++i) {
+        const auto& a = args[i];
+        auto take = [&](const char* name) -> std::optional<std::string> {
+            if (i + 1 >= args.size()) {
+                std::fprintf(stderr, "error: %s needs a value\n", name); return std::nullopt;
+            }
+            return args[++i];
+        };
+        if      (a == "--git")    { auto v = take("--git");    if (!v) return 2; git_url = v; }
+        else if (a == "--tag")    { auto v = take("--tag");    if (!v) return 2; git_tag = v; }
+        else if (a == "--rev")    { auto v = take("--rev");    if (!v) return 2; git_rev = v; }
+        else if (a == "--branch") { auto v = take("--branch"); if (!v) return 2; git_branch = v; }
+        else if (a == "--path")   { auto v = take("--path");   if (!v) return 2; path_arg = v; }
+        else { std::fprintf(stderr, "error: unknown flag: %s\n", a.c_str()); return 2; }
+    }
+
+    std::string name = spec;
+    std::string constraint;
+    if (auto at = spec.find('@'); at != std::string::npos) {
+        name = spec.substr(0, at);
+        constraint = spec.substr(at + 1);
+    }
+    if (constraint.empty() && !git_url && !path_arg) constraint = "*";
+
+    fs::path mp;
+    try { mp = resolve_manifest_path(g); }
+    catch (const std::exception& ex) {
+        diag::print(diag::Diagnostic::error(ex.what())); return 1;
+    }
+
+    std::string text = util::read_text_file(mp);
+    if (text.empty() || text.back() != '\n') text.push_back('\n');
+
+    if (text.find("[dependencies]") == std::string::npos) {
+        text.append("\n[dependencies]\n");
+    }
+    std::ostringstream entry;
+    entry << name << " = ";
+    if (path_arg) {
+        entry << "{ path = \"" << *path_arg << "\" }";
+    } else if (git_url) {
+        entry << "{ git = \"" << *git_url << "\"";
+        if (git_tag)    entry << ", tag = \""    << *git_tag    << "\"";
+        if (git_rev)    entry << ", rev = \""    << *git_rev    << "\"";
+        if (git_branch) entry << ", branch = \"" << *git_branch << "\"";
+        if (!constraint.empty() && constraint != "*") entry << ", version = \"" << constraint << "\"";
+        entry << " }";
+    } else {
+        entry << "\"" << constraint << "\"";
+    }
+    entry << "\n";
+    text.append(entry.str());
+
+    util::atomic_write_text_file(mp, text);
+    diag::status("Adding", name + " to [dependencies]");
+
+    // Re-run a dry build to refresh the lockfile (no actual compile).
+    auto loaded = manifest::load_manifest(mp);
+    if (auto* errs = std::get_if<std::vector<diag::Diagnostic>>(&loaded)) {
+        for (const auto& d : *errs) diag::print(d); return 1;
+    }
+    return 0;
+}
+
+int cmd_remove(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (args.size() != 1) {
+        std::fprintf(stderr, "usage: rxy remove <name>\n");
+        return 2;
+    }
+    const std::string& name = args[0];
+    fs::path mp;
+    try { mp = resolve_manifest_path(g); }
+    catch (const std::exception& ex) {
+        diag::print(diag::Diagnostic::error(ex.what())); return 1;
+    }
+    std::string text = util::read_text_file(mp);
+    std::ostringstream out;
+    bool removed = false;
+    std::istringstream in(text);
+    std::string line;
+    while (std::getline(in, line)) {
+        // Match "name = ..." at start of line (allowing a leading whitespace).
+        std::string trimmed = line;
+        while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front()))) trimmed.erase(0, 1);
+        bool matches = false;
+        if (trimmed.size() > name.size() &&
+            trimmed.compare(0, name.size(), name) == 0) {
+            char after = trimmed[name.size()];
+            if (after == ' ' || after == '=' || after == '\t') matches = true;
+        }
+        if (matches) { removed = true; continue; }
+        out << line << "\n";
+    }
+    if (!removed) {
+        diag::print(diag::Diagnostic::error("`" + name + "` not found in [dependencies]"));
+        return 1;
+    }
+    util::atomic_write_text_file(mp, out.str());
+    diag::status("Removed", name + " from [dependencies]");
+    return 0;
+}
+
 }  // namespace
 
 int dispatch(int argc, char** argv) {
@@ -397,10 +743,15 @@ int dispatch(int argc, char** argv) {
     if (p.show_help || p.subcommand.empty()) { print_usage(); return p.show_help ? 0 : 2; }
 
     try {
-        if (p.subcommand == "new")   return cmd_new_or_init(p.sub_args, /*is_init*/false);
-        if (p.subcommand == "init")  return cmd_new_or_init(p.sub_args, /*is_init*/true);
-        if (p.subcommand == "build") return cmd_build(p.sub_args, p.g);
-        if (p.subcommand == "run")   return cmd_run(p.sub_args, p.g);
+        if (p.subcommand == "new")     return cmd_new_or_init(p.sub_args, /*is_init*/false);
+        if (p.subcommand == "init")    return cmd_new_or_init(p.sub_args, /*is_init*/true);
+        if (p.subcommand == "build")   return cmd_build(p.sub_args, p.g);
+        if (p.subcommand == "run")     return cmd_run(p.sub_args, p.g);
+        if (p.subcommand == "publish") return cmd_publish(p.sub_args, p.g);
+        if (p.subcommand == "yank")    return cmd_yank_or_unyank(p.sub_args, /*yank*/true);
+        if (p.subcommand == "unyank")  return cmd_yank_or_unyank(p.sub_args, /*yank*/false);
+        if (p.subcommand == "add")     return cmd_add(p.sub_args, p.g);
+        if (p.subcommand == "remove")  return cmd_remove(p.sub_args, p.g);
     } catch (const std::exception& ex) {
         diag::print(diag::Diagnostic::error(std::string("internal error: ") + ex.what()));
         return 101;

@@ -4,6 +4,8 @@
 #include "hash/sha256.hpp"
 #include "manifest/manifest.hpp"
 #include "process/process.hpp"
+#include "registry/registry.hpp"
+#include "semver/semver.hpp"
 #include "util/fs.hpp"
 
 #include <cstdlib>
@@ -207,15 +209,79 @@ Resolved resolve_git(const manifest::DependencySpec& dep) {
 
 }  // namespace
 
+namespace {
+
+// Phase C: resolve via the configured registry. Reuses the git-fetch path
+// after picking the highest non-yanked version that matches the constraint.
+Resolved resolve_registry_dep(const manifest::DependencySpec& dep) {
+    auto reg = registry::open_default();
+    registry::refresh_if_stale(reg);
+
+    auto info = reg.lookup(dep.name);
+    if (!info) {
+        throw std::runtime_error("`" + dep.name + "` not found in registry `" +
+            reg.config.name + "`");
+    }
+    auto constraint_str = dep.registry_version.value_or("*");
+    auto constraint = semver::parse_constraint(constraint_str);
+    if (!constraint) {
+        throw std::runtime_error("invalid version constraint `" + constraint_str +
+            "` for `" + dep.name + "`");
+    }
+    std::vector<semver::Version> candidates;
+    for (const auto& e : info->entries) {
+        if (e.yanked) continue;
+        candidates.push_back(e.version);
+    }
+    auto best = semver::resolve_highest(*constraint, candidates);
+    if (!best) {
+        std::ostringstream oss;
+        oss << "no version of `" << dep.name << "` matches `" << constraint_str << "`";
+        if (!info->entries.empty()) {
+            oss << " (available:";
+            for (const auto& e : info->entries) {
+                oss << " " << e.version.to_string();
+                if (e.yanked) oss << "(yanked)";
+            }
+            oss << ")";
+        }
+        throw std::runtime_error(oss.str());
+    }
+
+    // Find the matching entry to read git-url + commit + checksum.
+    const registry::Entry* entry = nullptr;
+    for (const auto& e : info->entries) {
+        if (e.version == *best && !e.yanked) { entry = &e; break; }
+    }
+    if (!entry) throw std::runtime_error("internal: resolved version not found");
+
+    // Reuse the git fetch pipeline by synthesizing a DependencySpec.
+    manifest::DependencySpec synth;
+    synth.name = dep.name;
+    synth.git_url = entry->git_url;
+    synth.git_rev = entry->commit;
+    Resolved r = resolve_git(synth);
+    // Verify: registry's published checksum must match what we hashed.
+    if (r.checksum && *r.checksum != entry->checksum) {
+        throw std::runtime_error(
+            "registry checksum mismatch for `" + dep.name + " " + best->to_string() +
+            "`: registry says " + entry->checksum + " but fetched tree hashes to " +
+            *r.checksum + ". This may indicate a compromised source.");
+    }
+    // Use the version we resolved (registry's, not the dep's manifest's, in
+    // case the upstream package's Rexy.toml drifted from the registry's record).
+    r.version = best->to_string();
+    r.source_token = "registry+" + reg.config.name;
+    return r;
+}
+
+}  // namespace
+
 Resolved resolve(const manifest::DependencySpec& dep,
                  const fs::path& importer_root) {
     if (dep.is_path()) return resolve_path(dep, importer_root);
     if (dep.is_git())  return resolve_git(dep);
-    if (dep.is_registry()) {
-        throw std::runtime_error("registry dependency `" + dep.name +
-            " = \"" + *dep.registry_version + "\"` requires Phase C; "
-            "for now, pin via `git = \"...\", tag = \"v...\"`");
-    }
+    if (dep.is_registry()) return resolve_registry_dep(dep);
     throw std::runtime_error("dependency `" + dep.name + "` has no source");
 }
 
