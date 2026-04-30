@@ -439,6 +439,63 @@ The repo's `CMakeLists.txt` continues to build `rexc` itself (the C++17 compiler
 
 ---
 
+## 12.5 Appendix D — Post-Implementation Security Audit & Deferred Work
+
+After the A→G ladder shipped (commits `a8c8ff1` through `c97aa50`), a security audit was conducted via the `octo:personas:security-auditor` agent over the full diff. 15 code-level findings were surfaced. This appendix captures the disposition of each so future sessions know what's done, what's tracked, and what's been intentionally skipped.
+
+Full audit transcript: `~/.claude-octopus/results/` (delivery reports + `tangle-validation-rxy-*.md`).
+
+### Status legend
+
+- ✅ **Fixed** in commits `9936f8f` (first hardening pass) or `eab04c7` (deferred-HIGH pass)
+- 🟡 **Deferred** — tracked, with estimated cost
+- ⊘ **Skipped** — false alarm or out of scope, with reason
+
+### Findings
+
+| # | Severity | Finding | Status | File:line | Notes |
+|---|---|---|---|---|---|
+| 1 | HIGH | Path traversal via TOML quoted dep keys | ✅ Fixed | `manifest.cpp` (parse_deps_table) | `is_valid_package_name` + `assert_safe_name` defense in depth |
+| 2 | HIGH | Build-script OUT_DIR bypass via symlinks | ✅ Fixed | `build_script.cpp`, `hash/sha256.cpp` | Reject symlinks in source-tree walks; fingerprint = (mtime, size, sha256) |
+| 3 | HIGH | mtime spoofing via utime() | ✅ Fixed | `build_script.cpp` | Same fingerprint mechanism — sha256 is the load-bearing element |
+| 4 | HIGH | tar extraction allows symlink/abs-path escape | ✅ Fixed | `cli.cpp` (cmd_publish) | `--no-same-owner --no-same-permissions`; macOS bsdtar already rejects `..` |
+| 5 | HIGH | Registry TOML re-serialization injection | ✅ Fixed | `registry.cpp` | `toml_escape()` + unified `serialize_package()` |
+| 6 | MEDIUM | Signal handler races on global atomic | 🟡 Deferred (~4h) | `process.cpp` | Latent — single-threaded today; blocking for Phase E parallel builds |
+| 7 | MEDIUM | `chdir` race in `process::run` | 🟡 Deferred (~4h, with #6) | `process.cpp` | Same fix: `posix_spawn_file_actions_addchdir_np` |
+| 8 | MEDIUM | Force-pushed git tag silently rewrites cache | ✅ Fixed | `source.cpp` (resolve_git) | `ResolveOptions::locked_commits` populated from prior `Rexy.lock` |
+| 9 | MEDIUM | `cmd_publish` uses `rand()` for tempdir | ✅ Fixed | `cli.cpp` | `mkdtemp(3)` |
+| 10 | MEDIUM | Concurrent rxy instances race on cache | 🟡 Deferred (~2h) | `source.cpp`, `cache.cpp` | Needs `flock(2)` per cache entry — blocking for CI matrices |
+| 11 | MEDIUM | `/usr/bin/env git` PATH-ordering trap | ✅ Fixed | `registry.cpp`, `cli.cpp` | `util::find_on_path("git", "GIT")` everywhere |
+| 12 | MEDIUM | ANSI escape injection in diagnostics | ✅ Fixed | `diag.cpp` | `strip_ansi()` applied to every user-controlled string before `fprintf` |
+| 13 | LOW | tmp.tar inside hashed workdir | ⊘ Skipped | `source.cpp` | False alarm — `.tmp.tar` is removed before `sha256_dir_tree` runs |
+| 14 | LOW | SHA-256 bitlen overflow at 2^61 bytes | ⊘ Skipped | `hash/sha256.cpp` | Unreachable; filesystem upper bound is way below 2^61 |
+| 15 | LOW | `cmd_remove` deleted lines from any TOML section | ✅ Fixed | `cli.cpp` | Section-aware scanner; only edits `[dependencies]` / `[dev-dependencies]` |
+
+**Tally:** 9 fixed, 3 deferred (with cost), 2 skipped (one false alarm + one unreachable), 1 out-of-scope (audit #10's "submitter bot" lives in registry-governance ops, not in rxy code).
+
+### Deferred work — cost & recommendation
+
+| Item | Cost | Blocking for | Recommendation |
+|---|---|---|---|
+| **#6/#7 Signal & chdir refactor** in `process.cpp` | ~4h | Phase E parallel jobs | Land before any concurrent build dispatch ships. Use `posix_spawn_file_actions_addchdir_np` (macOS 10.15+, glibc 2.29+). |
+| **#10 `flock` on `~/.rxy` cache** | ~2h | CI matrix usage | Land before promoting rxy as a CI-friendly tool. Per-bucket lockfile (`<bare>.lock`, `<workdir>.lock`). |
+| **Workspace-root build dispatch** (`rxy build` from root with no `[package]`) | ~2h | Cargo-parity UX | Phase E+1. Walk every member sequentially; stop on first failure unless `--keep-going`. |
+
+Total: **~8 hours** to clear the deferred backlog.
+
+### Audit failure mode worth recording
+
+The dispatched `octo:droids:octo-code-reviewer` agent failed identically across two phases (Phase A delivery and post-A→G audit): it produces markdown code blocks with embedded shell commands instead of invoking its tools, then returns `STATUS: BLOCKED, Confidence: 0`. Reproduced twice in this work tree. The `octo:personas:security-auditor` agent works correctly. Avoid `octo-code-reviewer` until that's fixed; route review work through `security-auditor` or do the review via direct file reads.
+
+### Lessons captured
+
+1. **Don't trust user-controlled strings inside any path computation.** Several findings (#1, #5, #11) all stem from "value flows from manifest/env/git into a filesystem operation without validation". A general policy of "validate at the input boundary, assert at the use boundary" closes most of this surface area.
+2. **mtime is not a tamper-evidence mechanism.** Finding #3 was nearly a tautology in retrospect — `utime(2)` is in the stdlib of every system rxy targets. Content-addressed hashing is the only meaningful tamper detection.
+3. **`/usr/bin/env <cmd>` is convenient but trades safety for short-term convenience.** Finding #11 surfaced because we used it to avoid hardcoding `/usr/bin/git`. The right pattern is a `find_on_path()` resolver that honors a per-binary env override (`$GIT`, `$REXC`, etc.) and validates the resolution.
+4. **Multi-LLM dispatch produces real value when the agent works.** The `security-auditor` agent's 15-finding report drove three commits' worth of fixes that I would not have surfaced alone. The `code-reviewer` agent failing meanwhile is a useful negative signal — not every advertised tool is reliable, and the workflow needs to gracefully fall back.
+
+---
+
 ## 13. Self-Score (100-point AI-Optimization Framework)
 
 | Category | Max | Score | Rationale |
