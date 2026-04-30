@@ -1,5 +1,6 @@
-# Build directories
-build/
+# Build directories — anchor to repo root so `src/rxy/build/` (a source dir)
+# is not accidentally excluded.
+/build/
 cmake-build-*/
 out/
 .worktrees/
