@@ -122,12 +122,18 @@ Resolved resolve_path(const manifest::DependencySpec& dep,
     return r;
 }
 
-Resolved resolve_git(const manifest::DependencySpec& dep) {
+Resolved resolve_git(const manifest::DependencySpec& dep, const ResolveOptions& opts) {
     fs::path git_exe = find_git();
     fs::path bare    = cache::git_db_path_for_url(*dep.git_url);
 
     if (!fs::is_directory(bare / "objects")) {
         // First time we see this URL — clone bare.
+        if (opts.offline) {
+            throw std::runtime_error(
+                "offline mode: no cached clone for `" + dep.name +
+                "` at " + bare.string() +
+                "\n  --offline disables git clone; run once online to prime the cache");
+        }
         std::error_code ec;
         fs::remove_all(bare, ec);
         cache::ensure_dir(bare.parent_path());
@@ -135,7 +141,7 @@ Resolved resolve_git(const manifest::DependencySpec& dep) {
                 {"clone", "--bare", "--quiet", *dep.git_url, bare.string()},
                 bare.parent_path(),
                 "clone " + *dep.git_url);
-    } else {
+    } else if (!opts.offline) {
         // Make sure refs are fresh. `--force` lets moved tags update so we
         // can *detect* drift downstream rather than fail here.
         run_git(git_exe, {"fetch", "--all", "--quiet", "--tags", "--force"},
@@ -213,9 +219,9 @@ namespace {
 
 // Phase C: resolve via the configured registry. Reuses the git-fetch path
 // after picking the highest non-yanked version that matches the constraint.
-Resolved resolve_registry_dep(const manifest::DependencySpec& dep) {
+Resolved resolve_registry_dep(const manifest::DependencySpec& dep, const ResolveOptions& opts) {
     auto reg = registry::open_default();
-    registry::refresh_if_stale(reg);
+    if (!opts.offline) registry::refresh_if_stale(reg);
 
     auto info = reg.lookup(dep.name);
     if (!info) {
@@ -260,7 +266,7 @@ Resolved resolve_registry_dep(const manifest::DependencySpec& dep) {
     synth.name = dep.name;
     synth.git_url = entry->git_url;
     synth.git_rev = entry->commit;
-    Resolved r = resolve_git(synth);
+    Resolved r = resolve_git(synth, opts);
     // Verify: registry's published checksum must match what we hashed.
     if (r.checksum && *r.checksum != entry->checksum) {
         throw std::runtime_error(
@@ -277,11 +283,47 @@ Resolved resolve_registry_dep(const manifest::DependencySpec& dep) {
 
 }  // namespace
 
+// FR-046/047 partial: the bundled stdlib is exposed via an in-rxy constant.
+// A future Phase F+1 swaps this for a real package fetch.
+#ifndef RXY_BUNDLED_STDLIB_VERSION
+#define RXY_BUNDLED_STDLIB_VERSION "0.1.0"
+#endif
+
+Resolved resolve_bundled_stdlib(const manifest::DependencySpec& dep) {
+    std::string bundled = RXY_BUNDLED_STDLIB_VERSION;
+    auto bundled_v = semver::parse_version(bundled);
+    if (!bundled_v) {
+        throw std::runtime_error("internal: invalid RXY_BUNDLED_STDLIB_VERSION");
+    }
+    std::string constraint_str = dep.registry_version.value_or("*");
+    auto constraint = semver::parse_constraint(constraint_str);
+    if (!constraint) {
+        throw std::runtime_error("invalid stdlib version constraint `" + constraint_str + "`");
+    }
+    if (!constraint->matches(*bundled_v)) {
+        throw std::runtime_error(
+            "stdlib pin `" + constraint_str + "` does not accept the bundled stdlib " +
+            bundled + "\n  use `std = \"" + bundled + "\"` or remove the pin to use the bundled stdlib");
+    }
+    Resolved r;
+    r.name = "std";
+    r.version = bundled;
+    r.source_token = "bundled+rexc";
+    // No package_root, no commit, no checksum — the stdlib lives inside rexc.
+    return r;
+}
+
 Resolved resolve(const manifest::DependencySpec& dep,
-                 const fs::path& importer_root) {
+                 const fs::path& importer_root,
+                 const ResolveOptions& opts) {
+    // FR-046/047: `std` is a reserved dep name that resolves against the
+    // bundled stdlib until Phase F+1 unbundles it.
+    if (dep.name == "std" && (dep.is_registry() || (!dep.is_path() && !dep.is_git()))) {
+        return resolve_bundled_stdlib(dep);
+    }
     if (dep.is_path()) return resolve_path(dep, importer_root);
-    if (dep.is_git())  return resolve_git(dep);
-    if (dep.is_registry()) return resolve_registry_dep(dep);
+    if (dep.is_git())  return resolve_git(dep, opts);
+    if (dep.is_registry()) return resolve_registry_dep(dep, opts);
     throw std::runtime_error("dependency `" + dep.name + "` has no source");
 }
 

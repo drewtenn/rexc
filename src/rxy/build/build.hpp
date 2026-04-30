@@ -18,6 +18,7 @@ struct Options {
     bool locked  = false;               // FR-011: fail if Rexy.lock would change
     bool no_build_scripts = false;      // FR-024: skip all build scripts
     bool allow_all_build_scripts = false; // PRD R-3 escape hatch for transitive
+    bool offline = false;               // FR-012: no network operations
     std::optional<std::string> target_triple;   // FR-022: --target=<triple>
 };
 

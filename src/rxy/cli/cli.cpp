@@ -113,6 +113,7 @@ Parsed parse_argv(int argc, char** argv) {
         if (flag == "--version") { p.show_version = true; ++i; continue; }
         if (flag == "-q" || flag == "--quiet")   { p.g.quiet = true;   ++i; continue; }
         if (flag == "-v" || flag == "--verbose") { p.g.verbose = true; ++i; continue; }
+        if (flag == "--offline") { p.g.offline = true; ++i; continue; }
 
         if (flag == "--color") {
             auto v = take_value("--color");
@@ -295,6 +296,7 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
     bopts.quiet   = g.quiet;
     bopts.verbose = g.verbose;
     bopts.color_for_rexc = util::color_enabled_for_stderr();
+    bopts.offline = g.offline;
 
     for (size_t i = 0; i < args.size(); ++i) {
         std::string a = args[i];
@@ -904,6 +906,14 @@ int cmd_remove(const std::vector<std::string>& args, const GlobalFlags& g) {
 int dispatch(int argc, char** argv) {
     Parsed p = parse_argv(argc, argv);
     util::set_color_mode(p.g.color);
+
+    // $REXY_OFFLINE=1 environment override (matches $REXY_HOME precedent).
+    if (!p.g.offline) {
+        if (const char* e = std::getenv("REXY_OFFLINE")) {
+            std::string v = e;
+            if (v == "1" || v == "true" || v == "TRUE") p.g.offline = true;
+        }
+    }
 
     if (p.error)        return 2;
     if (p.show_version) { std::printf("rxy %s\n", kVersion); return 0; }

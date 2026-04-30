@@ -85,8 +85,10 @@ Result run(const manifest::Manifest& m, const Options& opts) {
             diag::status("Resolving",
                 std::to_string(m.dependencies.size()) + " dependencies");
         }
+        source::ResolveOptions ropts;
+        ropts.offline = opts.offline;
         try {
-            resolution = resolver::resolve_graph(m);
+            resolution = resolver::resolve_graph(m, ropts);
         } catch (const std::exception& ex) {
             diag::print(diag::Diagnostic::error(ex.what()));
             r.exit_code = 1;

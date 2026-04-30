@@ -12,6 +12,7 @@ namespace rxy::cli {
 struct GlobalFlags {
     bool quiet   = false;
     bool verbose = false;
+    bool offline = false;                    // FR-012: no network operations
     util::ColorMode color = util::ColorMode::Auto;
     std::optional<std::filesystem::path> manifest_path;
 };

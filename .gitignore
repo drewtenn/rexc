@@ -41,6 +41,7 @@ generated/
 # Editor and tool state
 .cache/
 .claude/
+.claude-octopus/
 docs/superpowers/
 .idea/
 .vscode/

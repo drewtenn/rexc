@@ -24,11 +24,16 @@ struct Resolved {
     std::optional<std::string> checksum;            // sha256:... of source tree
 };
 
+struct ResolveOptions {
+    bool offline = false;        // FR-012: refuse any network operation
+};
+
 // Resolve a single direct DependencySpec.
 //   - Path deps: validated, normalized, manifest loaded
 //   - Git deps: clone (or update) the bare repo, checkout into ~/.rxy/src,
 //     compute checksum, validate the dep's Rexy.toml.
 Resolved resolve(const manifest::DependencySpec& dep,
-                 const std::filesystem::path& importer_package_root);
+                 const std::filesystem::path& importer_package_root,
+                 const ResolveOptions& opts = {});
 
 }  // namespace rxy::source

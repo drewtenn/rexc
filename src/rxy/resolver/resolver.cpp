@@ -21,7 +21,8 @@ std::vector<std::string> dep_names_in_order(const std::vector<manifest::Dependen
 
 }  // namespace
 
-Resolution resolve_graph(const manifest::Manifest& root) {
+Resolution resolve_graph(const manifest::Manifest& root,
+                          const source::ResolveOptions& opts) {
     Resolution out;
     std::map<std::string, source::Resolved> by_name;          // includes root
     std::set<std::string> in_progress;                         // for cycle detection
@@ -54,7 +55,7 @@ Resolution resolve_graph(const manifest::Manifest& root) {
 
         source::Resolved r;
         try {
-            r = source::resolve(p.spec, p.importer_root);
+            r = source::resolve(p.spec, p.importer_root, opts);
         } catch (const std::exception& ex) {
             std::ostringstream oss;
             oss << "failed to resolve `" << p.spec.name

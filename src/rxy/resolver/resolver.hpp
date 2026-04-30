@@ -19,6 +19,7 @@ struct Resolution {
 // Resolve the dependency graph rooted at `root`. Throws on cycles, missing
 // sources, or any underlying error. Phase B: deduplicates by name; rejects
 // any conflicting versions of the same dep (no SAT).
-Resolution resolve_graph(const manifest::Manifest& root);
+Resolution resolve_graph(const manifest::Manifest& root,
+                          const source::ResolveOptions& opts = {});
 
 }  // namespace rxy::resolver

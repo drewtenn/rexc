@@ -240,6 +240,7 @@ add_executable(rxy_tests
 	tests/rxy/registry_tests.cpp
 	tests/rxy/build_script_tests.cpp
 	tests/rxy/workspace_tests.cpp
+	tests/rxy/offline_tests.cpp
 )
 target_include_directories(rxy_tests PRIVATE tests/rxy)
 target_link_libraries(rxy_tests PRIVATE rxy_core)
@@ -279,6 +280,13 @@ add_test(
 add_test(
 	NAME rxy_smoke_e
 	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy/smoke_e.sh"
+	        "${CMAKE_CURRENT_BINARY_DIR}"
+	        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+add_test(
+	NAME rxy_smoke_f
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy/smoke_f.sh"
 	        "${CMAKE_CURRENT_BINARY_DIR}"
 	        "${CMAKE_CURRENT_SOURCE_DIR}"
 )
