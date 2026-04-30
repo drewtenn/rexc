@@ -5,11 +5,30 @@
 #include <cstdio>
 #include <iomanip>
 #include <sstream>
+#include <string>
 #include <utility>
 
 namespace rxy::diag {
 
 namespace {
+
+// Strip C0 control characters (ESC, BEL, etc.) from user-controlled strings
+// before printing to stderr. Without this, an adversarial manifest field
+// could embed terminal-control escapes ("\x1b[2J", "\x1b]0;owned\x07", etc.)
+// that rewrite the user's terminal title, clear the screen, or replay forged
+// success lines in CI logs. Whitelisted: \t (0x09) and \n (0x0a) only.
+std::string strip_ansi(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        unsigned char u = static_cast<unsigned char>(c);
+        if (u < 0x20 && u != '\t' && u != '\n') continue;
+        if (u == 0x7f) continue;          // DEL
+        out.push_back(c);
+    }
+    return out;
+}
+
 const char* sev_prefix(Severity s) {
     switch (s) {
         case Severity::Error:   return "error";
@@ -78,17 +97,17 @@ void print(const Diagnostic& d) {
     auto cap_ok = [&]() { return line_count < 8; };
 
     // header: "<sev>: <message>"
-    std::fprintf(stderr, "%s%s%s%s: %s%s\n",
+    std::string safe_message = strip_ansi(d.message);
+    std::fprintf(stderr, "%s%s%s%s: %s\n",
                  c(sev_color(d.severity)),
                  c(BOLD),
                  sev_prefix(d.severity),
                  c(RESET),
-                 d.message.c_str(),
-                 "");
+                 safe_message.c_str());
     ++line_count;
 
     if (d.file && d.line && d.col && cap_ok()) {
-        std::string display_path = d.file->string();
+        std::string display_path = strip_ansi(d.file->string());
         std::fprintf(stderr, "  %s-->%s %s:%d:%d\n",
                      c(CYAN), c(RESET),
                      display_path.c_str(), *d.line, *d.col);
@@ -100,8 +119,9 @@ void print(const Diagnostic& d) {
         std::fprintf(stderr, "   %s|%s\n", c(BLUE), c(RESET));
         ++line_count;
         if (cap_ok()) {
+            std::string safe_source = strip_ansi(*d.source_line);
             std::fprintf(stderr, "%s%4d |%s %s\n",
-                         c(BLUE), *d.line, c(RESET), d.source_line->c_str());
+                         c(BLUE), *d.line, c(RESET), safe_source.c_str());
             ++line_count;
         }
         if (cap_ok() && d.col && d.span_len) {
@@ -119,14 +139,16 @@ void print(const Diagnostic& d) {
 
     for (const auto& n : d.notes) {
         if (!cap_ok()) break;
+        std::string safe_note = strip_ansi(n);
         std::fprintf(stderr, "  %s%snote%s: %s\n",
-                     c(BLUE), c(BOLD), c(RESET), n.c_str());
+                     c(BLUE), c(BOLD), c(RESET), safe_note.c_str());
         ++line_count;
     }
 
     if (d.help && cap_ok()) {
+        std::string safe_help = strip_ansi(*d.help);
         std::fprintf(stderr, "  %s%shelp%s: %s\n",
-                     c(CYAN), c(BOLD), c(RESET), d.help->c_str());
+                     c(CYAN), c(BOLD), c(RESET), safe_help.c_str());
         ++line_count;
     }
     std::fflush(stderr);

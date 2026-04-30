@@ -3,6 +3,7 @@
 #include "manifest/manifest.hpp"
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 
@@ -26,6 +27,11 @@ struct Resolved {
 
 struct ResolveOptions {
     bool offline = false;        // FR-012: refuse any network operation
+    // For direct git deps with a `tag` (not `rev`): if `name` appears here,
+    // the resolved commit must match. A force-pushed tag silently rewrites
+    // the cached ref otherwise; this is the same drift detection that
+    // already covers registry deps via lockfile checksums (FR-013).
+    std::map<std::string, std::string> locked_commits;
 };
 
 // Resolve a single direct DependencySpec.

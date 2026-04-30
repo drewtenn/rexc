@@ -145,9 +145,20 @@ void snapshot_source_mtimes(const fs::path& root,
     static const std::set<std::string> kSkipFiles = {"Rexy.lock", ".rxy_extracted"};
     std::error_code ec;
     if (!fs::exists(root, ec)) return;
+    // Use directory_options::none — recursive_directory_iterator does NOT
+    // follow symlinks by default, so we walk the symlink itself rather than
+    // its target. Combined with the explicit is_symlink() reject below, a
+    // committed symlink in the package tree is a hard error: build scripts
+    // could otherwise write through it to escape the source tree, and
+    // sha256_dir_tree would hash the symlink's target.
     for (auto it = fs::recursive_directory_iterator(root); it != fs::recursive_directory_iterator(); ++it) {
         const fs::path& p = it->path();
         std::string name = p.filename().string();
+        if (it->is_symlink()) {
+            throw std::runtime_error("package source tree contains a symlink: " +
+                fs::relative(p, root).generic_string() +
+                " — symlinks are not allowed in package sources (FR-025 hardening)");
+        }
         if (it->is_directory()) {
             if (kSkipDirs.count(name)) it.disable_recursion_pending();
             continue;

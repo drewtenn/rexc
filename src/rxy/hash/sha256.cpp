@@ -160,6 +160,15 @@ std::string sha256_dir_tree(const std::filesystem::path& root) {
             if (it->is_directory()) it.disable_recursion_pending();
             continue;
         }
+        // Refuse to hash symlinks. A committed symlink would let a malicious
+        // package's hash include arbitrary host content; the canonical answer
+        // is to reject symlinks in package sources entirely. Same policy
+        // applied in build_script::snapshot_source_mtimes.
+        if (it->is_symlink()) {
+            throw std::runtime_error("source tree contains a symlink: " +
+                fs::relative(p, root).generic_string() +
+                " — symlinks are not allowed in hashed package sources");
+        }
         if (it->is_regular_file()) files.push_back(p);
     }
 

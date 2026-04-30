@@ -160,6 +160,25 @@ Resolved resolve_git(const manifest::DependencySpec& dep, const ResolveOptions& 
         bare,
         "rev-parse " + ref);
 
+    // Tag-drift detection for direct git deps. If the lockfile previously
+    // pinned this dep at a specific commit and the requested ref now points
+    // somewhere else, refuse. Same policy that already covers registry deps
+    // via FR-013 checksum mismatch; this closes the gap for non-registry
+    // git sources where there's no checksum in the registry index to
+    // compare against.
+    if (dep.git_tag) {
+        auto it = opts.locked_commits.find(dep.name);
+        if (it != opts.locked_commits.end() && it->second != commit) {
+            throw std::runtime_error(
+                "lockfile pinned `" + dep.name + "` at commit " + it->second +
+                ", but the upstream tag `" + *dep.git_tag +
+                "` now points to commit " + commit +
+                ".\n  This usually means the tag was force-pushed upstream.\n"
+                "  To accept the new commit, delete Rexy.lock and re-run, "
+                "or run `rxy update " + dep.name + "` (when implemented).");
+        }
+    }
+
     fs::path workdir = cache::src_path(dep.name, commit);
     if (!fs::exists(workdir / ".rxy_extracted")) {
         std::error_code ec;

@@ -87,6 +87,14 @@ Result run(const manifest::Manifest& m, const Options& opts) {
         }
         source::ResolveOptions ropts;
         ropts.offline = opts.offline;
+        // Seed the resolver with previously-locked commits so the source
+        // layer can detect direct-git-tag drift without having to consult
+        // the lockfile itself.
+        if (auto previous = lockfile::read(m.package_root / "Rexy.lock")) {
+            for (const auto& p : previous->packages) {
+                if (p.commit) ropts.locked_commits[p.name] = *p.commit;
+            }
+        }
         try {
             resolution = resolver::resolve_graph(m, ropts);
         } catch (const std::exception& ex) {
