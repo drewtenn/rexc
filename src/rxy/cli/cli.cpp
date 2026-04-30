@@ -48,16 +48,30 @@ void print_usage(FILE* out = stderr) {
         "  init [--lib | --bin]         Initialize current dir as a Rexy package\n"
         "  build [OPTIONS]              Compile all targets of the current package\n"
         "  run [--bin NAME] [-- ARGS]   Build then run a binary\n"
+        "  test [<filter>] [OPTIONS]    Compile + run [[targets.test]]\n"
+        "  add <name>[@<ver>]           Add a dependency\n"
+        "  remove <name>                Remove a dependency\n"
+        "  publish [--registry NAME]    Publish current package to a registry\n"
+        "  yank <name>@<ver> [--reason TEXT] [--severity informational|security]\n"
+        "  unyank <name>@<ver>\n"
+        "  fmt | doc | bench            Reserved (not yet implemented)\n"
         "  --version                    Print version\n"
         "  --help                       Print this help\n"
+        "\n"
+        "Global options:\n"
+        "  -q, --quiet                  Suppress status lines\n"
+        "  -v, --verbose                Show resolution chain\n"
+        "  --offline                    No network operations (FR-012)\n"
+        "  --color WHEN                 auto (default), always, never\n"
+        "  --manifest-path PATH         Operate on the manifest at PATH\n"
         "\n"
         "Build options:\n"
         "  --release                    Use [profile.release]\n"
         "  --profile NAME               Use [profile.<NAME>]\n"
-        "  -q, --quiet                  Suppress status lines\n"
-        "  -v, --verbose                Show resolution chain\n"
-        "  --color WHEN                 auto (default), always, never\n"
-        "  --manifest-path PATH         Operate on the manifest at PATH\n",
+        "  --target TRIPLE              Cross-compile for TRIPLE\n"
+        "  --locked                     Fail if Rexy.lock would change\n"
+        "  --no-build-scripts           Skip all [build] script execution\n"
+        "  --allow-all-build-scripts    Trust transitive build scripts\n",
         kVersion);
 }
 
@@ -184,8 +198,19 @@ int cmd_yank_or_unyank(const std::vector<std::string>& args, bool yank);
 int cmd_add(const std::vector<std::string>& args, const GlobalFlags& g);
 int cmd_remove(const std::vector<std::string>& args, const GlobalFlags& g);
 int cmd_test(const std::vector<std::string>& args, const GlobalFlags& g);
+int cmd_reserved(const std::string& name);
+int cmd_lockfile(const std::vector<std::string>& args, const GlobalFlags& g);
+int print_subcommand_help(const std::string& name);
+
+// Returns true when args contain --help/-h. cmd_* uses this to short-circuit
+// to print_subcommand_help() without trying to parse further.
+bool wants_help(const std::vector<std::string>& args) {
+    for (const auto& a : args) if (a == "--help" || a == "-h") return true;
+    return false;
+}
 
 int cmd_new_or_init(const std::vector<std::string>& args, bool is_init) {
+    if (wants_help(args)) return print_subcommand_help(is_init ? "init" : "new");
     bool want_lib = false;
     bool want_bin = false;
     std::string name;
@@ -291,6 +316,7 @@ int cmd_new_or_init(const std::vector<std::string>& args, bool is_init) {
 }
 
 int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (wants_help(args)) return print_subcommand_help("build");
     build::Options bopts;
     bopts.profile_name = "dev";
     bopts.quiet   = g.quiet;
@@ -364,6 +390,7 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
 }
 
 int cmd_run(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (wants_help(args)) return print_subcommand_help("run");
     std::optional<std::string> bin;
     std::vector<std::string> child_args;
     bool seen_dashdash = false;
@@ -450,6 +477,7 @@ std::string rfc3339_now_utc() {
 }  // namespace
 
 int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (wants_help(args)) return print_subcommand_help("publish");
     bool dry_run = false;
     std::string registry_name = "default";
     for (size_t i = 0; i < args.size(); ++i) {
@@ -604,6 +632,7 @@ int cmd_publish(const std::vector<std::string>& args, const GlobalFlags& g) {
 }
 
 int cmd_yank_or_unyank(const std::vector<std::string>& args, bool yank) {
+    if (wants_help(args)) return print_subcommand_help(yank ? "yank" : "unyank");
     if (args.empty()) {
         std::fprintf(stderr, "usage: rxy %s <name>@<version> [--reason TEXT] [--severity informational|security] [--registry NAME]\n",
                      yank ? "yank" : "unyank");
@@ -660,6 +689,7 @@ int cmd_yank_or_unyank(const std::vector<std::string>& args, bool yank) {
 }
 
 int cmd_add(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (wants_help(args)) return print_subcommand_help("add");
     if (args.empty()) {
         std::fprintf(stderr, "usage: rxy add <name>[@<constraint>] [--git URL [--tag T|--rev R|--branch B]] [--path P] [--registry NAME]\n");
         return 2;
@@ -733,6 +763,7 @@ int cmd_add(const std::vector<std::string>& args, const GlobalFlags& g) {
 }
 
 int cmd_test(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (wants_help(args)) return print_subcommand_help("test");
     std::optional<std::string> filter;
     bool nocapture = false;
     bool release = false;
@@ -863,7 +894,187 @@ int cmd_test(const std::vector<std::string>& args, const GlobalFlags& g) {
     return failed == 0 ? 0 : 1;
 }
 
+int cmd_reserved(const std::string& name) {
+    diag::print(diag::Diagnostic::error("`rxy " + name + "` is a reserved subcommand, not yet implemented")
+        .with_help("see docs/prd-package-manager.md FR-039 (Phase G+/P2)"));
+    return 1;
+}
+
+// Per-subcommand help. Phase G addition. Returns 0; intended to be called
+// from cmd_* when --help is in args.
+int print_subcommand_help(const std::string& name) {
+    if (name == "build") {
+        std::printf(
+            "rxy build — compile every target in the current package\n"
+            "\n"
+            "Usage: rxy build [OPTIONS]\n"
+            "\n"
+            "Options:\n"
+            "  --release                 Use [profile.release]\n"
+            "  --profile NAME            Use [profile.<NAME>]\n"
+            "  --bin NAME                Build only the named [[targets.bin]]\n"
+            "  --target TRIPLE           Cross-compile (output dir target/<triple>/<profile>/)\n"
+            "  --locked                  Fail if Rexy.lock would change\n"
+            "  --no-build-scripts        Skip [build] script execution\n"
+            "  --allow-all-build-scripts Trust transitive build scripts\n");
+    } else if (name == "test") {
+        std::printf(
+            "rxy test — compile + run [[targets.test]] entries\n"
+            "\n"
+            "Usage: rxy test [<filter>] [OPTIONS] [-- <child-args>]\n"
+            "\n"
+            "Options:\n"
+            "  --test NAME    Run only the test target named NAME\n"
+            "  --release      Use [profile.release]\n"
+            "  --target T     Cross-compile (skip-run; reports as 'skipped')\n"
+            "  --nocapture    Stream test stdio instead of capturing on failure\n");
+    } else if (name == "run") {
+        std::printf(
+            "rxy run — build then run a binary\n"
+            "\n"
+            "Usage: rxy run [--bin NAME] [-- <child-args>]\n");
+    } else if (name == "new" || name == "init") {
+        std::printf(
+            "rxy %s — %s a new Rexy package\n"
+            "\n"
+            "Usage: rxy %s %s [--lib | --bin]\n"
+            "\n"
+            "Creates Rexy.toml, src/, .gitignore, and a hello-world entry point.\n",
+            name.c_str(),
+            name == "new" ? "create" : "initialize",
+            name.c_str(),
+            name == "new" ? "<NAME>" : "[<NAME>]");
+    } else if (name == "add") {
+        std::printf(
+            "rxy add — add a dependency to Rexy.toml\n"
+            "\n"
+            "Usage: rxy add <NAME>[@<CONSTRAINT>] [OPTIONS]\n"
+            "\n"
+            "Options:\n"
+            "  --git URL [--tag T|--rev R|--branch B]   Git source\n"
+            "  --path PATH                              Local path source\n"
+            "  --registry NAME                          Use a non-default registry\n");
+    } else if (name == "remove") {
+        std::printf("rxy remove — remove a dependency from Rexy.toml\n\nUsage: rxy remove <NAME>\n");
+    } else if (name == "publish") {
+        std::printf(
+            "rxy publish — publish the current package to a registry\n"
+            "\n"
+            "Usage: rxy publish [--dry-run] [--registry NAME]\n"
+            "\n"
+            "Validates the manifest, hashes a `git archive` of HEAD, appends an\n"
+            "[[entries]] block to the registry's index file. Reserved-prefix names\n"
+            "(rexy-, rxy-, std-, core-, alloc-) are rejected.\n");
+    } else if (name == "yank" || name == "unyank") {
+        std::printf(
+            "rxy %s — %s a published version\n"
+            "\n"
+            "Usage: rxy %s <NAME>@<VERSION> [--reason TEXT] [--severity informational|security] [--registry NAME]\n",
+            name.c_str(), name == "yank" ? "yank" : "un-yank",
+            name.c_str());
+    } else if (name == "lockfile") {
+        std::printf(
+            "rxy lockfile — inspect Rexy.lock\n"
+            "\n"
+            "Usage: rxy lockfile [--json]\n"
+            "\n"
+            "Prints the on-disk lockfile in a human-readable form (default) or as\n"
+            "a single JSON object (`--json`). Useful for IDE/LSP integrations.\n");
+    } else {
+        std::printf("rxy %s — no per-subcommand help available\n", name.c_str());
+    }
+    return 0;
+}
+
+// Phase G: minimal JSON inspection of the on-disk lockfile.
+//   rxy lockfile [--json]
+// Default human-readable; --json emits a single object with packages array.
+int cmd_lockfile(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (wants_help(args)) return print_subcommand_help("lockfile");
+    bool as_json = false;
+    for (const auto& a : args) {
+        if (a == "--json") as_json = true;
+        else {
+            std::fprintf(stderr, "error: unknown lockfile option `%s`\n", a.c_str());
+            return 2;
+        }
+    }
+    fs::path mp;
+    try { mp = resolve_manifest_path(g); }
+    catch (const std::exception& ex) {
+        diag::print(diag::Diagnostic::error(ex.what())); return 1;
+    }
+    fs::path lock_path = mp.parent_path() / "Rexy.lock";
+    auto lf = lockfile::read(lock_path);
+    if (!lf) {
+        diag::print(diag::Diagnostic::error("no Rexy.lock at " + lock_path.string())
+            .with_help("run `rxy build` once to generate it"));
+        return 1;
+    }
+
+    auto json_escape = [](const std::string& s) {
+        std::string out;
+        out.reserve(s.size() + 2);
+        for (char c : s) {
+            switch (c) {
+                case '"':  out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\n': out += "\\n";  break;
+                case '\r': out += "\\r";  break;
+                case '\t': out += "\\t";  break;
+                default:
+                    if (static_cast<unsigned char>(c) < 0x20) {
+                        char buf[8];
+                        std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                        out += buf;
+                    } else {
+                        out += c;
+                    }
+            }
+        }
+        return out;
+    };
+
+    if (as_json) {
+        std::printf("{\n  \"version\": %d,\n  \"packages\": [\n", lf->schema_version);
+        for (size_t i = 0; i < lf->packages.size(); ++i) {
+            const auto& p = lf->packages[i];
+            std::printf("    {\n");
+            std::printf("      \"name\": \"%s\",\n", json_escape(p.name).c_str());
+            std::printf("      \"version\": \"%s\",\n", json_escape(p.version).c_str());
+            std::printf("      \"source\": \"%s\"", json_escape(p.source).c_str());
+            if (p.commit)   std::printf(",\n      \"commit\": \"%s\"", json_escape(*p.commit).c_str());
+            if (p.checksum) std::printf(",\n      \"checksum\": \"%s\"", json_escape(*p.checksum).c_str());
+            if (!p.dependencies.empty()) {
+                std::printf(",\n      \"dependencies\": [");
+                for (size_t j = 0; j < p.dependencies.size(); ++j) {
+                    if (j) std::printf(", ");
+                    std::printf("\"%s\"", json_escape(p.dependencies[j]).c_str());
+                }
+                std::printf("]");
+            }
+            std::printf("\n    }%s\n", (i + 1 == lf->packages.size()) ? "" : ",");
+        }
+        std::printf("  ]\n}\n");
+    } else {
+        std::printf("Rexy.lock @ %s\n", lock_path.string().c_str());
+        std::printf("schema version %d\n\n", lf->schema_version);
+        for (const auto& p : lf->packages) {
+            std::printf("  %s %s\n", p.name.c_str(), p.version.c_str());
+            std::printf("    source: %s\n", p.source.c_str());
+            if (p.commit)   std::printf("    commit: %s\n", p.commit->c_str());
+            if (p.checksum) std::printf("    checksum: %s\n", p.checksum->c_str());
+            if (!p.dependencies.empty()) {
+                std::printf("    dependencies:\n");
+                for (const auto& d : p.dependencies) std::printf("      - %s\n", d.c_str());
+            }
+        }
+    }
+    return 0;
+}
+
 int cmd_remove(const std::vector<std::string>& args, const GlobalFlags& g) {
+    if (wants_help(args)) return print_subcommand_help("remove");
     if (args.size() != 1) {
         std::fprintf(stderr, "usage: rxy remove <name>\n");
         return 2;
@@ -930,6 +1141,10 @@ int dispatch(int argc, char** argv) {
         if (p.subcommand == "add")     return cmd_add(p.sub_args, p.g);
         if (p.subcommand == "remove")  return cmd_remove(p.sub_args, p.g);
         if (p.subcommand == "test")    return cmd_test(p.sub_args, p.g);
+        if (p.subcommand == "fmt")     return cmd_reserved("fmt");
+        if (p.subcommand == "doc")     return cmd_reserved("doc");
+        if (p.subcommand == "bench")   return cmd_reserved("bench");
+        if (p.subcommand == "lockfile") return cmd_lockfile(p.sub_args, p.g);
     } catch (const std::exception& ex) {
         diag::print(diag::Diagnostic::error(std::string("internal error: ") + ex.what()));
         return 101;

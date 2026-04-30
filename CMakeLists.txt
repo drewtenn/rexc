@@ -290,3 +290,10 @@ add_test(
 	        "${CMAKE_CURRENT_BINARY_DIR}"
 	        "${CMAKE_CURRENT_SOURCE_DIR}"
 )
+
+add_test(
+	NAME rxy_smoke_g
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy/smoke_g.sh"
+	        "${CMAKE_CURRENT_BINARY_DIR}"
+	        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
