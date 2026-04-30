@@ -447,7 +447,7 @@ Full audit transcript: `~/.claude-octopus/results/` (delivery reports + `tangle-
 
 ### Status legend
 
-- ✅ **Fixed** in commits `9936f8f` (first hardening pass) or `eab04c7` (deferred-HIGH pass)
+- ✅ **Fixed** in commits `9936f8f` (first hardening pass), `eab04c7` (deferred-HIGH pass), or the deferred-MEDIUM clearance pass that follows this appendix
 - 🟡 **Deferred** — tracked, with estimated cost
 - ⊘ **Skipped** — false alarm or out of scope, with reason
 
@@ -460,28 +460,28 @@ Full audit transcript: `~/.claude-octopus/results/` (delivery reports + `tangle-
 | 3 | HIGH | mtime spoofing via utime() | ✅ Fixed | `build_script.cpp` | Same fingerprint mechanism — sha256 is the load-bearing element |
 | 4 | HIGH | tar extraction allows symlink/abs-path escape | ✅ Fixed | `cli.cpp` (cmd_publish) | `--no-same-owner --no-same-permissions`; macOS bsdtar already rejects `..` |
 | 5 | HIGH | Registry TOML re-serialization injection | ✅ Fixed | `registry.cpp` | `toml_escape()` + unified `serialize_package()` |
-| 6 | MEDIUM | Signal handler races on global atomic | 🟡 Deferred (~4h) | `process.cpp` | Latent — single-threaded today; blocking for Phase E parallel builds |
-| 7 | MEDIUM | `chdir` race in `process::run` | 🟡 Deferred (~4h, with #6) | `process.cpp` | Same fix: `posix_spawn_file_actions_addchdir_np` |
+| 6 | MEDIUM | Signal handler races on global atomic | ✅ Fixed | `process.cpp` | Lock-free 32-slot active-children table + once-installed forwarder; async-signal-safe via `std::atomic<pid_t>::is_always_lock_free` |
+| 7 | MEDIUM | `chdir` race in `process::run` | ✅ Fixed | `process.cpp` | `posix_spawn_file_actions_addchdir_np` when available (macOS 10.15+, glibc 2.29+); mutex-serialized parent-`chdir` fallback otherwise |
 | 8 | MEDIUM | Force-pushed git tag silently rewrites cache | ✅ Fixed | `source.cpp` (resolve_git) | `ResolveOptions::locked_commits` populated from prior `Rexy.lock` |
 | 9 | MEDIUM | `cmd_publish` uses `rand()` for tempdir | ✅ Fixed | `cli.cpp` | `mkdtemp(3)` |
-| 10 | MEDIUM | Concurrent rxy instances race on cache | 🟡 Deferred (~2h) | `source.cpp`, `cache.cpp` | Needs `flock(2)` per cache entry — blocking for CI matrices |
+| 10 | MEDIUM | Concurrent rxy instances race on cache | ✅ Fixed | `source.cpp`, `cache.cpp` | `cache::FileLock` (flock LOCK_EX, RAII) per bare-URL and per `(name,commit)` worktree; cross-process verified by `tests/rxy/cache_tests.cpp` |
 | 11 | MEDIUM | `/usr/bin/env git` PATH-ordering trap | ✅ Fixed | `registry.cpp`, `cli.cpp` | `util::find_on_path("git", "GIT")` everywhere |
 | 12 | MEDIUM | ANSI escape injection in diagnostics | ✅ Fixed | `diag.cpp` | `strip_ansi()` applied to every user-controlled string before `fprintf` |
 | 13 | LOW | tmp.tar inside hashed workdir | ⊘ Skipped | `source.cpp` | False alarm — `.tmp.tar` is removed before `sha256_dir_tree` runs |
 | 14 | LOW | SHA-256 bitlen overflow at 2^61 bytes | ⊘ Skipped | `hash/sha256.cpp` | Unreachable; filesystem upper bound is way below 2^61 |
 | 15 | LOW | `cmd_remove` deleted lines from any TOML section | ✅ Fixed | `cli.cpp` | Section-aware scanner; only edits `[dependencies]` / `[dev-dependencies]` |
 
-**Tally:** 9 fixed, 3 deferred (with cost), 2 skipped (one false alarm + one unreachable), 1 out-of-scope (audit #10's "submitter bot" lives in registry-governance ops, not in rxy code).
+**Tally:** 12 fixed, 0 deferred, 2 skipped (one false alarm + one unreachable), 1 out-of-scope (audit #10's "submitter bot" lives in registry-governance ops, not in rxy code).
 
-### Deferred work — cost & recommendation
+### Deferred work — cleared
 
-| Item | Cost | Blocking for | Recommendation |
-|---|---|---|---|
-| **#6/#7 Signal & chdir refactor** in `process.cpp` | ~4h | Phase E parallel jobs | Land before any concurrent build dispatch ships. Use `posix_spawn_file_actions_addchdir_np` (macOS 10.15+, glibc 2.29+). |
-| **#10 `flock` on `~/.rxy` cache** | ~2h | CI matrix usage | Land before promoting rxy as a CI-friendly tool. Per-bucket lockfile (`<bare>.lock`, `<workdir>.lock`). |
-| **Workspace-root build dispatch** (`rxy build` from root with no `[package]`) | ~2h | Cargo-parity UX | Phase E+1. Walk every member sequentially; stop on first failure unless `--keep-going`. |
+The original three deferred items (#6/#7 signal+chdir, #10 cache flock, workspace-root build dispatch) all shipped in the post-Appendix-D clearance pass. Concrete shape of each:
 
-Total: **~8 hours** to clear the deferred backlog.
+| Item | Resolution | Test coverage |
+|---|---|---|
+| **#6/#7 Signal & chdir refactor** | `process.cpp` now keeps a lock-free 32-slot table of active child PIDs (`std::atomic<pid_t>`, lock-free static-asserted) and forwards SIGINT/SIGTERM to all live children. Signal handlers are installed exactly once; when no children are live, the handler restores `SIG_DFL` and re-raises so the parent exits as the user expects. `cwd` change runs in the child via `posix_spawn_file_actions_addchdir_np` when CMake detects it; on older systems a process-wide mutex serializes the parent-`chdir`/spawn/restore window. | `tests/rxy/process_tests.cpp` (cwd round-trip; 64 sequential spawns; failed-spawn slot release) |
+| **#10 `flock` on `~/.rxy` cache** | `cache::FileLock` RAII wrapper around `flock(2) LOCK_EX` (with EINTR loop). `cache::lock_bare_for_url(url)` and `cache::lock_src(name, commit)` produce per-bucket lockfiles (`<bare-sha256>.lock`, `<commit>.lock`). `source::resolve_git` holds the bare lock across clone/fetch/rev-parse and the src lock across the `.rxy_extracted` check + tar extraction so concurrent rxy processes resolving the same URL/commit serialize correctly. | `tests/rxy/cache_tests.cpp` (release-on-destruction; cross-process fork blocking test that proves the lock is observed across PIDs) |
+| **Workspace-root build dispatch** | `cmd_build` detects a workspace-only manifest (`m.package.name.empty()` + `[workspace]` table), enumerates members via `workspace::load`, and walks them in sorted order. Default behavior is fail-fast; `--keep-going` builds every member and reports `N ok, M failed` while still exiting non-zero on any failure. `--bin` is rejected at a workspace root (no defensible cross-member meaning). | `tests/rxy/smoke_h.sh` (fail-fast, `--keep-going`, `--bin` rejection, all-green path) |
 
 ### Audit failure mode worth recording
 

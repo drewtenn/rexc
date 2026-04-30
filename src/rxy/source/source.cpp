@@ -126,6 +126,12 @@ Resolved resolve_git(const manifest::DependencySpec& dep, const ResolveOptions& 
     fs::path git_exe = find_git();
     fs::path bare    = cache::git_db_path_for_url(*dep.git_url);
 
+    // Concurrent rxy processes resolving the same git URL would otherwise race
+    // on `git clone`/`git fetch` against the shared bare repo. Hold the
+    // per-URL bare-lock across the network operations and the existence check;
+    // released once the bare clone is up-to-date for this resolve call.
+    cache::FileLock bare_lock = cache::lock_bare_for_url(*dep.git_url);
+
     if (!fs::is_directory(bare / "objects")) {
         // First time we see this URL — clone bare.
         if (opts.offline) {
@@ -180,6 +186,11 @@ Resolved resolve_git(const manifest::DependencySpec& dep, const ResolveOptions& 
     }
 
     fs::path workdir = cache::src_path(dep.name, commit);
+    // Per-(name,commit) lock so two rxy processes can't race on extracting the
+    // same commit into the same worktree. Acquired even on the fast path
+    // (workdir already extracted) so that the .rxy_extracted check happens
+    // under the lock and observes the result of any in-flight peer.
+    cache::FileLock src_lock = cache::lock_src(dep.name, commit);
     if (!fs::exists(workdir / ".rxy_extracted")) {
         std::error_code ec;
         fs::remove_all(workdir, ec);

@@ -73,7 +73,8 @@ void print_usage(FILE* out = stderr) {
         "  --target TRIPLE              Cross-compile for TRIPLE\n"
         "  --locked                     Fail if Rexy.lock would change\n"
         "  --no-build-scripts           Skip all [build] script execution\n"
-        "  --allow-all-build-scripts    Trust transitive build scripts\n",
+        "  --allow-all-build-scripts    Trust transitive build scripts\n"
+        "  --keep-going                 Workspace root: keep building members on failure\n",
         kVersion);
 }
 
@@ -325,6 +326,7 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
     bopts.verbose = g.verbose;
     bopts.color_for_rexc = util::color_enabled_for_stderr();
     bopts.offline = g.offline;
+    bool keep_going = false;
 
     for (size_t i = 0; i < args.size(); ++i) {
         std::string a = args[i];
@@ -353,6 +355,7 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
         else if (flag == "--locked")  bopts.locked = true;
         else if (flag == "--no-build-scripts")      bopts.no_build_scripts = true;
         else if (flag == "--allow-all-build-scripts") bopts.allow_all_build_scripts = true;
+        else if (flag == "--keep-going")            keep_going = true;
         else if (flag == "--profile") {
             auto v = take("--profile"); if (!v) return 2;
             bopts.profile_name = *v;
@@ -386,6 +389,62 @@ int cmd_build(const std::vector<std::string>& args, const GlobalFlags& g) {
         return 1;
     }
     auto m = std::get<manifest::Manifest>(loaded);
+
+    // Workspace-root dispatch: if the manifest is workspace-only (no [package],
+    // only [workspace]), walk every member and build each in turn. The default
+    // is fail-fast on the first member error; --keep-going builds all members
+    // and reports a non-zero exit if any failed. --bin is rejected here because
+    // it has no obvious meaning across multiple member packages.
+    if (m.package.name.empty()) {
+        if (bopts.bin) {
+            diag::print(diag::Diagnostic::error(
+                "--bin is not allowed at a workspace root; cd into a member or use `--manifest-path`"));
+            return 1;
+        }
+        workspace::Workspace ws;
+        try {
+            ws = workspace::load(m.manifest_path);
+        } catch (const std::exception& ex) {
+            diag::print(diag::Diagnostic::error(ex.what()));
+            return 1;
+        }
+        if (ws.members.empty()) {
+            diag::print(diag::Diagnostic::warning(
+                "workspace `" + m.manifest_path.string() +
+                "` has no members; nothing to build"));
+            return 0;
+        }
+        int first_failure = 0;
+        int built = 0, failed = 0;
+        for (const auto& member_dir : ws.members) {
+            fs::path mm = member_dir / "Rexy.toml";
+            if (!g.quiet) diag::status("Building", "member `" + member_dir.filename().string() + "`");
+            auto member_loaded = load_with_workspace(mm);
+            if (auto* errs = std::get_if<std::vector<diag::Diagnostic>>(&member_loaded)) {
+                for (const auto& d : *errs) diag::print(d);
+                ++failed;
+                if (!first_failure) first_failure = 1;
+                if (!keep_going) return 1;
+                continue;
+            }
+            auto mm_manifest = std::get<manifest::Manifest>(member_loaded);
+            auto rr = build::run(mm_manifest, bopts);
+            if (rr.exit_code != 0) {
+                ++failed;
+                if (!first_failure) first_failure = rr.exit_code;
+                if (!keep_going) return rr.exit_code;
+            } else {
+                ++built;
+            }
+        }
+        if (!g.quiet && (failed > 0 || keep_going)) {
+            std::ostringstream oss;
+            oss << "workspace build: " << built << " ok, " << failed << " failed";
+            if (failed == 0) diag::status("Finished", oss.str());
+            else             diag::status("FAILED",   oss.str());
+        }
+        return failed == 0 ? 0 : first_failure;
+    }
 
     auto r = build::run(m, bopts);
     return r.exit_code;
@@ -938,7 +997,9 @@ int print_subcommand_help(const std::string& name) {
             "  --target TRIPLE           Cross-compile (output dir target/<triple>/<profile>/)\n"
             "  --locked                  Fail if Rexy.lock would change\n"
             "  --no-build-scripts        Skip [build] script execution\n"
-            "  --allow-all-build-scripts Trust transitive build scripts\n");
+            "  --allow-all-build-scripts Trust transitive build scripts\n"
+            "  --keep-going              Workspace dispatch: build every member, do not\n"
+            "                            stop on the first failure\n");
     } else if (name == "test") {
         std::printf(
             "rxy test — compile + run [[targets.test]] entries\n"

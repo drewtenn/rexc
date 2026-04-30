@@ -226,6 +226,16 @@ target_include_directories(rxy_core PUBLIC src/rxy)
 target_link_libraries(rxy_core PUBLIC tomlplusplus::tomlplusplus)
 target_compile_definitions(rxy_core PUBLIC RXY_VERSION="0.1.0")
 
+# posix_spawn_file_actions_addchdir_np: macOS 10.15+ and glibc 2.29+ (April 2019).
+# When present, lets posix_spawn perform the cwd change in the child rather than
+# requiring the parent to chdir() before spawn (which races with concurrent calls).
+include(CheckSymbolExists)
+check_symbol_exists(posix_spawn_file_actions_addchdir_np "spawn.h"
+	HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP)
+if(HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP)
+	target_compile_definitions(rxy_core PRIVATE RXY_HAVE_POSIX_SPAWN_ADDCHDIR_NP=1)
+endif()
+
 add_executable(rxy src/rxy/main.cpp)
 target_link_libraries(rxy PRIVATE rxy_core)
 
@@ -241,6 +251,8 @@ add_executable(rxy_tests
 	tests/rxy/build_script_tests.cpp
 	tests/rxy/workspace_tests.cpp
 	tests/rxy/offline_tests.cpp
+	tests/rxy/cache_tests.cpp
+	tests/rxy/process_tests.cpp
 )
 target_include_directories(rxy_tests PRIVATE tests/rxy)
 target_link_libraries(rxy_tests PRIVATE rxy_core)
@@ -294,6 +306,13 @@ add_test(
 add_test(
 	NAME rxy_smoke_g
 	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy/smoke_g.sh"
+	        "${CMAKE_CURRENT_BINARY_DIR}"
+	        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+add_test(
+	NAME rxy_smoke_h
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rxy/smoke_h.sh"
 	        "${CMAKE_CURRENT_BINARY_DIR}"
 	        "${CMAKE_CURRENT_SOURCE_DIR}"
 )
